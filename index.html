@@ -3,63 +3,77 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Reactivation Desk — распределение игроков</title>
+<title>Reactivation Desk</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root{
-    --ink:#1B2430;
-    --ink-2:#28323F;
-    --paper:#F6F5F1;
-    --card:#FFFFFF;
-    --line:#DDD9CE;
-    --text:#1B2430;
-    --text-dim:#5B6472;
-    --teal:#2F8F82;
-    --teal-soft:#E4F1EE;
-    --amber:#D98E3B;
-    --amber-soft:#FBEEDC;
-    --rust:#C15B4A;
-    --rust-soft:#F8E7E3;
-    --slate-soft:#EAEBE6;
-    --blue:#3E6FA6;
-    --blue-soft:#E5EEF6;
+    --ink:#1B2430; --ink-2:#28323F; --paper:#F6F5F1; --card:#FFFFFF; --line:#DDD9CE;
+    --text:#1B2430; --text-dim:#5B6472;
+    --teal:#2F8F82; --teal-soft:#E4F1EE;
+    --amber:#D98E3B; --amber-soft:#FBEEDC;
+    --rust:#C15B4A; --rust-soft:#F8E7E3;
+    --slate-soft:#EAEBE6; --blue:#3E6FA6; --blue-soft:#E5EEF6;
     --radius:10px;
-    --font-display:'Space Grotesk',sans-serif;
-    --font-body:'Inter',sans-serif;
-    --font-mono:'IBM Plex Mono',monospace;
+    --font-display:'Space Grotesk',sans-serif; --font-body:'Inter',sans-serif; --font-mono:'IBM Plex Mono',monospace;
   }
   *{box-sizing:border-box;}
   body{margin:0;font-family:var(--font-body);background:var(--paper);color:var(--text);}
   ::selection{background:var(--teal);color:#fff;}
+  button, select, input{font-family:inherit;}
 
+  /* ---------- Auth screens ---------- */
+  #authScreen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;
+    background:radial-gradient(circle at 20% 20%, #232E3B 0%, var(--ink) 55%);}
+  .auth-card{background:var(--card);border-radius:14px;padding:30px 30px 26px;width:100%;max-width:390px;box-shadow:0 20px 60px rgba(0,0,0,.35);}
+  .auth-brand{font-family:var(--font-display);font-weight:700;font-size:19px;color:var(--ink);margin-bottom:2px;}
+  .auth-brand small{display:block;font-family:var(--font-mono);font-weight:400;font-size:10px;color:var(--text-dim);letter-spacing:.5px;margin-top:3px;}
+  .auth-tabs{display:flex;gap:4px;background:var(--slate-soft);border-radius:8px;padding:3px;margin:18px 0 18px;}
+  .auth-tabs button{all:unset;flex:1;text-align:center;padding:7px 0;border-radius:6px;font-size:12.5px;font-weight:600;cursor:pointer;color:var(--text-dim);}
+  .auth-tabs button.active{background:#fff;color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.08);}
+  .auth-field{margin-bottom:12px;}
+  .auth-field label{display:block;font-size:11.5px;color:var(--text-dim);margin-bottom:5px;font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.3px;}
+  .auth-field input{width:100%;border:1px solid var(--line);border-radius:8px;padding:10px 11px;font-size:13.5px;background:#FBFAF7;color:var(--text);}
+  .auth-field .hint{font-size:11.5px;color:var(--text-dim);margin-top:5px;}
+  .auth-error{background:var(--rust-soft);color:var(--rust);font-size:12.5px;padding:9px 11px;border-radius:7px;margin-bottom:12px;display:none;}
+  .auth-error.show{display:block;}
+  .auth-hint{background:var(--teal-soft);color:#1F6459;font-size:12.5px;padding:9px 11px;border-radius:7px;margin-bottom:12px;display:none;}
+  .auth-hint.show{display:block;}
+  .auth-submit{all:unset;display:block;text-align:center;width:100%;background:var(--ink);color:#fff;font-weight:600;padding:10px 0;border-radius:8px;cursor:pointer;font-size:13.5px;margin-top:4px;}
+  .auth-submit:hover{background:var(--ink-2);}
+  .auth-forgot{text-align:right;margin:-4px 0 14px;}
+  .auth-forgot a{font-size:12px;color:var(--text-dim);text-decoration:none;cursor:pointer;}
+  .auth-forgot a:hover{color:var(--teal);text-decoration:underline;}
+  .auth-back{font-size:12px;color:var(--text-dim);text-decoration:none;cursor:pointer;display:inline-block;margin-bottom:14px;}
+  .auth-back:hover{color:var(--teal);}
+  .auth-lang{display:flex;justify-content:center;gap:6px;margin-top:20px;}
+  .auth-lang button{all:unset;padding:5px 10px;border-radius:20px;font-size:11.5px;cursor:pointer;color:#8B95A5;border:1px solid transparent;}
+  .auth-lang button.active{background:var(--slate-soft);color:var(--text);}
+
+  /* ---------- App shell ---------- */
+  #appShell{display:none;}
   .app{display:flex;min-height:100vh;}
-
-  /* Sidebar */
-  .sidebar{
-    width:220px;flex-shrink:0;background:var(--ink);color:#EDEFF2;
-    display:flex;flex-direction:column;padding:20px 14px;
-  }
+  .sidebar{width:220px;flex-shrink:0;background:var(--ink);color:#EDEFF2;display:flex;flex-direction:column;padding:20px 14px;}
   .brand{font-family:var(--font-display);font-weight:700;font-size:16px;letter-spacing:.2px;padding:6px 8px 4px;}
   .brand small{display:block;font-family:var(--font-mono);font-weight:400;font-size:10px;color:#8B95A5;letter-spacing:.5px;margin-top:2px;}
   nav{margin-top:22px;display:flex;flex-direction:column;gap:2px;}
-  nav button{
-    all:unset;cursor:pointer;padding:9px 10px;border-radius:8px;font-size:13.5px;
-    color:#C4CAD4;display:flex;align-items:center;gap:9px;transition:.15s;
-  }
+  nav button{all:unset;cursor:pointer;padding:9px 10px;border-radius:8px;font-size:13.5px;color:#C4CAD4;display:flex;align-items:center;gap:9px;transition:.15s;}
   nav button .dot{width:6px;height:6px;border-radius:50%;background:#4B5566;flex-shrink:0;}
   nav button:hover{background:#242E3B;color:#fff;}
   nav button.active{background:#2A3542;color:#fff;}
   nav button.active .dot{background:var(--teal);}
   .sidebar-foot{margin-top:auto;padding-top:14px;border-top:1px solid #2B3543;}
-  .role-box{padding:8px;}
-  .role-box label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:#7D8796;margin-bottom:6px;font-family:var(--font-mono);}
-  select#roleSelect{
-    width:100%;background:#242E3B;border:1px solid #37414F;color:#fff;border-radius:7px;
-    padding:7px 8px;font-size:13px;font-family:var(--font-body);
-  }
+  .who-box{padding:8px;margin-bottom:8px;}
+  .who-name{font-size:13px;font-weight:600;color:#fff;}
+  .who-role{font-family:var(--font-mono);font-size:10px;color:#8B95A5;text-transform:uppercase;letter-spacing:.4px;margin-top:2px;}
+  .who-change-pw{background:none;border:none;color:#6E7A8C;font-size:11px;cursor:pointer;padding:4px 0 0;text-decoration:underline;}
+  .who-change-pw:hover{color:#fff;}
+  .lang-box{padding:8px 8px 4px;display:flex;gap:5px;}
+  .lang-box button{all:unset;flex:1;text-align:center;padding:6px 0;border-radius:6px;font-size:11px;cursor:pointer;color:#8B95A5;background:#242E3B;}
+  .lang-box button.active{background:var(--teal);color:#fff;}
+  .logout-btn{all:unset;display:block;width:100%;text-align:center;padding:8px 0;margin-top:8px;border-radius:7px;font-size:12.5px;color:#C4CAD4;background:#242E3B;cursor:pointer;}
+  .logout-btn:hover{background:#37414F;color:#fff;}
 
-  /* Main */
   .main{flex:1;min-width:0;padding:26px 34px 60px;}
   .topbar{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:22px;gap:20px;flex-wrap:wrap;}
   .topbar h1{font-family:var(--font-display);font-size:22px;margin:0 0 4px;font-weight:600;}
@@ -68,124 +82,191 @@
   .view.active{display:block;animation:fade .25s ease;}
   @keyframes fade{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
 
-  /* Cards / stats */
   .stat-row{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px;}
   .stat-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;}
   .stat-card .num{font-family:var(--font-display);font-size:26px;font-weight:700;line-height:1;}
   .stat-card .label{font-size:11.5px;color:var(--text-dim);margin-top:6px;text-transform:uppercase;letter-spacing:.4px;}
 
-  /* Pipeline / signature element */
   .pipeline{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px 16px;margin-bottom:22px;}
   .pipeline-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px;}
   .pipeline-head h3{font-family:var(--font-display);font-size:14px;margin:0;font-weight:600;}
   .pipeline-head span{font-size:11.5px;color:var(--text-dim);font-family:var(--font-mono);}
   .pipe-track{display:flex;height:26px;border-radius:6px;overflow:hidden;border:1px solid var(--line);}
-  .pipe-seg{transition:flex-basis .4s ease;position:relative;}
+  .pipe-seg{transition:flex-basis .4s ease;}
   .pipe-legend{display:flex;gap:16px;margin-top:10px;flex-wrap:wrap;}
   .pipe-legend .item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim);}
   .pipe-legend .sw{width:9px;height:9px;border-radius:2px;}
 
-  /* Generic card */
   .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;margin-bottom:18px;}
   .card h3{font-family:var(--font-display);font-size:14.5px;margin:0 0 4px;font-weight:600;}
   .card .sub{color:var(--text-dim);font-size:12.5px;margin:0 0 14px;}
 
-  textarea{
-    width:100%;min-height:150px;border:1px solid var(--line);border-radius:8px;padding:12px;
-    font-family:var(--font-mono);font-size:12.5px;resize:vertical;background:#FBFAF7;color:var(--text);
-  }
-  input[type=text],input[type=tel],input[type=email],select.field{
-    border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-size:13px;font-family:var(--font-body);
-    background:#FBFAF7;color:var(--text);
+  textarea{width:100%;min-height:150px;border:1px solid var(--line);border-radius:8px;padding:12px;font-family:var(--font-mono);font-size:12.5px;resize:vertical;background:#FBFAF7;color:var(--text);}
+  input[type=text],input[type=tel],input[type=email],input[type=password],select.field{
+    border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-size:13px;background:#FBFAF7;color:var(--text);
   }
   .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
-  .btn{
-    all:unset;cursor:pointer;font-family:var(--font-body);font-weight:600;font-size:13px;
-    padding:8px 14px;border-radius:7px;transition:.15s;
-  }
-  .btn-primary{background:var(--ink);color:#fff;}
-  .btn-primary:hover{background:var(--ink-2);}
-  .btn-teal{background:var(--teal);color:#fff;}
-  .btn-teal:hover{background:#267A6F;}
-  .btn-ghost{background:var(--slate-soft);color:var(--text);}
-  .btn-ghost:hover{background:#DFE1DA;}
-  .btn-danger{background:var(--rust-soft);color:var(--rust);}
-  .btn-danger:hover{background:#F2D6CF;}
+  .btn{all:unset;cursor:pointer;font-weight:600;font-size:13px;padding:8px 14px;border-radius:7px;transition:.15s;}
+  .btn-primary{background:var(--ink);color:#fff;} .btn-primary:hover{background:var(--ink-2);}
+  .btn-teal{background:var(--teal);color:#fff;} .btn-teal:hover{background:#267A6F;}
+  .btn-ghost{background:var(--slate-soft);color:var(--text);} .btn-ghost:hover{background:#DFE1DA;}
+  .btn-danger{background:var(--rust-soft);color:var(--rust);} .btn-danger:hover{background:#F2D6CF;}
+  .btn-blue{background:var(--blue-soft);color:var(--blue);} .btn-blue:hover{background:#D6E3F0;}
   .btn-sm{padding:5px 10px;font-size:12px;}
   .btn:disabled{opacity:.4;cursor:not-allowed;}
 
   table{width:100%;border-collapse:collapse;font-size:13px;}
-  thead th{
-    text-align:left;font-family:var(--font-mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;
-    color:var(--text-dim);border-bottom:1px solid var(--line);padding:8px 10px;font-weight:500;
-  }
+  thead th{text-align:left;font-family:var(--font-mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-dim);border-bottom:1px solid var(--line);padding:8px 10px;font-weight:500;}
   tbody td{padding:10px;border-bottom:1px solid #EFEDE6;vertical-align:middle;}
   tbody tr:hover{background:#FBFAF6;}
   .mono{font-family:var(--font-mono);font-size:12.5px;}
-  .badge{
-    display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;
-    font-size:11.5px;font-weight:600;white-space:nowrap;
-  }
+  .locked{color:var(--text-dim);}
+  .lock-ico{opacity:.6;margin-right:3px;}
+  .badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:11.5px;font-weight:600;white-space:nowrap;}
   .badge .dot{width:6px;height:6px;border-radius:50%;}
-  .b-new{background:var(--slate-soft);color:#5B6472;}
-  .b-new .dot{background:#8B95A5;}
-  .b-assigned{background:var(--blue-soft);color:var(--blue);}
-  .b-assigned .dot{background:var(--blue);}
-  .b-in_work{background:var(--amber-soft);color:#96631E;}
-  .b-in_work .dot{background:var(--amber);}
-  .b-success{background:var(--teal-soft);color:#1F6459;}
-  .b-success .dot{background:var(--teal);}
-  .b-no_answer{background:#EFEBDD;color:#8A7638;}
-  .b-no_answer .dot{background:#C9A63C;}
-  .b-failed{background:var(--rust-soft);color:var(--rust);}
-  .b-failed .dot{background:var(--rust);}
+  .b-new{background:var(--slate-soft);color:#5B6472;} .b-new .dot{background:#8B95A5;}
+  .b-assigned{background:var(--blue-soft);color:var(--blue);} .b-assigned .dot{background:var(--blue);}
+  .b-in_work{background:var(--amber-soft);color:#96631E;} .b-in_work .dot{background:var(--amber);}
+  .b-success{background:var(--teal-soft);color:#1F6459;} .b-success .dot{background:var(--teal);}
+  .b-no_answer{background:#EFEBDD;color:#8A7638;} .b-no_answer .dot{background:#C9A63C;}
+  .b-failed{background:var(--rust-soft);color:var(--rust);} .b-failed .dot{background:var(--rust);}
+  .b-admin{background:#EAE1F5;color:#6A3FA0;} .b-admin .dot{background:#6A3FA0;}
+  .b-agent{background:var(--teal-soft);color:#1F6459;} .b-agent .dot{background:var(--teal);}
 
   .filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:center;}
   .empty{padding:40px 10px;text-align:center;color:var(--text-dim);font-size:13.5px;}
   .empty b{display:block;color:var(--text);font-family:var(--font-display);font-size:15px;margin-bottom:4px;}
 
-  .agent-list{display:flex;flex-direction:column;gap:8px;}
-  .agent-row{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:#FBFAF7;}
-  .agent-row .name{font-weight:600;font-size:13.5px;}
-  .agent-row .cnt{font-family:var(--font-mono);font-size:11.5px;color:var(--text-dim);}
+  .user-row{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:#FBFAF7;gap:10px;flex-wrap:wrap;margin-bottom:8px;}
+  .user-row .who{display:flex;flex-direction:column;gap:3px;}
+  .user-row .name{font-weight:600;font-size:13.5px;}
+  .user-row .uname{font-family:var(--font-mono);font-size:11px;color:var(--text-dim);}
+  .user-row .actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
 
-  .toast{
-    position:fixed;bottom:20px;right:24px;background:var(--ink);color:#fff;padding:11px 16px;
-    border-radius:8px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.2);opacity:0;transform:translateY(8px);
-    transition:.25s;pointer-events:none;z-index:50;
-  }
+  .reveal-box{background:var(--teal-soft);border:1px solid #BFE0D8;border-radius:8px;padding:12px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
+  .reveal-box .txt{font-size:12.5px;color:#1F6459;}
+  .reveal-box .pw{font-family:var(--font-mono);font-weight:700;font-size:14px;background:#fff;padding:3px 9px;border-radius:6px;margin:0 4px;}
+
+  .toast{position:fixed;bottom:20px;right:24px;background:var(--ink);color:#fff;padding:11px 16px;border-radius:8px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.2);opacity:0;transform:translateY(8px);transition:.25s;pointer-events:none;z-index:50;}
   .toast.show{opacity:1;transform:none;}
 
   .checks{display:flex;flex-wrap:wrap;gap:8px;}
-  .chk{
-    display:flex;align-items:center;gap:6px;border:1px solid var(--line);padding:6px 10px;border-radius:20px;
-    font-size:12.5px;cursor:pointer;background:#FBFAF7;
-  }
+  .chk{display:flex;align-items:center;gap:6px;border:1px solid var(--line);padding:6px 10px;border-radius:20px;font-size:12.5px;cursor:pointer;background:#FBFAF7;}
   .chk input{accent-color:var(--teal);}
+
+  .modal-overlay{position:fixed;inset:0;background:rgba(27,36,48,.5);display:none;align-items:center;justify-content:center;z-index:60;padding:20px;}
+  .modal-overlay.show{display:flex;}
+  .modal-card{background:#fff;border-radius:12px;padding:24px;width:100%;max-width:340px;}
+  .modal-card h3{font-family:var(--font-display);margin:0 0 14px;font-size:15px;}
+
   @media (max-width:900px){
     .stat-row{grid-template-columns:repeat(2,1fr);}
     .sidebar{width:78px;}
-    .brand small, nav button span.txt{display:none;}
+    .brand small, nav button span.txt, .who-box, .lang-box button span.txt{display:none;}
     .main{padding:20px;}
   }
 </style>
 </head>
 <body>
+
+<!-- ============ AUTH SCREEN ============ -->
+<div id="authScreen">
+  <div class="auth-card">
+    <div class="auth-brand">Reactivation Desk<small>ECUADOR OPS</small></div>
+
+    <div class="auth-tabs" id="authTabs">
+      <button id="tabLogin" class="active" data-i18n="auth_tab_login">Войти</button>
+      <button id="tabRegister" data-i18n="auth_tab_register">Регистрация</button>
+    </div>
+
+    <div class="auth-error" id="authError"></div>
+    <div class="auth-hint" id="authHint"></div>
+
+    <form id="loginForm">
+      <div class="auth-field">
+        <label data-i18n="auth_username">Логин</label>
+        <input type="text" id="loginUsername" autocomplete="username">
+      </div>
+      <div class="auth-field">
+        <label data-i18n="auth_password">Пароль</label>
+        <input type="password" id="loginPassword" autocomplete="current-password">
+      </div>
+      <div class="auth-forgot"><a id="forgotLink" data-i18n="auth_forgot_link">Забыли пароль?</a></div>
+      <button type="submit" class="auth-submit" data-i18n="auth_login_btn">Войти</button>
+    </form>
+
+    <form id="registerForm" style="display:none;">
+      <div class="auth-field">
+        <label data-i18n="auth_name">Имя</label>
+        <input type="text" id="regName" autocomplete="name">
+      </div>
+      <div class="auth-field">
+        <label data-i18n="auth_username">Логин</label>
+        <input type="text" id="regUsername" autocomplete="username">
+      </div>
+      <div class="auth-field">
+        <label data-i18n="auth_password">Пароль</label>
+        <input type="password" id="regPassword" autocomplete="new-password">
+      </div>
+      <div class="auth-field">
+        <label data-i18n="auth_security_answer">Секретный ответ (для восстановления пароля)</label>
+        <input type="text" id="regSecurityAnswer" autocomplete="off">
+        <div class="hint" data-i18n="auth_security_hint">Например: имя первого питомца. Понадобится, если забудете пароль.</div>
+      </div>
+      <button type="submit" class="auth-submit" data-i18n="auth_register_btn">Создать аккаунт</button>
+    </form>
+
+    <form id="resetForm" style="display:none;">
+      <a class="auth-back" id="backToLoginLink" data-i18n="auth_back_to_login">← Назад ко входу</a>
+      <div class="auth-field">
+        <label data-i18n="auth_username">Логин</label>
+        <input type="text" id="resetUsername" autocomplete="username">
+      </div>
+      <div class="auth-field">
+        <label data-i18n="auth_security_answer">Секретный ответ (для восстановления пароля)</label>
+        <input type="text" id="resetSecurityAnswer" autocomplete="off">
+      </div>
+      <div class="auth-field">
+        <label data-i18n="auth_new_password">Новый пароль</label>
+        <input type="password" id="resetNewPassword" autocomplete="new-password">
+      </div>
+      <button type="submit" class="auth-submit" data-i18n="auth_reset_btn">Сохранить новый пароль</button>
+    </form>
+
+    <div class="auth-lang">
+      <button data-lang="ru" class="lang-pick">RU</button>
+      <button data-lang="en" class="lang-pick">EN</button>
+      <button data-lang="es" class="lang-pick">ES</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ APP SHELL ============ -->
+<div id="appShell">
 <div class="app">
   <aside class="sidebar">
-    <div class="brand">Reactivation Desk<small>ECUADOR OPS</small></div>
+    <div class="brand" data-i18n="brand_title">Reactivation Desk<small data-i18n="brand_sub">ECUADOR OPS</small></div>
+
     <nav id="nav">
-      <button data-view="dashboard" class="active"><span class="dot"></span><span class="txt">Дашборд</span></button>
-      <button data-view="worklist"><span class="dot"></span><span class="txt">Список игроков</span></button>
-      <button data-view="distribute" data-admin><span class="dot"></span><span class="txt">Распределение</span></button>
-      <button data-view="import" data-admin><span class="dot"></span><span class="txt">Импорт</span></button>
-      <button data-view="agents" data-admin><span class="dot"></span><span class="txt">Агенты</span></button>
+      <button data-view="dashboard" class="active"><span class="dot"></span><span class="txt" data-i18n="nav_dashboard">Дашборд</span></button>
+      <button data-view="worklist"><span class="dot"></span><span class="txt" data-i18n="nav_worklist">Список игроков</span></button>
+      <button data-view="distribute" data-admin><span class="dot"></span><span class="txt" data-i18n="nav_distribute">Распределение</span></button>
+      <button data-view="import" data-admin><span class="dot"></span><span class="txt" data-i18n="nav_import">Импорт</span></button>
+      <button data-view="access" data-admin><span class="dot"></span><span class="txt" data-i18n="nav_access">Доступы</span></button>
     </nav>
+
     <div class="sidebar-foot">
-      <div class="role-box">
-        <label>Режим просмотра</label>
-        <select id="roleSelect"></select>
+      <div class="who-box">
+        <div class="who-name" id="whoName">—</div>
+        <div class="who-role" id="whoRole">—</div>
+        <button class="who-change-pw" id="openChangePw" data-i18n="change_pw_link">Сменить пароль</button>
       </div>
+      <div class="lang-box">
+        <button data-lang="ru" class="lang-pick-app">RU</button>
+        <button data-lang="en" class="lang-pick-app">EN</button>
+        <button data-lang="es" class="lang-pick-app">ES</button>
+      </div>
+      <button class="logout-btn" id="logoutBtn" data-i18n="auth_logout">Выйти</button>
     </div>
   </aside>
 
@@ -194,26 +275,17 @@
     <!-- DASHBOARD -->
     <section class="view active" id="view-dashboard">
       <div class="topbar">
-        <div>
-          <h1>Дашборд</h1>
-          <p>Общая картина по игрокам с неудачными транзакциями</p>
-        </div>
+        <div><h1 data-i18n="dash_title">Дашборд</h1><p data-i18n="dash_sub">Общая картина по игрокам с неудачными транзакциями</p></div>
       </div>
-
       <div class="stat-row" id="statRow"></div>
-
       <div class="pipeline">
-        <div class="pipeline-head">
-          <h3>Воронка обработки</h3>
-          <span id="pipeTotal">0 игроков</span>
-        </div>
+        <div class="pipeline-head"><h3 data-i18n="pipe_title">Воронка обработки</h3><span id="pipeTotal">0</span></div>
         <div class="pipe-track" id="pipeTrack"></div>
         <div class="pipe-legend" id="pipeLegend"></div>
       </div>
-
       <div class="card">
-        <h3>По агентам</h3>
-        <p class="sub">Нагрузка и результативность каждого агента</p>
+        <h3 data-i18n="agentstats_title">По агентам</h3>
+        <p class="sub" data-i18n="agentstats_sub">Нагрузка и результативность каждого агента</p>
         <div id="agentStatsTable"></div>
       </div>
     </section>
@@ -221,28 +293,14 @@
     <!-- WORKLIST -->
     <section class="view" id="view-worklist">
       <div class="topbar">
-        <div>
-          <h1>Список игроков</h1>
-          <p id="worklistSub">Контакты и статусы связи</p>
-        </div>
-        <div class="row">
-          <button class="btn btn-ghost btn-sm" id="exportBtn">Экспорт CSV</button>
-        </div>
+        <div><h1 data-i18n="worklist_title">Список игроков</h1><p id="worklistSub">Контакты и статусы связи</p></div>
+        <div class="row"><button class="btn btn-ghost btn-sm" id="exportBtn" data-i18n="export_btn">Экспорт CSV</button></div>
       </div>
-
       <div class="card" style="padding:14px 16px;">
         <div class="filters">
-          <input type="text" id="searchInput" placeholder="Поиск: телефон, email, мессенджер…" style="min-width:220px;">
+          <input type="text" id="searchInput" data-i18n-ph="search_placeholder" placeholder="Поиск: телефон, email, мессенджер…" style="min-width:220px;">
           <select class="field" id="filterAgent"></select>
-          <select class="field" id="filterStatus">
-            <option value="">Все статусы</option>
-            <option value="new">Новый</option>
-            <option value="assigned">Назначен</option>
-            <option value="in_work">Взят в работу</option>
-            <option value="success">Успех</option>
-            <option value="no_answer">Не отвечает</option>
-            <option value="failed">Не удалось связаться</option>
-          </select>
+          <select class="field" id="filterStatus"></select>
         </div>
         <div id="worklistTableWrap"></div>
       </div>
@@ -251,29 +309,24 @@
     <!-- DISTRIBUTE -->
     <section class="view" id="view-distribute">
       <div class="topbar">
-        <div>
-          <h1>Распределение</h1>
-          <p>Раздайте нераспределённых игроков агентам по Эквадору</p>
-        </div>
+        <div><h1 data-i18n="distribute_title">Распределение</h1><p data-i18n="distribute_sub">Раздайте нераспределённых игроков агентам по Эквадору</p></div>
       </div>
-
       <div class="card">
-        <h3>Нераспределено сейчас: <span id="unassignedCount">0</span></h3>
-        <p class="sub">Выберите агентов, между которыми поровну (round-robin) распределятся новые контакты</p>
+        <h3><span data-i18n="distribute_unassigned_label">Нераспределено сейчас</span>: <span id="unassignedCount">0</span></h3>
+        <p class="sub" data-i18n="distribute_agents_sub">Выберите агентов, между которыми поровну (round-robin) распределятся новые контакты</p>
         <div class="checks" id="distAgentChecks"></div>
         <div class="row" style="margin-top:14px;">
-          <button class="btn btn-teal" id="distributeBtn">Распределить между выбранными</button>
-          <span class="sub" style="margin:0;">Уже назначенные контакты не затрагиваются</span>
+          <button class="btn btn-teal" id="distributeBtn" data-i18n="distribute_btn">Распределить между выбранными</button>
+          <span class="sub" style="margin:0;" data-i18n="distribute_note">Уже назначенные контакты не затрагиваются</span>
         </div>
       </div>
-
       <div class="card">
-        <h3>Ручное назначение</h3>
-        <p class="sub">Найдите игрока и назначьте вручную, если нужно переназначить</p>
+        <h3 data-i18n="manual_title">Ручное назначение</h3>
+        <p class="sub" data-i18n="manual_sub">Найдите игрока и назначьте вручную, если нужно переназначить</p>
         <div class="row">
-          <input type="text" id="manualSearch" placeholder="Телефон или email игрока" style="min-width:240px;">
+          <input type="text" id="manualSearch" data-i18n-ph="manual_search_placeholder" placeholder="Телефон или email игрока" style="min-width:240px;">
           <select class="field" id="manualAgentSelect"></select>
-          <button class="btn btn-ghost btn-sm" id="manualAssignBtn">Назначить</button>
+          <button class="btn btn-ghost btn-sm" id="manualAssignBtn" data-i18n="manual_assign_btn">Назначить</button>
         </div>
         <div id="manualResults" style="margin-top:10px;"></div>
       </div>
@@ -282,113 +335,452 @@
     <!-- IMPORT -->
     <section class="view" id="view-import">
       <div class="topbar">
-        <div>
-          <h1>Импорт игроков</h1>
-          <p>Загрузите выгрузку игроков, у которых не прошла транзакция другими методами</p>
-        </div>
+        <div><h1 data-i18n="import_title">Импорт игроков</h1><p data-i18n="import_sub">Загрузите выгрузку игроков, у которых не прошла транзакция другими методами</p></div>
       </div>
-
       <div class="card">
-        <h3>Массовый импорт</h3>
-        <p class="sub">По одной строке на игрока, поля через запятую или точку с запятой: <span class="mono">телефон, email, мессенджер</span>. Email и мессенджер необязательны.</p>
-        <textarea id="importArea" placeholder="+593987654321, ana@mail.com, @ana_tg
-+593991234567,, WhatsApp only
-+593998765432, carlos@mail.com,"></textarea>
+        <h3 data-i18n="import_bulk_title">Массовый импорт</h3>
+        <p class="sub" data-i18n="import_bulk_sub">По одной строке на игрока, поля через запятую или точку с запятой: телефон, email, мессенджер. Email и мессенджер необязательны.</p>
+        <textarea id="importArea" data-i18n-ph="import_textarea_placeholder"></textarea>
         <div class="row" style="margin-top:12px;">
-          <button class="btn btn-primary" id="importBtn">Импортировать</button>
+          <button class="btn btn-primary" id="importBtn" data-i18n="import_btn">Импортировать</button>
           <span class="sub" id="importHint" style="margin:0;"></span>
         </div>
       </div>
-
       <div class="card">
-        <h3>Добавить одного игрока</h3>
+        <h3 data-i18n="single_title">Добавить одного игрока</h3>
         <div class="row">
-          <input type="tel" id="singlePhone" placeholder="Телефон" style="min-width:160px;">
-          <input type="email" id="singleEmail" placeholder="Email (необязательно)" style="min-width:200px;">
-          <input type="text" id="singleMsg" placeholder="Мессенджер (необязательно)" style="min-width:160px;">
-          <button class="btn btn-ghost btn-sm" id="singleAddBtn">Добавить</button>
+          <input type="tel" id="singlePhone" data-i18n-ph="single_phone_ph" placeholder="Телефон" style="min-width:160px;">
+          <input type="email" id="singleEmail" data-i18n-ph="single_email_ph" placeholder="Email (необязательно)" style="min-width:200px;">
+          <input type="text" id="singleMsg" data-i18n-ph="single_msg_ph" placeholder="Мессенджер (необязательно)" style="min-width:160px;">
+          <button class="btn btn-ghost btn-sm" id="singleAddBtn" data-i18n="single_add_btn">Добавить</button>
         </div>
       </div>
     </section>
 
-    <!-- AGENTS -->
-    <section class="view" id="view-agents">
+    <!-- ACCESS -->
+    <section class="view" id="view-access">
       <div class="topbar">
-        <div>
-          <h1>Агенты</h1>
-          <p>Команда, работающая по Эквадору</p>
-        </div>
+        <div><h1 data-i18n="access_title">Доступы</h1><p data-i18n="access_sub">Управляйте ролями команды и сбрасывайте пароли агентам</p></div>
       </div>
+      <div id="resetRevealBox"></div>
       <div class="card">
-        <div class="row" style="margin-bottom:14px;">
-          <input type="text" id="newAgentName" placeholder="Имя агента">
-          <button class="btn btn-primary btn-sm" id="addAgentBtn">Добавить агента</button>
-        </div>
-        <div class="agent-list" id="agentList"></div>
+        <h3 data-i18n="access_users_title">Все аккаунты</h3>
+        <p class="sub" data-i18n="access_users_sub">Новые регистрации автоматически получают роль агента. Здесь можно выдать администраторский доступ или отозвать его.</p>
+        <div id="allUsersList"></div>
       </div>
     </section>
 
   </main>
 </div>
+</div>
+
+<!-- ============ CHANGE PASSWORD MODAL ============ -->
+<div class="modal-overlay" id="changePwOverlay">
+  <div class="modal-card">
+    <h3 data-i18n="change_pw_title">Сменить пароль</h3>
+    <div class="auth-error" id="changePwError"></div>
+    <div class="auth-hint" id="changePwHint"></div>
+    <form id="changePwForm">
+      <div class="auth-field"><label data-i18n="change_pw_current">Текущий пароль</label><input type="password" id="cpCurrent"></div>
+      <div class="auth-field"><label data-i18n="change_pw_new">Новый пароль</label><input type="password" id="cpNew"></div>
+      <div class="row" style="margin-top:6px;">
+        <button type="submit" class="btn btn-primary btn-sm" data-i18n="change_pw_submit">Сохранить</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="cpCancel" data-i18n="change_pw_cancel">Отмена</button>
+      </div>
+    </form>
+  </div>
+</div>
 
 <div class="toast" id="toast"></div>
 
 <script>
-/* ---------------- Data layer ---------------- */
-const STATUS_META = {
-  new:        {label:'Новый',              cls:'b-new'},
-  assigned:   {label:'Назначен',           cls:'b-assigned'},
-  in_work:    {label:'Взят в работу',      cls:'b-in_work'},
-  success:    {label:'Успех',              cls:'b-success'},
-  no_answer:  {label:'Не отвечает',        cls:'b-no_answer'},
-  failed:     {label:'Не удалось связаться', cls:'b-failed'},
+/* ==================== i18n ==================== */
+const I18N = {
+ru:{
+  auth_tab_login:'Войти', auth_tab_register:'Регистрация', auth_username:'Логин', auth_password:'Пароль',
+  auth_name:'Имя', auth_login_btn:'Войти', auth_register_btn:'Создать аккаунт', auth_logout:'Выйти',
+  auth_err_creds:'Неверный логин или пароль', auth_err_exists:'Такой логин уже занят', auth_err_fields:'Заполните все поля',
+  auth_forgot_link:'Забыли пароль?', auth_back_to_login:'← Назад ко входу',
+  auth_security_answer:'Секретный ответ (для восстановления пароля)', auth_security_hint:'Например: имя первого питомца. Понадобится, если забудете пароль.',
+  auth_new_password:'Новый пароль', auth_reset_btn:'Сохранить новый пароль',
+  auth_err_reset:'Логин или секретный ответ не совпадают', auth_reset_success:'Пароль обновлён. Теперь войдите с новым паролем.',
+  brand_title:'Reactivation Desk', brand_sub:'ECUADOR OPS',
+  nav_dashboard:'Дашборд', nav_worklist:'Список игроков', nav_distribute:'Распределение', nav_import:'Импорт', nav_access:'Доступы',
+  role_admin:'Администратор', role_agent:'Агент',
+  change_pw_link:'Сменить пароль', change_pw_title:'Сменить пароль', change_pw_current:'Текущий пароль', change_pw_new:'Новый пароль',
+  change_pw_submit:'Сохранить', change_pw_cancel:'Отмена', change_pw_wrong:'Неверный текущий пароль', change_pw_success:'Пароль изменён',
+  change_pw_fields:'Заполните оба поля',
+  dash_title:'Дашборд', dash_sub:'Общая картина по игрокам с неудачными транзакциями',
+  stat_total:'Всего игроков', stat_unassigned:'Не распределено', stat_inwork:'В работе', stat_success:'Успешно связались', stat_failbucket:'Не удалось / не отвечает',
+  pipe_title:'Воронка обработки', pipe_total_suffix:'игроков', pipe_empty:'Пока нет данных — импортируйте список игроков',
+  agentstats_title:'По агентам', agentstats_sub:'Нагрузка и результативность каждого агента',
+  agentstats_empty_title:'Пока нет ни одного агента', agentstats_empty_sub:'Агенты появятся здесь после регистрации',
+  th_agent:'Агент', th_total:'Всего', th_assigned:'Назначено', th_inwork:'В работе', th_success:'Успех', th_fail:'Провал',
+  worklist_title:'Список игроков', worklist_sub_admin:'Контакты и статусы связи по всем агентам', worklist_sub_agent:'Ваши контакты',
+  export_btn:'Экспорт CSV', search_placeholder:'Поиск: телефон, email, мессенджер…',
+  filter_all_agents:'Все агенты', filter_all_status:'Все статусы',
+  status_new:'Новый', status_assigned:'Назначен', status_in_work:'Взят в работу', status_success:'Успех', status_no_answer:'Не отвечает', status_failed:'Не удалось связаться',
+  th_contact:'Контакт', th_email:'Email', th_messenger:'Мессенджер', th_status:'Статус', th_action:'Действие',
+  act_take:'Взять в работу', act_success:'Успех', act_no_answer:'Не отвечает', act_failed:'Не удалось', act_return:'Вернуть в работу',
+  empty_worklist_title:'Ничего не найдено', empty_worklist_sub:'Измените фильтры или импортируйте новых игроков',
+  locked_hint:'Полный номер откроется после того, как вы возьмёте контакт в работу',
+  distribute_title:'Распределение', distribute_sub:'Раздайте нераспределённых игроков агентам по Эквадору',
+  distribute_unassigned_label:'Нераспределено сейчас', distribute_agents_sub:'Выберите агентов, между которыми поровну (round-robin) распределятся новые контакты',
+  distribute_btn:'Распределить между выбранными', distribute_note:'Уже назначенные контакты не затрагиваются',
+  distribute_no_agents:'Пока нет ни одного агента — попросите людей зарегистрироваться',
+  manual_title:'Ручное назначение', manual_sub:'Найдите игрока и назначьте вручную, если нужно переназначить',
+  manual_search_placeholder:'Телефон или email игрока', manual_assign_btn:'Назначить', manual_pick_btn:'Выбрать',
+  manual_none_found:'Не найдено', manual_selected:'Игрок выбран для назначения', manual_pick_first:'Сначала выберите игрока из списка', manual_no_agents:'Нет доступных агентов',
+  import_title:'Импорт игроков', import_sub:'Загрузите выгрузку игроков, у которых не прошла транзакция другими методами',
+  import_bulk_title:'Массовый импорт', import_bulk_sub:'По одной строке на игрока, поля через запятую или точку с запятой: телефон, email, мессенджер. Email и мессенджер необязательны.',
+  import_textarea_placeholder:'+593987654321, ana@mail.com, @ana_tg\n+593991234567,, только WhatsApp\n+593998765432, carlos@mail.com,',
+  import_btn:'Импортировать', import_empty_warn:'Вставьте список игроков', import_done:'Добавлено',
+  single_title:'Добавить одного игрока', single_phone_ph:'Телефон', single_email_ph:'Email (необязательно)', single_msg_ph:'Мессенджер (необязательно)',
+  single_add_btn:'Добавить', single_empty_warn:'Заполните хотя бы одно поле', single_added:'Игрок добавлен',
+  access_title:'Доступы', access_sub:'Управляйте ролями команды и сбрасывайте пароли агентам',
+  access_users_title:'Все аккаунты', access_users_sub:'Новые регистрации автоматически получают роль агента. Здесь можно выдать администраторский доступ или отозвать его.',
+  access_make_agent:'Сделать агентом', access_make_admin:'Сделать админом', access_remove:'Удалить', access_you:'Это вы',
+  access_reset_pw:'Сбросить пароль', access_reset_reveal:'Временный пароль для', access_reset_note:'Скопируйте и передайте агенту — после входа он сможет сменить его сам.',
+  copy_btn:'Скопировать', copied_toast:'Скопировано', dismiss_btn:'Скрыть',
+  toast_status_updated:'Статус обновлён', toast_distributed:'Распределено между', toast_no_unassigned:'Нет нераспределённых игроков',
+  toast_pick_agent:'Выберите хотя бы одного агента', toast_assigned_to:'Игрок назначен на', toast_agent_added:'Агент добавлен',
+  toast_role_updated:'Роль обновлена', toast_user_removed:'Аккаунт удалён', toast_save_error:'Не удалось сохранить данные',
+  confirm_remove_user:'Удалить этот аккаунт? Назначенные ему игроки станут нераспределёнными.',
+},
+en:{
+  auth_tab_login:'Log in', auth_tab_register:'Register', auth_username:'Username', auth_password:'Password',
+  auth_name:'Name', auth_login_btn:'Log in', auth_register_btn:'Create account', auth_logout:'Log out',
+  auth_err_creds:'Wrong username or password', auth_err_exists:'That username is already taken', auth_err_fields:'Fill in all fields',
+  auth_forgot_link:'Forgot password?', auth_back_to_login:'← Back to login',
+  auth_security_answer:'Secret answer (for password recovery)', auth_security_hint:'E.g. your first pet\'s name. You will need this if you forget your password.',
+  auth_new_password:'New password', auth_reset_btn:'Save new password',
+  auth_err_reset:'Username or secret answer does not match', auth_reset_success:'Password updated. Log in with your new password.',
+  brand_title:'Reactivation Desk', brand_sub:'ECUADOR OPS',
+  nav_dashboard:'Dashboard', nav_worklist:'Player list', nav_distribute:'Distribution', nav_import:'Import', nav_access:'Access',
+  role_admin:'Admin', role_agent:'Agent',
+  change_pw_link:'Change password', change_pw_title:'Change password', change_pw_current:'Current password', change_pw_new:'New password',
+  change_pw_submit:'Save', change_pw_cancel:'Cancel', change_pw_wrong:'Current password is incorrect', change_pw_success:'Password changed',
+  change_pw_fields:'Fill in both fields',
+  dash_title:'Dashboard', dash_sub:'Overview of players with failed transactions',
+  stat_total:'Total players', stat_unassigned:'Unassigned', stat_inwork:'In progress', stat_success:'Successfully contacted', stat_failbucket:'Failed / no answer',
+  pipe_title:'Processing funnel', pipe_total_suffix:'players', pipe_empty:'No data yet — import a player list',
+  agentstats_title:'By agent', agentstats_sub:'Workload and results per agent',
+  agentstats_empty_title:'No agents yet', agentstats_empty_sub:'Agents will appear here once they register',
+  th_agent:'Agent', th_total:'Total', th_assigned:'Assigned', th_inwork:'In progress', th_success:'Success', th_fail:'Failed',
+  worklist_title:'Player list', worklist_sub_admin:'Contacts and outreach status across all agents', worklist_sub_agent:'Your contacts',
+  export_btn:'Export CSV', search_placeholder:'Search: phone, email, messenger…',
+  filter_all_agents:'All agents', filter_all_status:'All statuses',
+  status_new:'New', status_assigned:'Assigned', status_in_work:'In progress', status_success:'Success', status_no_answer:'No answer', status_failed:'Could not reach',
+  th_contact:'Phone', th_email:'Email', th_messenger:'Messenger', th_status:'Status', th_action:'Action',
+  act_take:'Take in progress', act_success:'Success', act_no_answer:'No answer', act_failed:'Could not reach', act_return:'Reopen',
+  empty_worklist_title:'Nothing found', empty_worklist_sub:'Adjust filters or import new players',
+  locked_hint:'The full number appears once you take this contact in progress',
+  distribute_title:'Distribution', distribute_sub:'Split unassigned players between agents in Ecuador',
+  distribute_unassigned_label:'Unassigned right now', distribute_agents_sub:'Pick the agents to split new contacts between, evenly (round-robin)',
+  distribute_btn:'Distribute among selected', distribute_note:'Already-assigned contacts are left untouched',
+  distribute_no_agents:'No agents yet — ask people to register',
+  manual_title:'Manual assignment', manual_sub:'Find a player and assign them manually if you need to reassign',
+  manual_search_placeholder:'Player phone or email', manual_assign_btn:'Assign', manual_pick_btn:'Select',
+  manual_none_found:'No matches', manual_selected:'Player selected for assignment', manual_pick_first:'Select a player from the list first', manual_no_agents:'No agents available',
+  import_title:'Import players', import_sub:'Upload the list of players whose transaction failed through other methods',
+  import_bulk_title:'Bulk import', import_bulk_sub:'One player per line, fields separated by comma or semicolon: phone, email, messenger. Email and messenger are optional.',
+  import_textarea_placeholder:'+593987654321, ana@mail.com, @ana_tg\n+593991234567,, WhatsApp only\n+593998765432, carlos@mail.com,',
+  import_btn:'Import', import_empty_warn:'Paste a list of players', import_done:'Added',
+  single_title:'Add one player', single_phone_ph:'Phone', single_email_ph:'Email (optional)', single_msg_ph:'Messenger (optional)',
+  single_add_btn:'Add', single_empty_warn:'Fill in at least one field', single_added:'Player added',
+  access_title:'Access', access_sub:'Manage team roles and reset agent passwords',
+  access_users_title:'All accounts', access_users_sub:'New registrations automatically get the agent role. Grant or revoke admin access here.',
+  access_make_agent:'Make agent', access_make_admin:'Make admin', access_remove:'Remove', access_you:'This is you',
+  access_reset_pw:'Reset password', access_reset_reveal:'Temporary password for', access_reset_note:'Copy it and share it with the agent — they can change it themselves after logging in.',
+  copy_btn:'Copy', copied_toast:'Copied', dismiss_btn:'Dismiss',
+  toast_status_updated:'Status updated', toast_distributed:'Distributed among', toast_no_unassigned:'No unassigned players',
+  toast_pick_agent:'Select at least one agent', toast_assigned_to:'Player assigned to', toast_agent_added:'Agent added',
+  toast_role_updated:'Role updated', toast_user_removed:'Account removed', toast_save_error:'Could not save data',
+  confirm_remove_user:'Remove this account? Their assigned players will become unassigned.',
+},
+es:{
+  auth_tab_login:'Iniciar sesión', auth_tab_register:'Registrarse', auth_username:'Usuario', auth_password:'Contraseña',
+  auth_name:'Nombre', auth_login_btn:'Iniciar sesión', auth_register_btn:'Crear cuenta', auth_logout:'Cerrar sesión',
+  auth_err_creds:'Usuario o contraseña incorrectos', auth_err_exists:'Ese usuario ya existe', auth_err_fields:'Completa todos los campos',
+  auth_forgot_link:'¿Olvidaste tu contraseña?', auth_back_to_login:'← Volver al inicio de sesión',
+  auth_security_answer:'Respuesta secreta (para recuperar la contraseña)', auth_security_hint:'Por ejemplo: el nombre de tu primera mascota. La necesitarás si olvidas tu contraseña.',
+  auth_new_password:'Nueva contraseña', auth_reset_btn:'Guardar nueva contraseña',
+  auth_err_reset:'El usuario o la respuesta secreta no coinciden', auth_reset_success:'Contraseña actualizada. Inicia sesión con la nueva contraseña.',
+  brand_title:'Reactivation Desk', brand_sub:'ECUADOR OPS',
+  nav_dashboard:'Panel', nav_worklist:'Lista de jugadores', nav_distribute:'Distribución', nav_import:'Importar', nav_access:'Accesos',
+  role_admin:'Administrador', role_agent:'Agente',
+  change_pw_link:'Cambiar contraseña', change_pw_title:'Cambiar contraseña', change_pw_current:'Contraseña actual', change_pw_new:'Nueva contraseña',
+  change_pw_submit:'Guardar', change_pw_cancel:'Cancelar', change_pw_wrong:'La contraseña actual es incorrecta', change_pw_success:'Contraseña cambiada',
+  change_pw_fields:'Completa ambos campos',
+  dash_title:'Panel', dash_sub:'Panorama general de jugadores con transacciones fallidas',
+  stat_total:'Total de jugadores', stat_unassigned:'Sin asignar', stat_inwork:'En gestión', stat_success:'Contacto exitoso', stat_failbucket:'Fallidos / no contesta',
+  pipe_title:'Embudo de gestión', pipe_total_suffix:'jugadores', pipe_empty:'Aún no hay datos — importa una lista de jugadores',
+  agentstats_title:'Por agente', agentstats_sub:'Carga y resultados de cada agente',
+  agentstats_empty_title:'Todavía no hay agentes', agentstats_empty_sub:'Los agentes aparecerán aquí cuando se registren',
+  th_agent:'Agente', th_total:'Total', th_assigned:'Asignado', th_inwork:'En gestión', th_success:'Éxito', th_fail:'Fallido',
+  worklist_title:'Lista de jugadores', worklist_sub_admin:'Contactos y estados de gestión de todos los agentes', worklist_sub_agent:'Tus contactos',
+  export_btn:'Exportar CSV', search_placeholder:'Buscar: teléfono, email, mensajería…',
+  filter_all_agents:'Todos los agentes', filter_all_status:'Todos los estados',
+  status_new:'Nuevo', status_assigned:'Asignado', status_in_work:'En gestión', status_success:'Éxito', status_no_answer:'No contesta', status_failed:'No se pudo contactar',
+  th_contact:'Teléfono', th_email:'Email', th_messenger:'Mensajería', th_status:'Estado', th_action:'Acción',
+  act_take:'Tomar en gestión', act_success:'Éxito', act_no_answer:'No contesta', act_failed:'No se pudo contactar', act_return:'Reabrir',
+  empty_worklist_title:'No se encontró nada', empty_worklist_sub:'Ajusta los filtros o importa nuevos jugadores',
+  locked_hint:'El número completo aparece cuando tomes este contacto en gestión',
+  distribute_title:'Distribución', distribute_sub:'Reparte los jugadores sin asignar entre los agentes en Ecuador',
+  distribute_unassigned_label:'Sin asignar ahora', distribute_agents_sub:'Elige los agentes entre los que se repartirán los nuevos contactos, en partes iguales (round-robin)',
+  distribute_btn:'Distribuir entre los seleccionados', distribute_note:'Los contactos ya asignados no se modifican',
+  distribute_no_agents:'Todavía no hay agentes — pide a las personas que se registren',
+  manual_title:'Asignación manual', manual_sub:'Busca un jugador y asígnalo manualmente si necesitas reasignarlo',
+  manual_search_placeholder:'Teléfono o email del jugador', manual_assign_btn:'Asignar', manual_pick_btn:'Elegir',
+  manual_none_found:'Sin resultados', manual_selected:'Jugador seleccionado para asignar', manual_pick_first:'Primero elige un jugador de la lista', manual_no_agents:'No hay agentes disponibles',
+  import_title:'Importar jugadores', import_sub:'Sube la lista de jugadores cuya transacción falló por otros métodos',
+  import_bulk_title:'Importación masiva', import_bulk_sub:'Un jugador por línea, campos separados por coma o punto y coma: teléfono, email, mensajería. Email y mensajería son opcionales.',
+  import_textarea_placeholder:'+593987654321, ana@mail.com, @ana_tg\n+593991234567,, solo WhatsApp\n+593998765432, carlos@mail.com,',
+  import_btn:'Importar', import_empty_warn:'Pega una lista de jugadores', import_done:'Agregados',
+  single_title:'Agregar un jugador', single_phone_ph:'Teléfono', single_email_ph:'Email (opcional)', single_msg_ph:'Mensajería (opcional)',
+  single_add_btn:'Agregar', single_empty_warn:'Completa al menos un campo', single_added:'Jugador agregado',
+  access_title:'Accesos', access_sub:'Gestiona los roles del equipo y restablece contraseñas de agentes',
+  access_users_title:'Todas las cuentas', access_users_sub:'Los nuevos registros reciben automáticamente el rol de agente. Aquí puedes otorgar o quitar el acceso de administrador.',
+  access_make_agent:'Hacer agente', access_make_admin:'Hacer admin', access_remove:'Eliminar', access_you:'Eres tú',
+  access_reset_pw:'Restablecer contraseña', access_reset_reveal:'Contraseña temporal para', access_reset_note:'Cópiala y compártela con el agente — podrá cambiarla él mismo después de iniciar sesión.',
+  copy_btn:'Copiar', copied_toast:'Copiado', dismiss_btn:'Ocultar',
+  toast_status_updated:'Estado actualizado', toast_distributed:'Distribuido entre', toast_no_unassigned:'No hay jugadores sin asignar',
+  toast_pick_agent:'Selecciona al menos un agente', toast_assigned_to:'Jugador asignado a', toast_agent_added:'Agente agregado',
+  toast_role_updated:'Rol actualizado', toast_user_removed:'Cuenta eliminada', toast_save_error:'No se pudo guardar la información',
+  confirm_remove_user:'¿Eliminar esta cuenta? Sus jugadores asignados quedarán sin asignar.',
+}
 };
-const PIPE_COLORS = {
-  new:'#C4CAD4', assigned:'#3E6FA6', in_work:'#D98E3B',
-  success:'#2F8F82', no_answer:'#C9A63C', failed:'#C15B4A'
-};
+let currentLang = 'ru';
+function t(key){ return (I18N[currentLang] && I18N[currentLang][key]) || I18N.ru[key] || key; }
 
+function applyStaticTranslations(){
+  document.documentElement.lang = currentLang;
+  document.querySelectorAll('[data-i18n]').forEach(el=>{
+    (el.firstChild && el.firstChild.nodeType===3) ? (el.firstChild.textContent = t(el.dataset.i18n)) : (el.textContent = t(el.dataset.i18n));
+  });
+  document.querySelectorAll('[data-i18n-ph]').forEach(el=>{ el.placeholder = t(el.dataset.i18nPh); });
+  document.getElementById('importArea').placeholder = t('import_textarea_placeholder');
+  document.querySelectorAll('.lang-pick, .lang-pick-app').forEach(b=>b.classList.toggle('active', b.dataset.lang===currentLang));
+  const fs = document.getElementById('filterStatus');
+  fs.innerHTML = `<option value="">${t('filter_all_status')}</option>` + Object.keys(STATUS_KEYS).map(k=>`<option value="${k}">${t('status_'+k)}</option>`).join('');
+}
+
+function setLang(lang){
+  currentLang = lang;
+  if(currentUser){ currentUser.lang = lang; saveUsers(); }
+  applyStaticTranslations();
+  render();
+}
+document.querySelectorAll('.lang-pick').forEach(b=>b.addEventListener('click', ()=>setLang(b.dataset.lang)));
+document.querySelectorAll('.lang-pick-app').forEach(b=>b.addEventListener('click', ()=>setLang(b.dataset.lang)));
+
+/* ==================== Constants ==================== */
+const STATUS_KEYS = { new:1, assigned:1, in_work:1, success:1, no_answer:1, failed:1 };
+const STATUS_CLASS = { new:'b-new', assigned:'b-assigned', in_work:'b-in_work', success:'b-success', no_answer:'b-no_answer', failed:'b-failed' };
+const PIPE_COLORS = { new:'#C4CAD4', assigned:'#3E6FA6', in_work:'#D98E3B', success:'#2F8F82', no_answer:'#C9A63C', failed:'#C15B4A' };
+
+/* ==================== State ==================== */
 let players = [];
-let agents = [];
-let currentRole = 'admin'; // 'admin' or agent id
-let saveTimer = null;
+let users = [];
+let currentUser = null;
+let saveTimer = null, userSaveTimer = null;
+let lastResetInfo = null;
 
 function uid(prefix){ return prefix + '_' + Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4); }
 
+/* ==================== Storage ==================== */
 async function loadData(){
-  try{
-    const res = await localStorage.get('crm-data', true);
-    if(res && res.value){
-      const parsed = JSON.parse(res.value);
-      players = parsed.players || [];
-      agents = parsed.agents || [];
-    }
-  }catch(e){
-    players = []; agents = [];
-  }
-  render();
+  try{ const res = await window.storage.get('crm-data', true); if(res && res.value){ players = (JSON.parse(res.value).players)||[]; } }catch(e){ players = []; }
+  try{ const res2 = await window.storage.get('crm-users', true); if(res2 && res2.value){ users = JSON.parse(res2.value)||[]; } }catch(e){ users = []; }
 }
-
 function saveData(){
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async ()=>{
-    try{
-      await localStorage.set('crm-data', JSON.stringify({players, agents}), true);
-    }catch(e){
-      showToast('Не удалось сохранить данные');
-    }
+    try{ await window.storage.set('crm-data', JSON.stringify({players}), true); } catch(e){ showToast(t('toast_save_error')); }
+  }, 150);
+}
+function saveUsers(){
+  clearTimeout(userSaveTimer);
+  userSaveTimer = setTimeout(async ()=>{
+    try{ await window.storage.set('crm-users', JSON.stringify(users), true); } catch(e){ showToast(t('toast_save_error')); }
   }, 150);
 }
 
 function showToast(msg){
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('show');
-  clearTimeout(t._timer);
-  t._timer = setTimeout(()=>t.classList.remove('show'), 2200);
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(el._timer);
+  el._timer = setTimeout(()=>el.classList.remove('show'), 2200);
 }
 
-/* ---------------- Navigation ---------------- */
+/* ==================== Crypto helpers ==================== */
+function randomHex(n){ const arr = new Uint8Array(n); crypto.getRandomValues(arr); return [...arr].map(b=>b.toString(16).padStart(2,'0')).join(''); }
+async function hashValue(value, salt){
+  const enc = new TextEncoder();
+  const digest = await crypto.subtle.digest('SHA-256', enc.encode(salt + ':' + value));
+  return [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function generateTempPassword(len){
+  len = len || 10;
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  const arr = new Uint32Array(len);
+  crypto.getRandomValues(arr);
+  return [...arr].map(n=>chars[n % chars.length]).join('');
+}
+function copyToClipboard(text){
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(()=>showToast(t('copied_toast'))).catch(()=>fallbackCopy(text));
+  } else fallbackCopy(text);
+}
+function fallbackCopy(text){
+  try{
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    showToast(t('copied_toast'));
+  }catch(e){}
+}
+
+function assignableUsers(){ return users.filter(u=>u.role==='agent' || u.role==='admin'); }
+function userById(id){ return users.find(u=>u.id===id); }
+function userDisplayName(id){ const u=userById(id); return u ? u.name : '—'; }
+
+/* ==================== Masking ==================== */
+function maskPhone(phone){
+  if(!phone) return phone;
+  const compact = phone.replace(/\s+/g,'');
+  if(compact.length<=5) return '••••';
+  const start = compact.slice(0, Math.min(4, compact.length-3));
+  const end = compact.slice(-2);
+  return start + ' ' + '•'.repeat(Math.max(3, compact.length - start.length - 2)) + ' ' + end;
+}
+
+/* ==================== Auth screen wiring ==================== */
+const authError = document.getElementById('authError');
+const authHint = document.getElementById('authHint');
+function showAuthError(msg){ authHint.classList.remove('show'); authError.textContent = msg; authError.classList.add('show'); }
+function showAuthHint(msg){ authError.classList.remove('show'); authHint.textContent = msg; authHint.classList.add('show'); }
+function clearAuthMsgs(){ authError.classList.remove('show'); authHint.classList.remove('show'); }
+
+function showAuthView(view){
+  clearAuthMsgs();
+  document.getElementById('loginForm').style.display = view==='login' ? '' : 'none';
+  document.getElementById('registerForm').style.display = view==='register' ? '' : 'none';
+  document.getElementById('resetForm').style.display = view==='reset' ? '' : 'none';
+  document.getElementById('authTabs').style.display = view==='reset' ? 'none' : 'flex';
+  document.getElementById('tabLogin').classList.toggle('active', view==='login');
+  document.getElementById('tabRegister').classList.toggle('active', view==='register');
+}
+document.getElementById('tabLogin').addEventListener('click', ()=>showAuthView('login'));
+document.getElementById('tabRegister').addEventListener('click', ()=>showAuthView('register'));
+document.getElementById('forgotLink').addEventListener('click', (e)=>{ e.preventDefault(); showAuthView('reset'); });
+document.getElementById('backToLoginLink').addEventListener('click', (e)=>{ e.preventDefault(); showAuthView('login'); });
+
+document.getElementById('loginForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  clearAuthMsgs();
+  const username = document.getElementById('loginUsername').value.trim().toLowerCase();
+  const password = document.getElementById('loginPassword').value;
+  if(!username || !password){ showAuthError(t('auth_err_fields')); return; }
+  const u = users.find(x=>x.username===username);
+  if(!u){ showAuthError(t('auth_err_creds')); return; }
+  const hash = await hashValue(password, u.salt);
+  if(hash !== u.passwordHash){ showAuthError(t('auth_err_creds')); return; }
+  currentUser = u;
+  if(u.lang){ currentLang = u.lang; }
+  enterApp();
+});
+
+document.getElementById('registerForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  clearAuthMsgs();
+  const name = document.getElementById('regName').value.trim();
+  const username = document.getElementById('regUsername').value.trim().toLowerCase();
+  const password = document.getElementById('regPassword').value;
+  const securityAnswer = document.getElementById('regSecurityAnswer').value.trim();
+  if(!name || !username || !password || !securityAnswer){ showAuthError(t('auth_err_fields')); return; }
+  if(users.find(x=>x.username===username)){ showAuthError(t('auth_err_exists')); return; }
+  const salt = randomHex(16);
+  const passwordHash = await hashValue(password, salt);
+  const securitySalt = randomHex(16);
+  const securityAnswerHash = await hashValue(securityAnswer.toLowerCase(), securitySalt);
+  const isFirst = users.length === 0;
+  const newUser = {
+    id: uid('u'), username, salt, passwordHash, securitySalt, securityAnswerHash,
+    name, role: isFirst ? 'admin' : 'agent', createdAt: Date.now(), lang: currentLang
+  };
+  users.push(newUser);
+  saveUsers();
+  currentUser = newUser;
+  document.getElementById('registerForm').reset();
+  enterApp();
+});
+
+document.getElementById('resetForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  clearAuthMsgs();
+  const username = document.getElementById('resetUsername').value.trim().toLowerCase();
+  const answer = document.getElementById('resetSecurityAnswer').value.trim().toLowerCase();
+  const newPassword = document.getElementById('resetNewPassword').value;
+  if(!username || !answer || !newPassword){ showAuthError(t('auth_err_fields')); return; }
+  const u = users.find(x=>x.username===username);
+  if(!u || !u.securitySalt){ showAuthError(t('auth_err_reset')); return; }
+  const answerHash = await hashValue(answer, u.securitySalt);
+  if(answerHash !== u.securityAnswerHash){ showAuthError(t('auth_err_reset')); return; }
+  const newSalt = randomHex(16);
+  u.salt = newSalt;
+  u.passwordHash = await hashValue(newPassword, newSalt);
+  saveUsers();
+  document.getElementById('resetForm').reset();
+  showAuthView('login');
+  showAuthHint(t('auth_reset_success'));
+});
+
+document.getElementById('logoutBtn').addEventListener('click', logout);
+function logout(){
+  currentUser = null;
+  document.getElementById('authScreen').style.display='flex';
+  document.getElementById('appShell').style.display='none';
+  document.getElementById('loginForm').reset();
+  showAuthView('login');
+}
+
+function enterApp(){
+  document.getElementById('authScreen').style.display='none';
+  document.getElementById('appShell').style.display='block';
+  applyRoleVisibility();
+  applyStaticTranslations();
+  render();
+}
+
+/* ==================== Change password (self) ==================== */
+const cpOverlay = document.getElementById('changePwOverlay');
+const cpError = document.getElementById('changePwError');
+const cpHint = document.getElementById('changePwHint');
+document.getElementById('openChangePw').addEventListener('click', ()=>{
+  cpError.classList.remove('show'); cpHint.classList.remove('show');
+  document.getElementById('changePwForm').reset();
+  cpOverlay.classList.add('show');
+});
+document.getElementById('cpCancel').addEventListener('click', ()=>cpOverlay.classList.remove('show'));
+document.getElementById('changePwForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  cpError.classList.remove('show'); cpHint.classList.remove('show');
+  const cur = document.getElementById('cpCurrent').value;
+  const next = document.getElementById('cpNew').value;
+  if(!cur || !next){ cpError.textContent = t('change_pw_fields'); cpError.classList.add('show'); return; }
+  const hash = await hashValue(cur, currentUser.salt);
+  if(hash !== currentUser.passwordHash){ cpError.textContent = t('change_pw_wrong'); cpError.classList.add('show'); return; }
+  const newSalt = randomHex(16);
+  currentUser.salt = newSalt;
+  currentUser.passwordHash = await hashValue(next, newSalt);
+  saveUsers();
+  cpHint.textContent = t('change_pw_success'); cpHint.classList.add('show');
+  showToast(t('change_pw_success'));
+  setTimeout(()=>cpOverlay.classList.remove('show'), 900);
+});
+
+/* ==================== Nav ==================== */
 document.getElementById('nav').addEventListener('click', (e)=>{
   const btn = e.target.closest('button[data-view]');
   if(!btn) return;
@@ -399,10 +791,8 @@ document.getElementById('nav').addEventListener('click', (e)=>{
 });
 
 function applyRoleVisibility(){
-  const isAdmin = currentRole === 'admin';
-  document.querySelectorAll('#nav button[data-admin]').forEach(b=>{
-    b.style.display = isAdmin ? '' : 'none';
-  });
+  const isAdmin = currentUser && currentUser.role === 'admin';
+  document.querySelectorAll('#nav button[data-admin]').forEach(b=>{ b.style.display = isAdmin ? '' : 'none'; });
   if(!isAdmin){
     const active = document.querySelector('#nav button.active');
     if(active && active.hasAttribute('data-admin')){
@@ -414,221 +804,175 @@ function applyRoleVisibility(){
   }
 }
 
-document.getElementById('roleSelect').addEventListener('change', (e)=>{
-  currentRole = e.target.value;
-  applyRoleVisibility();
-  render();
-});
-
-/* ---------------- Render: role select ---------------- */
-function renderRoleSelect(){
-  const sel = document.getElementById('roleSelect');
-  const prev = currentRole;
-  sel.innerHTML = '<option value="admin">Администратор</option>' +
-    agents.map(a=>`<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
-  if([...sel.options].some(o=>o.value===prev)) sel.value = prev;
-  else { currentRole = 'admin'; sel.value = 'admin'; }
+function renderWhoBox(){
+  if(!currentUser) return;
+  document.getElementById('whoName').textContent = currentUser.name;
+  document.getElementById('whoRole').textContent = t('role_' + currentUser.role);
 }
 
-/* ---------------- Render: dashboard ---------------- */
+/* ==================== Render: dashboard ==================== */
 function renderDashboard(){
-  const counts = {new:0,assigned:0,in_work:0,success:0,no_answer:0,failed:0};
-  players.forEach(p=>counts[p.status] = (counts[p.status]||0)+1);
-  const total = players.length;
+  const isAdmin = currentUser.role === 'admin';
+  const scope = isAdmin ? players : players.filter(p=>p.agentId===currentUser.id);
+  const c2 = {new:0,assigned:0,in_work:0,success:0,no_answer:0,failed:0};
+  scope.forEach(p=>c2[p.status]=(c2[p.status]||0)+1);
 
   const statRow = document.getElementById('statRow');
   const cards = [
-    ['Всего игроков', total, ''],
-    ['Не распределено', counts.new, 'b-new'],
-    ['В работе', counts.in_work + counts.assigned, ''],
-    ['Успешно связались', counts.success, ''],
-    ['Не удалось / не отвечает', counts.failed + counts.no_answer, ''],
+    [t('stat_total'), scope.length],
+    [t('stat_unassigned'), isAdmin ? c2.new : 0],
+    [t('stat_inwork'), c2.in_work + c2.assigned],
+    [t('stat_success'), c2.success],
+    [t('stat_failbucket'), c2.failed + c2.no_answer],
   ];
-  statRow.innerHTML = cards.map(c=>`
-    <div class="stat-card">
-      <div class="num">${c[1]}</div>
-      <div class="label">${c[0]}</div>
-    </div>`).join('');
+  statRow.innerHTML = cards.map(c=>`<div class="stat-card"><div class="num">${c[1]}</div><div class="label">${c[0]}</div></div>`).join('');
 
-  document.getElementById('pipeTotal').textContent = total + ' игроков';
+  document.getElementById('pipeTotal').textContent = scope.length + ' ' + t('pipe_total_suffix');
   const track = document.getElementById('pipeTrack');
   const legend = document.getElementById('pipeLegend');
-  if(total === 0){
+  if(scope.length === 0){
     track.innerHTML = `<div style="flex:1;background:#EFEDE6;"></div>`;
-    legend.innerHTML = `<span class="sub" style="margin:0;">Пока нет данных — импортируйте список игроков</span>`;
+    legend.innerHTML = `<span class="sub" style="margin:0;">${t('pipe_empty')}</span>`;
   } else {
-    track.innerHTML = Object.keys(STATUS_META).map(k=>{
-      const c = counts[k]||0;
+    track.innerHTML = Object.keys(STATUS_KEYS).map(k=>{
+      const c = c2[k]||0;
       if(c===0) return '';
-      return `<div class="pipe-seg" style="flex-basis:${(c/total*100)}%;background:${PIPE_COLORS[k]}" title="${STATUS_META[k].label}: ${c}"></div>`;
+      return `<div class="pipe-seg" style="flex-basis:${(c/scope.length*100)}%;background:${PIPE_COLORS[k]}" title="${t('status_'+k)}: ${c}"></div>`;
     }).join('');
-    legend.innerHTML = Object.keys(STATUS_META).map(k=>`
-      <div class="item"><span class="sw" style="background:${PIPE_COLORS[k]}"></span>${STATUS_META[k].label} · ${counts[k]||0}</div>
-    `).join('');
+    legend.innerHTML = Object.keys(STATUS_KEYS).map(k=>`<div class="item"><span class="sw" style="background:${PIPE_COLORS[k]}"></span>${t('status_'+k)} · ${c2[k]||0}</div>`).join('');
   }
 
   const wrap = document.getElementById('agentStatsTable');
-  if(agents.length===0){
-    wrap.innerHTML = `<div class="empty"><b>Агентов пока нет</b>Добавьте агентов на вкладке «Агенты»</div>`;
+  if(!isAdmin){ wrap.innerHTML=''; return; }
+  const list = assignableUsers();
+  if(list.length===0){
+    wrap.innerHTML = `<div class="empty"><b>${t('agentstats_empty_title')}</b>${t('agentstats_empty_sub')}</div>`;
   } else {
-    const rows = agents.map(a=>{
+    const rows = list.map(a=>{
       const own = players.filter(p=>p.agentId===a.id);
       const s = {in_work:0, success:0, no_answer:0, failed:0, assigned:0};
       own.forEach(p=>{ if(s[p.status]!==undefined) s[p.status]++; });
       return `<tr>
-        <td><b>${escapeHtml(a.name)}</b></td>
-        <td class="mono">${own.length}</td>
-        <td class="mono">${s.assigned}</td>
-        <td class="mono">${s.in_work}</td>
-        <td class="mono" style="color:#1F6459;">${s.success}</td>
-        <td class="mono" style="color:#C15B4A;">${s.no_answer + s.failed}</td>
+        <td><b>${escapeHtml(a.name)}</b> <span class="badge ${a.role==='admin'?'b-admin':'b-agent'}" style="margin-left:4px;"><span class="dot"></span>${t('role_'+a.role)}</span></td>
+        <td class="mono">${own.length}</td><td class="mono">${s.assigned}</td><td class="mono">${s.in_work}</td>
+        <td class="mono" style="color:#1F6459;">${s.success}</td><td class="mono" style="color:#C15B4A;">${s.no_answer + s.failed}</td>
       </tr>`;
     }).join('');
-    wrap.innerHTML = `<table>
-      <thead><tr><th>Агент</th><th>Всего</th><th>Назначено</th><th>В работе</th><th>Успех</th><th>Провал</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
+    wrap.innerHTML = `<table><thead><tr><th>${t('th_agent')}</th><th>${t('th_total')}</th><th>${t('th_assigned')}</th><th>${t('th_inwork')}</th><th>${t('th_success')}</th><th>${t('th_fail')}</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
 }
 
-/* ---------------- Render: worklist ---------------- */
+/* ==================== Render: worklist ==================== */
 function renderFilterAgentOptions(){
   const sel = document.getElementById('filterAgent');
   const prev = sel.value;
-  sel.innerHTML = '<option value="">Все агенты</option>' + agents.map(a=>`<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
+  sel.innerHTML = `<option value="">${t('filter_all_agents')}</option>` + assignableUsers().map(a=>`<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
   sel.value = [...sel.options].some(o=>o.value===prev) ? prev : '';
-}
-
-function agentName(id){
-  const a = agents.find(x=>x.id===id);
-  return a ? a.name : '—';
 }
 
 function nextActionButtons(p){
   const btns = [];
-  if(p.status==='assigned'){
-    btns.push(`<button class="btn btn-ghost btn-sm act" data-id="${p.id}" data-status="in_work">Взять в работу</button>`);
-  }
+  if(p.status==='assigned') btns.push(`<button class="btn btn-ghost btn-sm act" data-id="${p.id}" data-status="in_work">${t('act_take')}</button>`);
   if(p.status==='in_work'){
-    btns.push(`<button class="btn btn-teal btn-sm act" data-id="${p.id}" data-status="success">Успех</button>`);
-    btns.push(`<button class="btn btn-ghost btn-sm act" data-id="${p.id}" data-status="no_answer">Не отвечает</button>`);
-    btns.push(`<button class="btn btn-danger btn-sm act" data-id="${p.id}" data-status="failed">Не удалось</button>`);
+    btns.push(`<button class="btn btn-teal btn-sm act" data-id="${p.id}" data-status="success">${t('act_success')}</button>`);
+    btns.push(`<button class="btn btn-ghost btn-sm act" data-id="${p.id}" data-status="no_answer">${t('act_no_answer')}</button>`);
+    btns.push(`<button class="btn btn-danger btn-sm act" data-id="${p.id}" data-status="failed">${t('act_failed')}</button>`);
   }
-  if(['success','no_answer','failed'].includes(p.status)){
-    btns.push(`<button class="btn btn-ghost btn-sm act" data-id="${p.id}" data-status="in_work">Вернуть в работу</button>`);
-  }
+  if(['success','no_answer','failed'].includes(p.status)) btns.push(`<button class="btn btn-ghost btn-sm act" data-id="${p.id}" data-status="in_work">${t('act_return')}</button>`);
   return btns.join(' ');
 }
 
 function renderWorklist(){
   renderFilterAgentOptions();
-  const isAgent = currentRole !== 'admin';
-  document.getElementById('worklistSub').textContent = isAgent
-    ? `Ваши контакты — ${agentName(currentRole)}`
-    : 'Контакты и статусы связи по всем агентам';
+  const isAdmin = currentUser.role === 'admin';
+  document.getElementById('worklistSub').textContent = isAdmin ? t('worklist_sub_admin') : t('worklist_sub_agent');
+  document.getElementById('filterAgent').style.display = isAdmin ? '' : 'none';
 
   const search = document.getElementById('searchInput').value.trim().toLowerCase();
-  const fAgent = isAgent ? currentRole : document.getElementById('filterAgent').value;
+  const fAgent = isAdmin ? document.getElementById('filterAgent').value : currentUser.id;
   const fStatus = document.getElementById('filterStatus').value;
-
-  if(isAgent) document.getElementById('filterAgent').closest('.filters').querySelector('#filterAgent').style.display = 'none';
-  else document.getElementById('filterAgent').style.display = '';
 
   let list = players.filter(p=>{
     if(fAgent && p.agentId !== fAgent) return false;
     if(fStatus && p.status !== fStatus) return false;
-    if(search){
-      const hay = `${p.phone} ${p.email} ${p.messenger}`.toLowerCase();
-      if(!hay.includes(search)) return false;
-    }
+    if(search && !`${p.phone} ${p.email} ${p.messenger}`.toLowerCase().includes(search)) return false;
     return true;
   }).sort((a,b)=> (b.updatedAt||b.importedAt||0) - (a.updatedAt||a.importedAt||0));
 
   const wrap = document.getElementById('worklistTableWrap');
   if(list.length===0){
-    wrap.innerHTML = `<div class="empty"><b>Ничего не найдено</b>Измените фильтры или импортируйте новых игроков</div>`;
+    wrap.innerHTML = `<div class="empty"><b>${t('empty_worklist_title')}</b>${t('empty_worklist_sub')}</div>`;
     return;
   }
-
   wrap.innerHTML = `<table>
-    <thead><tr>
-      <th>Контакт</th><th>Email</th><th>Мессенджер</th>${isAdminCol(isAgent)}<th>Статус</th><th>Действие</th>
-    </tr></thead>
-    <tbody>
-      ${list.map(p=>`
-        <tr>
-          <td class="mono">${escapeHtml(p.phone||'—')}</td>
-          <td class="mono">${escapeHtml(p.email||'—')}</td>
-          <td class="mono">${escapeHtml(p.messenger||'—')}</td>
-          ${isAgent ? '' : `<td>${escapeHtml(agentName(p.agentId))}</td>`}
-          <td><span class="badge ${STATUS_META[p.status].cls}"><span class="dot"></span>${STATUS_META[p.status].label}</span></td>
-          <td>${nextActionButtons(p)}</td>
-        </tr>
-      `).join('')}
-    </tbody>
-  </table>`;
+    <thead><tr><th>${t('th_contact')}</th><th>${t('th_email')}</th><th>${t('th_messenger')}</th>${isAdmin ? `<th>${t('th_agent')}</th>` : ''}<th>${t('th_status')}</th><th>${t('th_action')}</th></tr></thead>
+    <tbody>${list.map(p=>{
+      const isMine = !isAdmin && p.agentId===currentUser.id;
+      const locked = isMine && p.status==='assigned';
+      const phoneCell = locked
+        ? `<span class="locked mono" title="${escapeHtml(t('locked_hint'))}"><span class="lock-ico">🔒</span>${escapeHtml(maskPhone(p.phone)||'—')}</span>`
+        : `<span class="mono">${escapeHtml(p.phone||'—')}</span>`;
+      return `
+      <tr>
+        <td>${phoneCell}</td>
+        <td class="mono">${escapeHtml(p.email||'—')}</td>
+        <td class="mono">${escapeHtml(p.messenger||'—')}</td>
+        ${isAdmin ? `<td>${escapeHtml(userDisplayName(p.agentId))}</td>` : ''}
+        <td><span class="badge ${STATUS_CLASS[p.status]}"><span class="dot"></span>${t('status_'+p.status)}</span></td>
+        <td>${nextActionButtons(p)}</td>
+      </tr>`;
+    }).join('')}</tbody></table>`;
 
   wrap.querySelectorAll('.act').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const p = players.find(x=>x.id===btn.dataset.id);
       if(!p) return;
-      p.status = btn.dataset.status;
-      p.updatedAt = Date.now();
-      saveData();
-      render();
-      showToast('Статус обновлён: ' + STATUS_META[p.status].label);
+      p.status = btn.dataset.status; p.updatedAt = Date.now();
+      saveData(); render();
+      showToast(t('toast_status_updated') + ': ' + t('status_'+p.status));
     });
   });
 }
-function isAdminCol(isAgent){ return isAgent ? '' : '<th>Агент</th>'; }
 
 document.getElementById('searchInput').addEventListener('input', renderWorklist);
 document.getElementById('filterAgent').addEventListener('change', renderWorklist);
 document.getElementById('filterStatus').addEventListener('change', renderWorklist);
 
 document.getElementById('exportBtn').addEventListener('click', ()=>{
-  const rows = [['Телефон','Email','Мессенджер','Агент','Статус']];
-  players.forEach(p=>rows.push([p.phone||'', p.email||'', p.messenger||'', agentName(p.agentId), STATUS_META[p.status].label]));
+  const rows = [[t('th_contact'), t('th_email'), t('th_messenger'), t('th_agent'), t('th_status')]];
+  const isAdmin = currentUser.role === 'admin';
+  const scope = isAdmin ? players : players.filter(p=>p.agentId===currentUser.id);
+  scope.forEach(p=>{
+    const locked = !isAdmin && p.status==='assigned';
+    rows.push([locked ? maskPhone(p.phone) : (p.phone||''), p.email||'', p.messenger||'', userDisplayName(p.agentId), t('status_'+p.status)]);
+  });
   const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = 'players_export.csv';
-  a.click();
+  const a = document.createElement('a'); a.href = url; a.download = 'players_export.csv'; a.click();
   URL.revokeObjectURL(url);
 });
 
-/* ---------------- Render: distribute ---------------- */
+/* ==================== Render: distribute ==================== */
 function renderDistribute(){
   const unassigned = players.filter(p=>p.status==='new');
   document.getElementById('unassignedCount').textContent = unassigned.length;
-
   const checks = document.getElementById('distAgentChecks');
-  if(agents.length===0){
-    checks.innerHTML = `<span class="sub" style="margin:0;">Сначала добавьте агентов</span>`;
-  } else {
-    checks.innerHTML = agents.map(a=>`
-      <label class="chk"><input type="checkbox" value="${a.id}" checked> ${escapeHtml(a.name)}</label>
-    `).join('');
-  }
-
-  const manualSel = document.getElementById('manualAgentSelect');
-  manualSel.innerHTML = agents.map(a=>`<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
+  const list = assignableUsers();
+  checks.innerHTML = list.length===0
+    ? `<span class="sub" style="margin:0;">${t('distribute_no_agents')}</span>`
+    : list.map(a=>`<label class="chk"><input type="checkbox" value="${a.id}" checked> ${escapeHtml(a.name)}</label>`).join('');
+  document.getElementById('manualAgentSelect').innerHTML = list.map(a=>`<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
 }
 
 document.getElementById('distributeBtn').addEventListener('click', ()=>{
   const checked = [...document.querySelectorAll('#distAgentChecks input:checked')].map(i=>i.value);
-  if(checked.length===0){ showToast('Выберите хотя бы одного агента'); return; }
+  if(checked.length===0){ showToast(t('toast_pick_agent')); return; }
   const unassigned = players.filter(p=>p.status==='new');
-  if(unassigned.length===0){ showToast('Нет нераспределённых игроков'); return; }
-  unassigned.forEach((p, i)=>{
-    p.agentId = checked[i % checked.length];
-    p.status = 'assigned';
-    p.updatedAt = Date.now();
-  });
-  saveData();
-  render();
-  showToast(`Распределено ${unassigned.length} игроков между ${checked.length} агентами`);
+  if(unassigned.length===0){ showToast(t('toast_no_unassigned')); return; }
+  unassigned.forEach((p, i)=>{ p.agentId = checked[i % checked.length]; p.status = 'assigned'; p.updatedAt = Date.now(); });
+  saveData(); render();
+  showToast(`${t('toast_distributed')} ${checked.length}`);
 });
 
 document.getElementById('manualSearch').addEventListener('input', renderManualResults);
@@ -637,135 +981,147 @@ function renderManualResults(){
   const box = document.getElementById('manualResults');
   if(!q){ box.innerHTML=''; return; }
   const matches = players.filter(p=> (p.phone||'').toLowerCase().includes(q) || (p.email||'').toLowerCase().includes(q)).slice(0,8);
-  if(matches.length===0){ box.innerHTML = `<span class="sub" style="margin:0;">Не найдено</span>`; return; }
+  if(matches.length===0){ box.innerHTML = `<span class="sub" style="margin:0;">${t('manual_none_found')}</span>`; return; }
   box.innerHTML = matches.map(p=>`
-    <div class="agent-row" style="margin-bottom:6px;">
-      <span class="mono">${escapeHtml(p.phone||p.email)} · <span class="badge ${STATUS_META[p.status].cls}"><span class="dot"></span>${STATUS_META[p.status].label}</span> · ${escapeHtml(agentName(p.agentId))}</span>
-      <button class="btn btn-ghost btn-sm pick" data-id="${p.id}">Выбрать</button>
+    <div class="user-row">
+      <span class="mono">${escapeHtml(p.phone||p.email)} · <span class="badge ${STATUS_CLASS[p.status]}"><span class="dot"></span>${t('status_'+p.status)}</span> · ${escapeHtml(userDisplayName(p.agentId))}</span>
+      <button class="btn btn-ghost btn-sm pick" data-id="${p.id}">${t('manual_pick_btn')}</button>
     </div>`).join('');
   box.querySelectorAll('.pick').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      box.dataset.selectedId = btn.dataset.id;
-      showToast('Игрок выбран для назначения');
-    });
+    btn.addEventListener('click', ()=>{ box.dataset.selectedId = btn.dataset.id; showToast(t('manual_selected')); });
   });
 }
 
 document.getElementById('manualAssignBtn').addEventListener('click', ()=>{
   const box = document.getElementById('manualResults');
-  const id = box.dataset.selectedId;
-  const p = players.find(x=>x.id===id);
-  if(!p){ showToast('Сначала выберите игрока из списка'); return; }
+  const p = players.find(x=>x.id===box.dataset.selectedId);
+  if(!p){ showToast(t('manual_pick_first')); return; }
   const agentId = document.getElementById('manualAgentSelect').value;
-  if(!agentId){ showToast('Нет доступных агентов'); return; }
+  if(!agentId){ showToast(t('manual_no_agents')); return; }
   p.agentId = agentId;
   if(p.status==='new') p.status = 'assigned';
   p.updatedAt = Date.now();
-  saveData();
-  render();
-  showToast('Игрок назначен на ' + agentName(agentId));
+  saveData(); render();
+  showToast(`${t('toast_assigned_to')} ${userDisplayName(agentId)}`);
 });
 
-/* ---------------- Import ---------------- */
+/* ==================== Import ==================== */
 document.getElementById('importBtn').addEventListener('click', ()=>{
   const raw = document.getElementById('importArea').value.trim();
-  if(!raw){ showToast('Вставьте список игроков'); return; }
+  if(!raw){ showToast(t('import_empty_warn')); return; }
   const lines = raw.split('\n').map(l=>l.trim()).filter(Boolean);
   let added = 0;
   lines.forEach(line=>{
-    const parts = line.split(/[;,]/).map(s=>s.trim());
-    const [phone, email, messenger] = parts;
+    const [phone, email, messenger] = line.split(/[;,]/).map(s=>s.trim());
     if(!phone && !email && !messenger) return;
-    players.push({
-      id: uid('p'),
-      phone: phone || '',
-      email: email || '',
-      messenger: messenger || '',
-      status: 'new',
-      agentId: null,
-      importedAt: Date.now(),
-      updatedAt: Date.now(),
-    });
+    players.push({ id: uid('p'), phone: phone||'', email: email||'', messenger: messenger||'', status:'new', agentId:null, importedAt:Date.now(), updatedAt:Date.now() });
     added++;
   });
   document.getElementById('importArea').value = '';
-  document.getElementById('importHint').textContent = `Импортировано: ${added}`;
-  saveData();
-  render();
-  showToast(`Добавлено ${added} игроков`);
+  document.getElementById('importHint').textContent = `${t('import_done')}: ${added}`;
+  saveData(); render();
+  showToast(`${t('import_done')}: ${added}`);
 });
 
 document.getElementById('singleAddBtn').addEventListener('click', ()=>{
   const phone = document.getElementById('singlePhone').value.trim();
   const email = document.getElementById('singleEmail').value.trim();
   const msg = document.getElementById('singleMsg').value.trim();
-  if(!phone && !email && !msg){ showToast('Заполните хотя бы одно поле'); return; }
+  if(!phone && !email && !msg){ showToast(t('single_empty_warn')); return; }
   players.push({id:uid('p'), phone, email, messenger:msg, status:'new', agentId:null, importedAt:Date.now(), updatedAt:Date.now()});
-  document.getElementById('singlePhone').value='';
-  document.getElementById('singleEmail').value='';
-  document.getElementById('singleMsg').value='';
-  saveData();
-  render();
-  showToast('Игрок добавлен');
+  document.getElementById('singlePhone').value=''; document.getElementById('singleEmail').value=''; document.getElementById('singleMsg').value='';
+  saveData(); render();
+  showToast(t('single_added'));
 });
 
-/* ---------------- Agents ---------------- */
-function renderAgentsView(){
-  const wrap = document.getElementById('agentList');
-  if(agents.length===0){
-    wrap.innerHTML = `<div class="empty"><b>Пока нет агентов</b>Добавьте первого агента выше</div>`;
-    return;
-  }
-  wrap.innerHTML = agents.map(a=>{
-    const cnt = players.filter(p=>p.agentId===a.id).length;
-    return `<div class="agent-row">
-      <span class="name">${escapeHtml(a.name)}</span>
-      <span class="row" style="gap:12px;">
-        <span class="cnt">${cnt} игроков</span>
-        <button class="btn btn-danger btn-sm del-agent" data-id="${a.id}">Удалить</button>
-      </span>
+/* ==================== Access management ==================== */
+function renderResetRevealBox(){
+  const box = document.getElementById('resetRevealBox');
+  if(!lastResetInfo){ box.innerHTML = ''; return; }
+  box.innerHTML = `<div class="reveal-box">
+    <span class="txt">${t('access_reset_reveal')} <b>@${escapeHtml(lastResetInfo.username)}</b>: <span class="pw">${escapeHtml(lastResetInfo.password)}</span><br>${t('access_reset_note')}</span>
+    <span class="row" style="gap:6px;">
+      <button class="btn btn-teal btn-sm" id="copyResetPw">${t('copy_btn')}</button>
+      <button class="btn btn-ghost btn-sm" id="dismissResetPw">${t('dismiss_btn')}</button>
+    </span>
+  </div>`;
+  document.getElementById('copyResetPw').addEventListener('click', ()=>copyToClipboard(lastResetInfo.password));
+  document.getElementById('dismissResetPw').addEventListener('click', ()=>{ lastResetInfo = null; renderResetRevealBox(); });
+}
+
+function renderAccessView(){
+  if(currentUser.role !== 'admin') return;
+  renderResetRevealBox();
+  const allWrap = document.getElementById('allUsersList');
+  allWrap.innerHTML = users.map(u=>{
+    const roleBadge = `<span class="badge ${u.role==='admin'?'b-admin':'b-agent'}"><span class="dot"></span>${t('role_'+u.role)}</span>`;
+    const isSelf = u.id === currentUser.id;
+    const cnt = players.filter(p=>p.agentId===u.id).length;
+    return `<div class="user-row">
+      <div class="who"><span class="name">${escapeHtml(u.name)} ${roleBadge}</span><span class="uname">@${escapeHtml(u.username)}${cnt?' · '+cnt:''}</span></div>
+      <div class="actions">
+        ${isSelf ? `<span class="sub" style="margin:0;">${t('access_you')}</span>` : `
+          ${u.role!=='agent' ? `<button class="btn btn-ghost btn-sm setrole" data-id="${u.id}" data-role="agent">${t('access_make_agent')}</button>` : ''}
+          ${u.role!=='admin' ? `<button class="btn btn-ghost btn-sm setrole" data-id="${u.id}" data-role="admin">${t('access_make_admin')}</button>` : ''}
+          <button class="btn btn-blue btn-sm reset-pw" data-id="${u.id}">${t('access_reset_pw')}</button>
+          <button class="btn btn-danger btn-sm remove-user" data-id="${u.id}">${t('access_remove')}</button>
+        `}
+      </div>
     </div>`;
   }).join('');
-  wrap.querySelectorAll('.del-agent').forEach(btn=>{
+
+  document.querySelectorAll('.setrole').forEach(btn=>{
     btn.addEventListener('click', ()=>{
-      const id = btn.dataset.id;
-      const cnt = players.filter(p=>p.agentId===id).length;
-      if(cnt>0 && !confirm(`У этого агента ${cnt} назначенных игроков. Они станут нераспределёнными. Удалить агента?`)) return;
-      players.forEach(p=>{ if(p.agentId===id){ p.agentId=null; p.status='new'; } });
-      agents = agents.filter(a=>a.id!==id);
-      saveData();
+      const u = users.find(x=>x.id===btn.dataset.id);
+      if(!u) return;
+      u.role = btn.dataset.role;
+      saveUsers(); render();
+      showToast(t('toast_role_updated'));
+    });
+  });
+  document.querySelectorAll('.reset-pw').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const u = users.find(x=>x.id===btn.dataset.id);
+      if(!u) return;
+      const temp = generateTempPassword(10);
+      const newSalt = randomHex(16);
+      u.salt = newSalt;
+      u.passwordHash = await hashValue(temp, newSalt);
+      saveUsers();
+      lastResetInfo = { username: u.username, password: temp };
       render();
-      showToast('Агент удалён');
+    });
+  });
+  document.querySelectorAll('.remove-user').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      if(!confirm(t('confirm_remove_user'))) return;
+      const id = btn.dataset.id;
+      players.forEach(p=>{ if(p.agentId===id){ p.agentId=null; p.status='new'; } });
+      users = users.filter(u=>u.id!==id);
+      saveData(); saveUsers(); render();
+      showToast(t('toast_user_removed'));
     });
   });
 }
 
-document.getElementById('addAgentBtn').addEventListener('click', ()=>{
-  const input = document.getElementById('newAgentName');
-  const name = input.value.trim();
-  if(!name){ showToast('Введите имя агента'); return; }
-  agents.push({id: uid('a'), name});
-  input.value = '';
-  saveData();
-  render();
-  showToast('Агент добавлен');
-});
+/* ==================== Utils ==================== */
+function escapeHtml(str){ return String(str||'').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 
-/* ---------------- Utils ---------------- */
-function escapeHtml(str){
-  return String(str||'').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-}
-
-/* ---------------- Master render ---------------- */
+/* ==================== Master render ==================== */
 function render(){
-  renderRoleSelect();
+  if(!currentUser) return;
+  renderWhoBox();
+  applyStaticTranslations();
   renderDashboard();
   renderWorklist();
-  renderDistribute();
-  renderAgentsView();
+  if(currentUser.role==='admin'){ renderDistribute(); renderAccessView(); }
 }
 
-loadData();
+/* ==================== Boot ==================== */
+(async function boot(){
+  await loadData();
+  applyStaticTranslations();
+})();
 </script>
 </body>
 </html>
