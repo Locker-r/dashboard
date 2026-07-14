@@ -198,19 +198,22 @@
     <form id="registerForm" style="display:none;">
       <div class="auth-field">
         <label data-i18n="auth_name">Имя</label>
-        <input type="text" id="regName" autocomplete="name">
+        <input type="text" id="regName" autocomplete="name" required minlength="2" maxlength="50">
+        <div class="hint" data-i18n="auth_name_rules">2–50 символов: буквы, пробел, дефис или апостроф.</div>
       </div>
       <div class="auth-field">
         <label data-i18n="auth_username">Логин</label>
-        <input type="text" id="regUsername" autocomplete="username">
+        <input type="text" id="regUsername" autocomplete="username" required minlength="3" maxlength="20" autocapitalize="none" spellcheck="false">
+        <div class="hint" data-i18n="auth_username_rules">3–20 символов: латинские буквы, цифры, точка, дефис или подчёркивание.</div>
       </div>
       <div class="auth-field">
         <label data-i18n="auth_password">Пароль</label>
-        <input type="password" id="regPassword" autocomplete="new-password">
+        <input type="password" id="regPassword" autocomplete="new-password" required minlength="8" maxlength="64">
+        <div class="hint" data-i18n="auth_password_rules">8–64 символа, минимум одна буква и одна цифра, без пробелов.</div>
       </div>
       <div class="auth-field">
         <label data-i18n="auth_security_answer">Секретный ответ (для восстановления пароля)</label>
-        <input type="text" id="regSecurityAnswer" autocomplete="off">
+        <input type="text" id="regSecurityAnswer" autocomplete="off" required minlength="2" maxlength="64">
         <div class="hint" data-i18n="auth_security_hint">Например: имя первого питомца. Понадобится, если забудете пароль.</div>
       </div>
       <button type="submit" class="auth-submit" data-i18n="auth_register_btn">Создать аккаунт</button>
@@ -400,6 +403,14 @@ ru:{
   auth_tab_login:'Войти', auth_tab_register:'Регистрация', auth_username:'Логин', auth_password:'Пароль',
   auth_name:'Имя', auth_login_btn:'Войти', auth_register_btn:'Создать аккаунт', auth_logout:'Выйти',
   auth_err_creds:'Неверный логин или пароль', auth_err_exists:'Такой логин уже занят', auth_err_fields:'Заполните все поля',
+  auth_err_name:'Имя: 2–50 символов, только буквы, пробелы, дефисы и апострофы.',
+  auth_err_username:'Логин: 3–20 символов, латинские буквы, цифры, точка, дефис или подчёркивание. Разделители нельзя ставить подряд или по краям.',
+  auth_err_password:'Пароль: 8–64 символа, минимум одна буква и одна цифра, без пробелов.',
+  auth_err_security:'Секретный ответ: 2–64 символа, буквы, цифры, пробелы и безопасные знаки.',
+  auth_err_save:'Не удалось сохранить аккаунт в браузере. Проверьте доступ к хранилищу и повторите попытку.',
+  auth_name_rules:'2–50 символов: буквы, пробел, дефис или апостроф.',
+  auth_username_rules:'3–20 символов: латинские буквы, цифры, точка, дефис или подчёркивание.',
+  auth_password_rules:'8–64 символа, минимум одна буква и одна цифра, без пробелов.',
   auth_forgot_link:'Забыли пароль?', auth_back_to_login:'← Назад ко входу',
   auth_security_answer:'Секретный ответ (для восстановления пароля)', auth_security_hint:'Например: имя первого питомца. Понадобится, если забудете пароль.',
   auth_new_password:'Новый пароль', auth_reset_btn:'Сохранить новый пароль',
@@ -451,6 +462,14 @@ en:{
   auth_tab_login:'Log in', auth_tab_register:'Register', auth_username:'Username', auth_password:'Password',
   auth_name:'Name', auth_login_btn:'Log in', auth_register_btn:'Create account', auth_logout:'Log out',
   auth_err_creds:'Wrong username or password', auth_err_exists:'That username is already taken', auth_err_fields:'Fill in all fields',
+  auth_err_name:'Name: 2–50 characters; letters, spaces, hyphens and apostrophes only.',
+  auth_err_username:'Username: 3–20 characters using Latin letters, numbers, dots, hyphens or underscores. Separators cannot repeat or appear at the edges.',
+  auth_err_password:'Password: 8–64 characters, at least one letter and one number, with no spaces.',
+  auth_err_security:'Secret answer: 2–64 characters using letters, numbers, spaces and safe punctuation.',
+  auth_err_save:'The account could not be saved in this browser. Check storage access and try again.',
+  auth_name_rules:'2–50 characters: letters, spaces, hyphens or apostrophes.',
+  auth_username_rules:'3–20 characters: Latin letters, numbers, dot, hyphen or underscore.',
+  auth_password_rules:'8–64 characters, at least one letter and one number, no spaces.',
   auth_forgot_link:'Forgot password?', auth_back_to_login:'← Back to login',
   auth_security_answer:'Secret answer (for password recovery)', auth_security_hint:'E.g. your first pet\'s name. You will need this if you forget your password.',
   auth_new_password:'New password', auth_reset_btn:'Save new password',
@@ -502,6 +521,14 @@ es:{
   auth_tab_login:'Iniciar sesión', auth_tab_register:'Registrarse', auth_username:'Usuario', auth_password:'Contraseña',
   auth_name:'Nombre', auth_login_btn:'Iniciar sesión', auth_register_btn:'Crear cuenta', auth_logout:'Cerrar sesión',
   auth_err_creds:'Usuario o contraseña incorrectos', auth_err_exists:'Ese usuario ya existe', auth_err_fields:'Completa todos los campos',
+  auth_err_name:'Nombre: 2–50 caracteres; solo letras, espacios, guiones y apóstrofes.',
+  auth_err_username:'Usuario: 3–20 caracteres con letras latinas, números, puntos, guiones o guiones bajos. Los separadores no pueden repetirse ni ir al inicio o al final.',
+  auth_err_password:'Contraseña: 8–64 caracteres, al menos una letra y un número, sin espacios.',
+  auth_err_security:'Respuesta secreta: 2–64 caracteres con letras, números, espacios y signos seguros.',
+  auth_err_save:'No se pudo guardar la cuenta en este navegador. Verifica el acceso al almacenamiento e inténtalo de nuevo.',
+  auth_name_rules:'2–50 caracteres: letras, espacios, guiones o apóstrofes.',
+  auth_username_rules:'3–20 caracteres: letras latinas, números, punto, guion o guion bajo.',
+  auth_password_rules:'8–64 caracteres, al menos una letra y un número, sin espacios.',
   auth_forgot_link:'¿Olvidaste tu contraseña?', auth_back_to_login:'← Volver al inicio de sesión',
   auth_security_answer:'Respuesta secreta (para recuperar la contraseña)', auth_security_hint:'Por ejemplo: el nombre de tu primera mascota. La necesitarás si olvidas tu contraseña.',
   auth_new_password:'Nueva contraseña', auth_reset_btn:'Guardar nueva contraseña',
@@ -579,6 +606,14 @@ const STATUS_KEYS = { new:1, assigned:1, in_work:1, success:1, no_answer:1, fail
 const STATUS_CLASS = { new:'b-new', assigned:'b-assigned', in_work:'b-in_work', success:'b-success', no_answer:'b-no_answer', failed:'b-failed' };
 const PIPE_COLORS = { new:'#C4CAD4', assigned:'#3E6FA6', in_work:'#D98E3B', success:'#2F8F82', no_answer:'#C9A63C', failed:'#C15B4A' };
 
+// Registration validation rules.
+const REGISTRATION_RULES = {
+  name: /^(?=.{2,50}$)[\p{L}\p{M}]+(?:[ .’'\-][\p{L}\p{M}]+)*$/u,
+  username: /^(?=.{3,20}$)[a-z0-9]+(?:[._-][a-z0-9]+)*$/,
+  password: /^(?=.{8,64}$)(?=.*\p{L})(?=.*\p{N})[^\s]+$/u,
+  securityAnswer: /^(?=.{2,64}$)[\p{L}\p{M}\p{N}][\p{L}\p{M}\p{N} .’'_\-]*$/u
+};
+
 /* ==================== State ==================== */
 let players = [];
 let users = [];
@@ -589,21 +624,57 @@ let lastResetInfo = null;
 function uid(prefix){ return prefix + '_' + Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4); }
 
 /* ==================== Storage ==================== */
+const STORAGE_KEYS = { data:'crm-data', users:'crm-users' };
+
+async function readStorageValue(key){
+  // Use the host storage when available, then mirror it to localStorage.
+  if(window.storage && typeof window.storage.get === 'function'){
+    try{
+      const res = await window.storage.get(key, true);
+      if(res && typeof res.value === 'string'){
+        try{ localStorage.setItem(key, res.value); }catch(_e){}
+        return res.value;
+      }
+    }catch(_e){}
+  }
+  try{ return localStorage.getItem(key); }catch(_e){ return null; }
+}
+
+async function writeStorageValue(key, value){
+  let saved = false;
+  if(window.storage && typeof window.storage.set === 'function'){
+    try{ await window.storage.set(key, value, true); saved = true; }catch(_e){}
+  }
+  try{ localStorage.setItem(key, value); saved = true; }catch(_e){}
+  if(!saved) throw new Error('Storage is unavailable');
+}
+
 async function loadData(){
-  try{ const res = await window.storage.get('crm-data', true); if(res && res.value){ players = (JSON.parse(res.value).players)||[]; } }catch(e){ players = []; }
-  try{ const res2 = await window.storage.get('crm-users', true); if(res2 && res2.value){ users = JSON.parse(res2.value)||[]; } }catch(e){ users = []; }
+  players = [];
+  users = [];
+  try{
+    const raw = await readStorageValue(STORAGE_KEYS.data);
+    if(raw) players = (JSON.parse(raw).players) || [];
+  }catch(_e){ players = []; }
+  try{
+    const raw = await readStorageValue(STORAGE_KEYS.users);
+    if(raw) users = JSON.parse(raw) || [];
+  }catch(_e){ users = []; }
+}
+
+async function saveDataNow(){
+  await writeStorageValue(STORAGE_KEYS.data, JSON.stringify({players}));
+}
+async function saveUsersNow(){
+  await writeStorageValue(STORAGE_KEYS.users, JSON.stringify(users));
 }
 function saveData(){
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(async ()=>{
-    try{ await window.storage.set('crm-data', JSON.stringify({players}), true); } catch(e){ showToast(t('toast_save_error')); }
-  }, 150);
+  saveTimer = setTimeout(()=>saveDataNow().catch(()=>showToast(t('toast_save_error'))), 150);
 }
 function saveUsers(){
   clearTimeout(userSaveTimer);
-  userSaveTimer = setTimeout(async ()=>{
-    try{ await window.storage.set('crm-users', JSON.stringify(users), true); } catch(e){ showToast(t('toast_save_error')); }
-  }, 150);
+  userSaveTimer = setTimeout(()=>saveUsersNow().catch(()=>showToast(t('toast_save_error'))), 150);
 }
 
 function showToast(msg){
@@ -694,23 +765,34 @@ document.getElementById('loginForm').addEventListener('submit', async (e)=>{
 document.getElementById('registerForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
   clearAuthMsgs();
-  const name = document.getElementById('regName').value.trim();
+  const name = document.getElementById('regName').value.trim().replace(/\s+/g, ' ');
   const username = document.getElementById('regUsername').value.trim().toLowerCase();
   const password = document.getElementById('regPassword').value;
-  const securityAnswer = document.getElementById('regSecurityAnswer').value.trim();
+  const securityAnswer = document.getElementById('regSecurityAnswer').value.trim().replace(/\s+/g, ' ');
   if(!name || !username || !password || !securityAnswer){ showAuthError(t('auth_err_fields')); return; }
+  if(!REGISTRATION_RULES.name.test(name)){ showAuthError(t('auth_err_name')); return; }
+  if(!REGISTRATION_RULES.username.test(username)){ showAuthError(t('auth_err_username')); return; }
+  if(!REGISTRATION_RULES.password.test(password)){ showAuthError(t('auth_err_password')); return; }
+  if(!REGISTRATION_RULES.securityAnswer.test(securityAnswer)){ showAuthError(t('auth_err_security')); return; }
   if(users.find(x=>x.username===username)){ showAuthError(t('auth_err_exists')); return; }
   const salt = randomHex(16);
   const passwordHash = await hashValue(password, salt);
   const securitySalt = randomHex(16);
-  const securityAnswerHash = await hashValue(securityAnswer.toLowerCase(), securitySalt);
+  const securityAnswerHash = await hashValue(securityAnswer.toLocaleLowerCase(), securitySalt);
   const isFirst = users.length === 0;
   const newUser = {
     id: uid('u'), username, salt, passwordHash, securitySalt, securityAnswerHash,
     name, role: isFirst ? 'admin' : 'agent', createdAt: Date.now(), lang: currentLang
   };
   users.push(newUser);
-  saveUsers();
+  try{
+    // Wait for durable browser storage before opening the application.
+    await saveUsersNow();
+  }catch(_e){
+    users = users.filter(u=>u.id !== newUser.id);
+    showAuthError(t('auth_err_save'));
+    return;
+  }
   currentUser = newUser;
   document.getElementById('registerForm').reset();
   enterApp();
@@ -723,6 +805,7 @@ document.getElementById('resetForm').addEventListener('submit', async (e)=>{
   const answer = document.getElementById('resetSecurityAnswer').value.trim().toLowerCase();
   const newPassword = document.getElementById('resetNewPassword').value;
   if(!username || !answer || !newPassword){ showAuthError(t('auth_err_fields')); return; }
+  if(!REGISTRATION_RULES.password.test(newPassword)){ showAuthError(t('auth_err_password')); return; }
   const u = users.find(x=>x.username===username);
   if(!u || !u.securitySalt){ showAuthError(t('auth_err_reset')); return; }
   const answerHash = await hashValue(answer, u.securitySalt);
@@ -769,6 +852,7 @@ document.getElementById('changePwForm').addEventListener('submit', async (e)=>{
   const cur = document.getElementById('cpCurrent').value;
   const next = document.getElementById('cpNew').value;
   if(!cur || !next){ cpError.textContent = t('change_pw_fields'); cpError.classList.add('show'); return; }
+  if(!REGISTRATION_RULES.password.test(next)){ cpError.textContent = t('auth_err_password'); cpError.classList.add('show'); return; }
   const hash = await hashValue(cur, currentUser.salt);
   if(hash !== currentUser.passwordHash){ cpError.textContent = t('change_pw_wrong'); cpError.classList.add('show'); return; }
   const newSalt = randomHex(16);
