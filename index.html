@@ -357,7 +357,7 @@ function uid(prefix){ return prefix + '_' + Math.random().toString(36).slice(2,9
 
 async function loadData(){
   try{
-    const res = await window.storage.get('crm-data', true);
+    const res = await localStorage.get('crm-data', true);
     if(res && res.value){
       const parsed = JSON.parse(res.value);
       players = parsed.players || [];
@@ -373,7 +373,7 @@ function saveData(){
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async ()=>{
     try{
-      await window.storage.set('crm-data', JSON.stringify({players, agents}), true);
+      await localStorage.set('crm-data', JSON.stringify({players, agents}), true);
     }catch(e){
       showToast('Не удалось сохранить данные');
     }
