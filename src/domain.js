@@ -34,6 +34,14 @@
     ROLE_FORBIDDEN: 'role_forbidden',
     CONFIRMATION_REQUIRED: 'confirmation_required'
   });
+  const COMMENT_MAX_LENGTH = 1000;
+  const FOLLOW_UP_FILTERS = Object.freeze({
+    ALL: 'all',
+    TODAY: 'today',
+    OVERDUE: 'overdue',
+    SCHEDULED: 'scheduled',
+    NONE: 'none'
+  });
 
   function normalizeRole(role) {
     const normalized = String(role || '').trim().toLowerCase();
@@ -83,6 +91,95 @@
     return Boolean(user.id && player.agentId && user.id === player.agentId);
   }
 
+  function canUserManagePlayer(user, player) {
+    return canUserChangePlayerStatus(user, player);
+  }
+
+  function normalizeStatusHistory(player) {
+    return player && Array.isArray(player.statusHistory)
+      ? player.statusHistory.slice().sort((a, b) => (Number(b && b.changedAt) || 0) - (Number(a && a.changedAt) || 0))
+      : [];
+  }
+
+  function normalizeComments(player) {
+    return player && Array.isArray(player.comments)
+      ? player.comments.slice().sort((a, b) => (Number(b && b.createdAt) || 0) - (Number(a && a.createdAt) || 0))
+      : [];
+  }
+
+  function createStatusHistoryEntry(details) {
+    const data = details || {};
+    const user = data.user || {};
+    return {
+      id: String(data.id || ''),
+      fromStatus: data.fromStatus || '',
+      toStatus: data.toStatus || '',
+      changedAt: Number.isFinite(data.changedAt) ? data.changedAt : Date.now(),
+      userId: user.id || '',
+      userName: user.name || '',
+      userRole: isKnownRole(user.role) ? user.role : ROLES.AGENT
+    };
+  }
+
+  function createComment(details) {
+    const data = details || {};
+    const text = String(data.text || '').trim();
+    if (!text) return { ok: false, reason: 'empty_comment' };
+    if (text.length > COMMENT_MAX_LENGTH) return { ok: false, reason: 'comment_too_long' };
+    const user = data.user || {};
+    return {
+      ok: true,
+      comment: {
+        id: String(data.id || ''),
+        text,
+        createdAt: Number.isFinite(data.createdAt) ? data.createdAt : Date.now(),
+        authorId: user.id || '',
+        authorName: user.name || '',
+        authorRole: isKnownRole(user.role) ? user.role : ROLES.AGENT
+      }
+    };
+  }
+
+  function followUpTimestamp(value) {
+    if (!value) return null;
+    const timestamp = new Date(value).getTime();
+    return Number.isFinite(timestamp) ? timestamp : null;
+  }
+
+  function normalizeFollowUpAt(value) {
+    const timestamp = followUpTimestamp(value);
+    return timestamp === null ? null : new Date(timestamp).toISOString();
+  }
+
+  function isFollowUpToday(value, now) {
+    const timestamp = followUpTimestamp(value);
+    if (timestamp === null) return false;
+    const reference = new Date(Number.isFinite(now) ? now : Date.now());
+    const followUp = new Date(timestamp);
+    return followUp.getFullYear() === reference.getFullYear()
+      && followUp.getMonth() === reference.getMonth()
+      && followUp.getDate() === reference.getDate();
+  }
+
+  function isFollowUpOverdue(value, now) {
+    const timestamp = followUpTimestamp(value);
+    return timestamp !== null && timestamp < (Number.isFinite(now) ? now : Date.now());
+  }
+
+  function isFollowUpScheduled(value, now) {
+    const timestamp = followUpTimestamp(value);
+    return timestamp !== null && timestamp > (Number.isFinite(now) ? now : Date.now());
+  }
+
+  function matchesFollowUpFilter(value, filter, now) {
+    if (!filter || filter === FOLLOW_UP_FILTERS.ALL) return true;
+    if (filter === FOLLOW_UP_FILTERS.TODAY) return isFollowUpToday(value, now);
+    if (filter === FOLLOW_UP_FILTERS.OVERDUE) return isFollowUpOverdue(value, now);
+    if (filter === FOLLOW_UP_FILTERS.SCHEDULED) return isFollowUpScheduled(value, now);
+    if (filter === FOLLOW_UP_FILTERS.NONE) return followUpTimestamp(value) === null;
+    return false;
+  }
+
   function evaluateStatusTransition(user, player, nextStatus, options) {
     if (!user) return { allowed: false, reason: STATUS_TRANSITION_REASONS.NO_CURRENT_USER };
     if (!player) return { allowed: false, reason: STATUS_TRANSITION_REASONS.PLAYER_NOT_FOUND };
@@ -105,6 +202,22 @@
     return { allowed: true, reason: STATUS_TRANSITION_REASONS.ALLOWED };
   }
 
+  function prepareStatusTransition(user, player, nextStatus, options) {
+    const decision = evaluateStatusTransition(user, player, nextStatus, options);
+    if (!decision.allowed) return decision;
+    return {
+      allowed: true,
+      reason: decision.reason,
+      historyEntry: createStatusHistoryEntry({
+        id: options && options.historyId,
+        fromStatus: player.status,
+        toStatus: nextStatus,
+        changedAt: options && options.changedAt,
+        user
+      })
+    };
+  }
+
   function canReassignPlayer(role, playerStatus, hasExplicitConfirmation) {
     if (normalizeRole(role) !== ROLES.ADMIN) return false;
     return !isFinalStatus(playerStatus) || hasExplicitConfirmation === true;
@@ -124,6 +237,8 @@
     STATUSES,
     STATUS_TRANSITIONS,
     STATUS_TRANSITION_REASONS,
+    COMMENT_MAX_LENGTH,
+    FOLLOW_UP_FILTERS,
     normalizeRole,
     isKnownRole,
     normalizePhone,
@@ -133,7 +248,19 @@
     isStatusTransitionAllowed,
     canRoleTransitionStatus,
     canUserChangePlayerStatus,
+    canUserManagePlayer,
+    normalizeStatusHistory,
+    normalizeComments,
+    createStatusHistoryEntry,
+    createComment,
+    followUpTimestamp,
+    normalizeFollowUpAt,
+    isFollowUpToday,
+    isFollowUpOverdue,
+    isFollowUpScheduled,
+    matchesFollowUpFilter,
     evaluateStatusTransition,
+    prepareStatusTransition,
     canReassignPlayer,
     canPerformAdministrativeAction
   });

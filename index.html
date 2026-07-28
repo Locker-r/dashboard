@@ -140,6 +140,19 @@
   .filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:center;}
   .empty{padding:40px 10px;text-align:center;color:var(--text-dim);font-size:13.5px;}
   .empty b{display:block;color:var(--text);font-family:var(--font-display);font-size:15px;margin-bottom:4px;}
+  .follow-up{display:inline-block;padding:3px 8px;border-radius:20px;background:var(--slate-soft);color:var(--text-dim);font-size:11.5px;white-space:nowrap;}
+  .follow-up.today{background:var(--amber-soft);color:#96631E;font-weight:600;}
+  .follow-up.overdue{background:var(--rust-soft);color:var(--rust);font-weight:600;}
+  .follow-up.scheduled{background:var(--blue-soft);color:var(--blue);}
+  .player-detail-cell{padding:0 10px 12px;background:#FBFAF7;}
+  .player-detail{border:1px solid var(--line);border-radius:8px;padding:14px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;}
+  .detail-section h4{font-family:var(--font-display);font-size:13px;margin:0 0 8px;}
+  .detail-section input[type=datetime-local]{width:100%;border:1px solid var(--line);border-radius:7px;padding:8px 10px;background:#fff;color:var(--text);}
+  .detail-section textarea{min-height:68px;margin-bottom:7px;}
+  .activity-list{display:flex;flex-direction:column;gap:7px;max-height:190px;overflow:auto;}
+  .activity-item{border-left:3px solid var(--line);padding:3px 0 3px 8px;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;}
+  .activity-meta{display:block;color:var(--text-dim);font-size:10.5px;margin-top:2px;}
+  .detail-empty{color:var(--text-dim);font-size:12px;}
 
   .user-row{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:#FBFAF7;gap:10px;flex-wrap:wrap;margin-bottom:8px;}
   .user-row .who{display:flex;flex-direction:column;gap:3px;}
@@ -168,6 +181,7 @@
     .sidebar{width:78px;}
     .brand small, nav button span.txt, .who-box, .lang-box button span.txt{display:none;}
     .main{padding:20px;}
+    .player-detail{grid-template-columns:1fr;}
   }
 </style>
 </head>
@@ -308,6 +322,7 @@
           <input type="text" id="searchInput" data-i18n-ph="search_placeholder" placeholder="Поиск: телефон, email, мессенджер…" style="min-width:220px;">
           <select class="field" id="filterAgent"></select>
           <select class="field" id="filterStatus"></select>
+          <select class="field" id="filterFollowUp"></select>
         </div>
         <div id="worklistTableWrap" class="table-scroll"></div>
       </div>
@@ -437,8 +452,9 @@ ru:{
   worklist_title:'Список игроков', worklist_sub_admin:'Контакты и статусы связи по всем агентам', worklist_sub_agent:'Ваши контакты',
   export_btn:'Экспорт CSV', search_placeholder:'Поиск: телефон, email, мессенджер…',
   filter_all_agents:'Все агенты', filter_all_status:'Все статусы',
+  follow_filter_all:'Все контакты', follow_filter_today:'Связаться сегодня', follow_filter_overdue:'Просроченные', follow_filter_scheduled:'Запланированные', follow_filter_none:'Без следующего контакта',
   status_new:'Новый', status_assigned:'Назначен', status_in_work:'Взят в работу', status_success:'Успех', status_no_answer:'Не отвечает', status_failed:'Не удалось связаться',
-  th_contact:'Контакт', th_email:'Email', th_messenger:'Мессенджер', th_status:'Статус', th_action:'Действие',
+  th_contact:'Контакт', th_email:'Email', th_messenger:'Мессенджер', th_status:'Статус', th_action:'Действие', th_follow_up:'Следующий контакт',
   act_take:'Взять в работу', act_success:'Успех', act_no_answer:'Не отвечает', act_failed:'Не удалось', act_return:'Вернуть в работу', act_retry:'Повторить попытку',
   empty_worklist_title:'Ничего не найдено', empty_worklist_sub:'Измените фильтры или импортируйте новых игроков',
   locked_hint:'Полный номер откроется после того, как вы возьмёте контакт в работу',
@@ -462,6 +478,10 @@ ru:{
   copy_btn:'Скопировать', copied_toast:'Скопировано', dismiss_btn:'Скрыть',
   toast_status_updated:'Статус обновлён', toast_status_forbidden:'Этот переход статуса недоступен', toast_status_not_owner:'Нельзя изменить статус чужого игрока',
   confirm_reopen_status:'Переоткрыть завершённого игрока и вернуть его в работу?', toast_distributed:'Распределено между', toast_no_unassigned:'Нет нераспределённых игроков',
+  details_btn:'Детали', follow_up_title:'Следующий контакт', follow_up_none:'Не назначен', follow_up_today:'Сегодня', follow_up_overdue:'Просрочен', follow_up_scheduled:'Запланирован',
+  follow_up_save:'Сохранить', follow_up_clear:'Очистить', follow_up_saved:'Следующий контакт сохранён', follow_up_cleared:'Следующий контакт очищен', follow_up_invalid:'Укажите корректные дату и время',
+  comments_title:'Комментарии', comment_placeholder:'Добавить комментарий…', comment_add:'Добавить', comments_empty:'Комментариев пока нет', comment_empty_error:'Введите текст комментария', comment_long_error:'Комментарий слишком длинный', comment_saved:'Комментарий добавлен',
+  history_title:'История статусов', history_empty:'История пока пуста', player_edit_forbidden:'Недостаточно прав для изменения этого игрока',
   toast_pick_agent:'Выберите хотя бы одного агента', toast_assigned_to:'Игрок назначен на', toast_agent_added:'Агент добавлен',
   toast_role_updated:'Роль обновлена', toast_user_removed:'Аккаунт удалён', toast_save_error:'Не удалось сохранить данные',
   confirm_remove_user:'Удалить этот аккаунт? Назначенные ему игроки станут нераспределёнными.',
@@ -497,8 +517,9 @@ en:{
   worklist_title:'Player list', worklist_sub_admin:'Contacts and outreach status across all agents', worklist_sub_agent:'Your contacts',
   export_btn:'Export CSV', search_placeholder:'Search: phone, email, messenger…',
   filter_all_agents:'All agents', filter_all_status:'All statuses',
+  follow_filter_all:'All follow-ups', follow_filter_today:'Contact today', follow_filter_overdue:'Overdue', follow_filter_scheduled:'Scheduled', follow_filter_none:'No next contact',
   status_new:'New', status_assigned:'Assigned', status_in_work:'In progress', status_success:'Success', status_no_answer:'No answer', status_failed:'Could not reach',
-  th_contact:'Phone', th_email:'Email', th_messenger:'Messenger', th_status:'Status', th_action:'Action',
+  th_contact:'Phone', th_email:'Email', th_messenger:'Messenger', th_status:'Status', th_action:'Action', th_follow_up:'Next contact',
   act_take:'Take in progress', act_success:'Success', act_no_answer:'No answer', act_failed:'Could not reach', act_return:'Reopen', act_retry:'Retry contact',
   empty_worklist_title:'Nothing found', empty_worklist_sub:'Adjust filters or import new players',
   locked_hint:'The full number appears once you take this contact in progress',
@@ -522,6 +543,10 @@ en:{
   copy_btn:'Copy', copied_toast:'Copied', dismiss_btn:'Dismiss',
   toast_status_updated:'Status updated', toast_status_forbidden:'This status transition is not available', toast_status_not_owner:'You cannot change another agent’s player',
   confirm_reopen_status:'Reopen this completed player and return them to in progress?', toast_distributed:'Distributed among', toast_no_unassigned:'No unassigned players',
+  details_btn:'Details', follow_up_title:'Next contact', follow_up_none:'Not scheduled', follow_up_today:'Today', follow_up_overdue:'Overdue', follow_up_scheduled:'Scheduled',
+  follow_up_save:'Save', follow_up_clear:'Clear', follow_up_saved:'Next contact saved', follow_up_cleared:'Next contact cleared', follow_up_invalid:'Enter a valid date and time',
+  comments_title:'Comments', comment_placeholder:'Add a comment…', comment_add:'Add', comments_empty:'No comments yet', comment_empty_error:'Enter a comment', comment_long_error:'Comment is too long', comment_saved:'Comment added',
+  history_title:'Status history', history_empty:'No status history yet', player_edit_forbidden:'You cannot change this player',
   toast_pick_agent:'Select at least one agent', toast_assigned_to:'Player assigned to', toast_agent_added:'Agent added',
   toast_role_updated:'Role updated', toast_user_removed:'Account removed', toast_save_error:'Could not save data',
   confirm_remove_user:'Remove this account? Their assigned players will become unassigned.',
@@ -557,8 +582,9 @@ es:{
   worklist_title:'Lista de jugadores', worklist_sub_admin:'Contactos y estados de gestión de todos los agentes', worklist_sub_agent:'Tus contactos',
   export_btn:'Exportar CSV', search_placeholder:'Buscar: teléfono, email, mensajería…',
   filter_all_agents:'Todos los agentes', filter_all_status:'Todos los estados',
+  follow_filter_all:'Todos los contactos', follow_filter_today:'Contactar hoy', follow_filter_overdue:'Vencidos', follow_filter_scheduled:'Programados', follow_filter_none:'Sin próximo contacto',
   status_new:'Nuevo', status_assigned:'Asignado', status_in_work:'En gestión', status_success:'Éxito', status_no_answer:'No contesta', status_failed:'No se pudo contactar',
-  th_contact:'Teléfono', th_email:'Email', th_messenger:'Mensajería', th_status:'Estado', th_action:'Acción',
+  th_contact:'Teléfono', th_email:'Email', th_messenger:'Mensajería', th_status:'Estado', th_action:'Acción', th_follow_up:'Próximo contacto',
   act_take:'Tomar en gestión', act_success:'Éxito', act_no_answer:'No contesta', act_failed:'No se pudo contactar', act_return:'Reabrir', act_retry:'Reintentar contacto',
   empty_worklist_title:'No se encontró nada', empty_worklist_sub:'Ajusta los filtros o importa nuevos jugadores',
   locked_hint:'El número completo aparece cuando tomes este contacto en gestión',
@@ -582,6 +608,10 @@ es:{
   copy_btn:'Copiar', copied_toast:'Copiado', dismiss_btn:'Ocultar',
   toast_status_updated:'Estado actualizado', toast_status_forbidden:'Esta transición de estado no está disponible', toast_status_not_owner:'No puedes cambiar el estado de un jugador de otro agente',
   confirm_reopen_status:'¿Reabrir este jugador finalizado y devolverlo a gestión?', toast_distributed:'Distribuido entre', toast_no_unassigned:'No hay jugadores sin asignar',
+  details_btn:'Detalles', follow_up_title:'Próximo contacto', follow_up_none:'No programado', follow_up_today:'Hoy', follow_up_overdue:'Vencido', follow_up_scheduled:'Programado',
+  follow_up_save:'Guardar', follow_up_clear:'Limpiar', follow_up_saved:'Próximo contacto guardado', follow_up_cleared:'Próximo contacto eliminado', follow_up_invalid:'Ingresa una fecha y hora válidas',
+  comments_title:'Comentarios', comment_placeholder:'Agregar un comentario…', comment_add:'Agregar', comments_empty:'Aún no hay comentarios', comment_empty_error:'Escribe un comentario', comment_long_error:'El comentario es demasiado largo', comment_saved:'Comentario agregado',
+  history_title:'Historial de estados', history_empty:'Aún no hay historial', player_edit_forbidden:'No puedes modificar este jugador',
   toast_pick_agent:'Selecciona al menos un agente', toast_assigned_to:'Jugador asignado a', toast_agent_added:'Agente agregado',
   toast_role_updated:'Rol actualizado', toast_user_removed:'Cuenta eliminada', toast_save_error:'No se pudo guardar la información',
   confirm_remove_user:'¿Eliminar esta cuenta? Sus jugadores asignados quedarán sin asignar.',
@@ -607,6 +637,13 @@ function applyStaticTranslations(){
   const prev = fs.value;
   fs.innerHTML = `<option value="">${t('filter_all_status')}</option>` + Object.keys(STATUS_KEYS).map(k=>`<option value="${k}">${t('status_'+k)}</option>`).join('');
   fs.value = [...fs.options].some(o=>o.value===prev) ? prev : '';
+  const followFilter = document.getElementById('filterFollowUp');
+  const previousFollowFilter = followFilter.value;
+  followFilter.innerHTML = [
+    ['all','follow_filter_all'], ['today','follow_filter_today'], ['overdue','follow_filter_overdue'],
+    ['scheduled','follow_filter_scheduled'], ['none','follow_filter_none']
+  ].map(([value,key])=>`<option value="${value}">${t(key)}</option>`).join('');
+  followFilter.value = [...followFilter.options].some(o=>o.value===previousFollowFilter) ? previousFollowFilter : 'all';
 }
 
 function setLang(lang){
@@ -983,19 +1020,115 @@ function statusTransitionErrorMessage(reason){
 function requestPlayerStatusTransition(playerId, nextStatus){
   const player = players.find(item=>item.id===playerId);
   let decision = window.ReactivationDomain.evaluateStatusTransition(currentUser, player, nextStatus);
+  const transitionOptions = {};
   if(decision.reason === window.ReactivationDomain.STATUS_TRANSITION_REASONS.CONFIRMATION_REQUIRED){
     if(!confirm(t('confirm_reopen_status'))) return false;
-    decision = window.ReactivationDomain.evaluateStatusTransition(currentUser, player, nextStatus, {adminConfirmed:true});
+    transitionOptions.adminConfirmed = true;
+    decision = window.ReactivationDomain.evaluateStatusTransition(currentUser, player, nextStatus, transitionOptions);
   }
   if(!decision.allowed){
     showToast(statusTransitionErrorMessage(decision.reason));
     return false;
   }
+  const changedAt = Date.now();
+  const prepared = window.ReactivationDomain.prepareStatusTransition(currentUser, player, nextStatus, {
+    ...transitionOptions, historyId:uid('h'), changedAt
+  });
+  if(!prepared.allowed) return false;
+  player.statusHistory = [prepared.historyEntry, ...window.ReactivationDomain.normalizeStatusHistory(player)];
   player.status = nextStatus;
-  player.updatedAt = Date.now();
+  player.updatedAt = changedAt;
   saveData();
   render();
   showToast(t('toast_status_updated') + ': ' + t('status_'+player.status));
+  return true;
+}
+
+function formatLocalDateTime(value){
+  const timestamp = new Date(value).getTime();
+  if(!Number.isFinite(timestamp)) return '—';
+  return new Date(timestamp).toLocaleString(currentLang, {dateStyle:'short', timeStyle:'short'});
+}
+
+function toDateTimeLocalValue(value){
+  const date = new Date(value);
+  if(!Number.isFinite(date.getTime())) return '';
+  const pad = number=>String(number).padStart(2,'0');
+  return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function followUpPresentation(value){
+  const domain = window.ReactivationDomain;
+  if(domain.followUpTimestamp(value)===null) return {className:'', label:t('follow_up_none')};
+  if(domain.isFollowUpToday(value)) return {className:domain.isFollowUpOverdue(value)?'today overdue':'today', label:`${t('follow_up_today')} · ${formatLocalDateTime(value)}`};
+  if(domain.isFollowUpOverdue(value)) return {className:'overdue', label:`${t('follow_up_overdue')} · ${formatLocalDateTime(value)}`};
+  return {className:'scheduled', label:`${t('follow_up_scheduled')} · ${formatLocalDateTime(value)}`};
+}
+
+function renderPlayerDetails(player){
+  const safeId = escapeHtml(player.id);
+  const comments = window.ReactivationDomain.normalizeComments(player);
+  const history = window.ReactivationDomain.normalizeStatusHistory(player);
+  const commentItems = comments.length ? comments.map(item=>`
+    <div class="activity-item">${escapeHtml(item && item.text)}
+      <span class="activity-meta">${escapeHtml((item && item.authorName)||'—')} · ${escapeHtml(formatLocalDateTime(item && item.createdAt))}</span>
+    </div>`).join('') : `<span class="detail-empty">${t('comments_empty')}</span>`;
+  const historyItems = history.length ? history.map(item=>`
+    <div class="activity-item">${escapeHtml(t('status_'+(item && item.fromStatus)))} → ${escapeHtml(t('status_'+(item && item.toStatus)))}
+      <span class="activity-meta">${escapeHtml((item && item.userName)||'—')} · ${escapeHtml(formatLocalDateTime(item && item.changedAt))}</span>
+    </div>`).join('') : `<span class="detail-empty">${t('history_empty')}</span>`;
+  return `<div class="player-detail">
+    <section class="detail-section">
+      <h4>${t('follow_up_title')}</h4>
+      <input type="datetime-local" class="followup-input" data-id="${safeId}" value="${escapeHtml(toDateTimeLocalValue(player.followUpAt))}">
+      <div class="row" style="margin-top:7px;gap:6px;">
+        <button class="btn btn-teal btn-sm followup-save" data-id="${safeId}">${t('follow_up_save')}</button>
+        <button class="btn btn-ghost btn-sm followup-clear" data-id="${safeId}">${t('follow_up_clear')}</button>
+      </div>
+    </section>
+    <section class="detail-section">
+      <h4>${t('comments_title')}</h4>
+      <textarea class="comment-input" data-id="${safeId}" maxlength="${window.ReactivationDomain.COMMENT_MAX_LENGTH}" placeholder="${escapeHtml(t('comment_placeholder'))}"></textarea>
+      <button class="btn btn-ghost btn-sm comment-add" data-id="${safeId}">${t('comment_add')}</button>
+      <div class="activity-list" style="margin-top:9px;">${commentItems}</div>
+    </section>
+    <section class="detail-section">
+      <h4>${t('history_title')}</h4>
+      <div class="activity-list">${historyItems}</div>
+    </section>
+  </div>`;
+}
+
+function canManagePlayerOrNotify(player){
+  if(window.ReactivationDomain.canUserManagePlayer(currentUser, player)) return true;
+  showToast(t('player_edit_forbidden'));
+  return false;
+}
+
+function savePlayerFollowUp(playerId, rawValue, shouldClear){
+  const player = players.find(item=>item.id===playerId);
+  if(!canManagePlayerOrNotify(player)) return false;
+  const normalized = shouldClear ? null : window.ReactivationDomain.normalizeFollowUpAt(rawValue);
+  if(!shouldClear && !normalized){ showToast(t('follow_up_invalid')); return false; }
+  player.followUpAt = normalized;
+  player.updatedAt = Date.now();
+  saveData(); render();
+  showToast(t(shouldClear ? 'follow_up_cleared' : 'follow_up_saved'));
+  return true;
+}
+
+function addPlayerComment(playerId, text){
+  const player = players.find(item=>item.id===playerId);
+  if(!canManagePlayerOrNotify(player)) return false;
+  const result = window.ReactivationDomain.createComment({id:uid('c'), text, createdAt:Date.now(), user:currentUser});
+  if(!result.ok){
+    showToast(t(result.reason==='comment_too_long' ? 'comment_long_error' : 'comment_empty_error'));
+    return false;
+  }
+  player.comments = [result.comment, ...window.ReactivationDomain.normalizeComments(player)];
+  player.updatedAt = Date.now();
+  saveData(); render();
+  showToast(t('comment_saved'));
   return true;
 }
 
@@ -1004,10 +1137,13 @@ function filteredWorklistPlayers(){
   const search = document.getElementById('searchInput').value.trim().toLowerCase();
   const fAgent = isAdmin ? document.getElementById('filterAgent').value : currentUser.id;
   const fStatus = document.getElementById('filterStatus').value;
+  const fFollowUp = document.getElementById('filterFollowUp').value;
+  const now = Date.now();
 
   return players.filter(p=>{
     if(fAgent && p.agentId !== fAgent) return false;
     if(fStatus && p.status !== fStatus) return false;
+    if(!window.ReactivationDomain.matchesFollowUpFilter(p.followUpAt, fFollowUp, now)) return false;
     if(search && !`${p.phone} ${p.email} ${p.messenger}`.toLowerCase().includes(search)) return false;
     return true;
   }).sort((a,b)=> (b.updatedAt||b.importedAt||0) - (a.updatedAt||a.importedAt||0));
@@ -1026,10 +1162,11 @@ function renderWorklist(){
     return;
   }
   wrap.innerHTML = `<table>
-    <thead><tr><th>${t('th_contact')}</th><th>${t('th_email')}</th><th>${t('th_messenger')}</th>${isAdmin ? `<th>${t('th_agent')}</th>` : ''}<th>${t('th_status')}</th><th>${t('th_action')}</th></tr></thead>
+    <thead><tr><th>${t('th_contact')}</th><th>${t('th_email')}</th><th>${t('th_messenger')}</th>${isAdmin ? `<th>${t('th_agent')}</th>` : ''}<th>${t('th_status')}</th><th>${t('th_follow_up')}</th><th>${t('th_action')}</th></tr></thead>
     <tbody>${list.map(p=>{
       const isMine = !isAdmin && p.agentId===currentUser.id;
       const locked = isMine && p.status==='assigned';
+      const followUp = followUpPresentation(p.followUpAt);
       const phoneCell = locked
         ? `<span class="locked mono" title="${escapeHtml(t('locked_hint'))}"><span class="lock-ico">🔒</span>${escapeHtml(maskPhone(p.phone)||'—')}</span>`
         : `<span class="mono">${escapeHtml(p.phone||'—')}</span>`;
@@ -1040,13 +1177,36 @@ function renderWorklist(){
         <td class="mono">${escapeHtml(p.messenger||'—')}</td>
         ${isAdmin ? `<td>${escapeHtml(userDisplayName(p.agentId))}</td>` : ''}
         <td><span class="badge ${escapeHtml(STATUS_CLASS[p.status]||'b-new')}"><span class="dot"></span>${escapeHtml(t('status_'+p.status))}</span></td>
-        <td>${nextActionButtons(p)}</td>
-      </tr>`;
+        <td><span class="follow-up ${followUp.className}">${escapeHtml(followUp.label)}</span></td>
+        <td>${nextActionButtons(p)} <button class="btn btn-ghost btn-sm show-details" data-id="${escapeHtml(p.id)}">${t('details_btn')}</button></td>
+      </tr>
+      <tr class="player-details-row" style="display:none;"><td colspan="${isAdmin ? 7 : 6}" class="player-detail-cell">${renderPlayerDetails(p)}</td></tr>`;
     }).join('')}</tbody></table>`;
 
   wrap.querySelectorAll('.act').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       requestPlayerStatusTransition(btn.dataset.id, btn.dataset.status);
+    });
+  });
+  wrap.querySelectorAll('.show-details').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const detailsRow = btn.closest('tr').nextElementSibling;
+      detailsRow.style.display = detailsRow.style.display==='none' ? '' : 'none';
+    });
+  });
+  wrap.querySelectorAll('.followup-save').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const input = btn.closest('.detail-section').querySelector('.followup-input');
+      savePlayerFollowUp(btn.dataset.id, input.value, false);
+    });
+  });
+  wrap.querySelectorAll('.followup-clear').forEach(btn=>{
+    btn.addEventListener('click', ()=>savePlayerFollowUp(btn.dataset.id, '', true));
+  });
+  wrap.querySelectorAll('.comment-add').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const input = btn.closest('.detail-section').querySelector('.comment-input');
+      addPlayerComment(btn.dataset.id, input.value);
     });
   });
 }
@@ -1058,6 +1218,7 @@ document.getElementById('searchInput').addEventListener('input', ()=>{
 });
 document.getElementById('filterAgent').addEventListener('change', renderWorklist);
 document.getElementById('filterStatus').addEventListener('change', renderWorklist);
+document.getElementById('filterFollowUp').addEventListener('change', renderWorklist);
 
 document.getElementById('exportBtn').addEventListener('click', ()=>{
   const rows = [[t('th_contact'), t('th_email'), t('th_messenger'), t('th_agent'), t('th_status')]];

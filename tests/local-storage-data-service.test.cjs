@@ -79,3 +79,19 @@ test('keeps the current session ephemeral', async () => {
   await service.clearSession();
   assert.equal(await service.getCurrentUser(), null);
 });
+
+test('round-trips player history, comments, and follow-up fields', async () => {
+  const storage = memoryStorage();
+  const service = new LocalStorageDataService({ localStorage: storage });
+  const players = [{
+    id: 'p_activity',
+    status: 'no_answer',
+    followUpAt: '2026-07-30T10:00:00.000Z',
+    statusHistory: [{ id: 'h_1', fromStatus: 'in_work', toStatus: 'no_answer', changedAt: 1 }],
+    comments: [{ id: 'c_1', text: 'Synthetic test comment', createdAt: 2 }]
+  }];
+
+  await service.savePlayers(players);
+  const reloadedService = new LocalStorageDataService({ localStorage: storage });
+  assert.deepEqual(plain(await reloadedService.loadPlayers()), players);
+});
