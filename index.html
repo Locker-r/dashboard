@@ -21,6 +21,9 @@
   body{margin:0;font-family:var(--font-body);background:var(--paper);color:var(--text);}
   ::selection{background:var(--teal);color:#fff;}
   button, select, input{font-family:inherit;}
+  button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible{
+    outline:3px solid rgba(47,143,130,.45);outline-offset:2px;
+  }
 
   /* ---------- Auth screens ---------- */
   #authScreen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;
@@ -116,6 +119,7 @@
   .btn:disabled{opacity:.4;cursor:not-allowed;}
 
   table{width:100%;border-collapse:collapse;font-size:13px;}
+  .table-scroll{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;}
   thead th{text-align:left;font-family:var(--font-mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-dim);border-bottom:1px solid var(--line);padding:8px 10px;font-weight:500;}
   tbody td{padding:10px;border-bottom:1px solid #EFEDE6;vertical-align:middle;}
   tbody tr:hover{background:#FBFAF6;}
@@ -184,35 +188,35 @@
 
     <form id="loginForm">
       <div class="auth-field">
-        <label data-i18n="auth_username">Логин</label>
+        <label for="loginUsername" data-i18n="auth_username">Логин</label>
         <input type="text" id="loginUsername" autocomplete="username">
       </div>
       <div class="auth-field">
-        <label data-i18n="auth_password">Пароль</label>
+        <label for="loginPassword" data-i18n="auth_password">Пароль</label>
         <input type="password" id="loginPassword" autocomplete="current-password">
       </div>
-      <div class="auth-forgot"><a id="forgotLink" data-i18n="auth_forgot_link">Забыли пароль?</a></div>
+      <div class="auth-forgot"><a id="forgotLink" tabindex="0" role="button" data-i18n="auth_forgot_link">Забыли пароль?</a></div>
       <button type="submit" class="auth-submit" data-i18n="auth_login_btn">Войти</button>
     </form>
 
     <form id="registerForm" style="display:none;">
       <div class="auth-field">
-        <label data-i18n="auth_name">Имя</label>
+        <label for="regName" data-i18n="auth_name">Имя</label>
         <input type="text" id="regName" autocomplete="name" required minlength="2" maxlength="50">
         <div class="hint" data-i18n="auth_name_rules">2–50 символов: буквы, пробел, дефис или апостроф.</div>
       </div>
       <div class="auth-field">
-        <label data-i18n="auth_username">Логин</label>
+        <label for="regUsername" data-i18n="auth_username">Логин</label>
         <input type="text" id="regUsername" autocomplete="username" required minlength="3" maxlength="20" autocapitalize="none" spellcheck="false">
         <div class="hint" data-i18n="auth_username_rules">3–20 символов: латинские буквы, цифры, точка, дефис или подчёркивание.</div>
       </div>
       <div class="auth-field">
-        <label data-i18n="auth_password">Пароль</label>
+        <label for="regPassword" data-i18n="auth_password">Пароль</label>
         <input type="password" id="regPassword" autocomplete="new-password" required minlength="8" maxlength="64">
         <div class="hint" data-i18n="auth_password_rules">8–64 символа, минимум одна буква и одна цифра, без пробелов.</div>
       </div>
       <div class="auth-field">
-        <label data-i18n="auth_security_answer">Секретный ответ (для восстановления пароля)</label>
+        <label for="regSecurityAnswer" data-i18n="auth_security_answer">Секретный ответ (для восстановления пароля)</label>
         <input type="text" id="regSecurityAnswer" autocomplete="off" required minlength="2" maxlength="64">
         <div class="hint" data-i18n="auth_security_hint">Например: имя первого питомца. Понадобится, если забудете пароль.</div>
       </div>
@@ -220,26 +224,26 @@
     </form>
 
     <form id="resetForm" style="display:none;">
-      <a class="auth-back" id="backToLoginLink" data-i18n="auth_back_to_login">← Назад ко входу</a>
+      <a class="auth-back" id="backToLoginLink" tabindex="0" role="button" data-i18n="auth_back_to_login">← Назад ко входу</a>
       <div class="auth-field">
-        <label data-i18n="auth_username">Логин</label>
+        <label for="resetUsername" data-i18n="auth_username">Логин</label>
         <input type="text" id="resetUsername" autocomplete="username">
       </div>
       <div class="auth-field">
-        <label data-i18n="auth_security_answer">Секретный ответ (для восстановления пароля)</label>
+        <label for="resetSecurityAnswer" data-i18n="auth_security_answer">Секретный ответ (для восстановления пароля)</label>
         <input type="text" id="resetSecurityAnswer" autocomplete="off">
       </div>
       <div class="auth-field">
-        <label data-i18n="auth_new_password">Новый пароль</label>
+        <label for="resetNewPassword" data-i18n="auth_new_password">Новый пароль</label>
         <input type="password" id="resetNewPassword" autocomplete="new-password">
       </div>
       <button type="submit" class="auth-submit" data-i18n="auth_reset_btn">Сохранить новый пароль</button>
     </form>
 
     <div class="auth-lang">
-      <button data-lang="ru" class="lang-pick">RU</button>
-      <button data-lang="en" class="lang-pick">EN</button>
-      <button data-lang="es" class="lang-pick">ES</button>
+      <button data-lang="ru" class="lang-pick" aria-pressed="true">RU</button>
+      <button data-lang="en" class="lang-pick" aria-pressed="false">EN</button>
+      <button data-lang="es" class="lang-pick" aria-pressed="false">ES</button>
     </div>
   </div>
 </div>
@@ -251,11 +255,11 @@
     <div class="brand" data-i18n="brand_title">Reactivation Desk<small data-i18n="brand_sub">ECUADOR OPS</small></div>
 
     <nav id="nav">
-      <button data-view="dashboard" class="active"><span class="dot"></span><span class="txt" data-i18n="nav_dashboard">Дашборд</span></button>
-      <button data-view="worklist"><span class="dot"></span><span class="txt" data-i18n="nav_worklist">Список игроков</span></button>
-      <button data-view="distribute" data-admin><span class="dot"></span><span class="txt" data-i18n="nav_distribute">Распределение</span></button>
-      <button data-view="import" data-admin><span class="dot"></span><span class="txt" data-i18n="nav_import">Импорт</span></button>
-      <button data-view="access" data-admin><span class="dot"></span><span class="txt" data-i18n="nav_access">Доступы</span></button>
+      <button data-view="dashboard" class="active" aria-label="Дашборд" data-i18n-aria="nav_dashboard"><span class="dot"></span><span class="txt" data-i18n="nav_dashboard">Дашборд</span></button>
+      <button data-view="worklist" aria-label="Список игроков" data-i18n-aria="nav_worklist"><span class="dot"></span><span class="txt" data-i18n="nav_worklist">Список игроков</span></button>
+      <button data-view="distribute" data-admin aria-label="Распределение" data-i18n-aria="nav_distribute"><span class="dot"></span><span class="txt" data-i18n="nav_distribute">Распределение</span></button>
+      <button data-view="import" data-admin aria-label="Импорт" data-i18n-aria="nav_import"><span class="dot"></span><span class="txt" data-i18n="nav_import">Импорт</span></button>
+      <button data-view="access" data-admin aria-label="Доступы" data-i18n-aria="nav_access"><span class="dot"></span><span class="txt" data-i18n="nav_access">Доступы</span></button>
     </nav>
 
     <div class="sidebar-foot">
@@ -265,9 +269,9 @@
         <button class="who-change-pw" id="openChangePw" data-i18n="change_pw_link">Сменить пароль</button>
       </div>
       <div class="lang-box">
-        <button data-lang="ru" class="lang-pick-app">RU</button>
-        <button data-lang="en" class="lang-pick-app">EN</button>
-        <button data-lang="es" class="lang-pick-app">ES</button>
+        <button data-lang="ru" class="lang-pick-app" aria-pressed="true">RU</button>
+        <button data-lang="en" class="lang-pick-app" aria-pressed="false">EN</button>
+        <button data-lang="es" class="lang-pick-app" aria-pressed="false">ES</button>
       </div>
       <button class="logout-btn" id="logoutBtn" data-i18n="auth_logout">Выйти</button>
     </div>
@@ -289,7 +293,7 @@
       <div class="card">
         <h3 data-i18n="agentstats_title">По агентам</h3>
         <p class="sub" data-i18n="agentstats_sub">Нагрузка и результативность каждого агента</p>
-        <div id="agentStatsTable"></div>
+        <div id="agentStatsTable" class="table-scroll"></div>
       </div>
     </section>
 
@@ -305,7 +309,7 @@
           <select class="field" id="filterAgent"></select>
           <select class="field" id="filterStatus"></select>
         </div>
-        <div id="worklistTableWrap"></div>
+        <div id="worklistTableWrap" class="table-scroll"></div>
       </div>
     </section>
 
@@ -384,8 +388,8 @@
     <div class="auth-error" id="changePwError"></div>
     <div class="auth-hint" id="changePwHint"></div>
     <form id="changePwForm">
-      <div class="auth-field"><label data-i18n="change_pw_current">Текущий пароль</label><input type="password" id="cpCurrent"></div>
-      <div class="auth-field"><label data-i18n="change_pw_new">Новый пароль</label><input type="password" id="cpNew"></div>
+      <div class="auth-field"><label for="cpCurrent" data-i18n="change_pw_current">Текущий пароль</label><input type="password" id="cpCurrent"></div>
+      <div class="auth-field"><label for="cpNew" data-i18n="change_pw_new">Новый пароль</label><input type="password" id="cpNew"></div>
       <div class="row" style="margin-top:6px;">
         <button type="submit" class="btn btn-primary btn-sm" data-i18n="change_pw_submit">Сохранить</button>
         <button type="button" class="btn btn-ghost btn-sm" id="cpCancel" data-i18n="change_pw_cancel">Отмена</button>
@@ -394,7 +398,7 @@
   </div>
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
 /* ==================== i18n ==================== */
@@ -586,10 +590,17 @@ function applyStaticTranslations(){
     (el.firstChild && el.firstChild.nodeType===3) ? (el.firstChild.textContent = t(el.dataset.i18n)) : (el.textContent = t(el.dataset.i18n));
   });
   document.querySelectorAll('[data-i18n-ph]').forEach(el=>{ el.placeholder = t(el.dataset.i18nPh); });
+  document.querySelectorAll('[data-i18n-aria]').forEach(el=>{ el.setAttribute('aria-label', t(el.dataset.i18nAria)); });
   document.getElementById('importArea').placeholder = t('import_textarea_placeholder');
-  document.querySelectorAll('.lang-pick, .lang-pick-app').forEach(b=>b.classList.toggle('active', b.dataset.lang===currentLang));
+  document.querySelectorAll('.lang-pick, .lang-pick-app').forEach(b=>{
+    const isActive = b.dataset.lang===currentLang;
+    b.classList.toggle('active', isActive);
+    b.setAttribute('aria-pressed', String(isActive));
+  });
   const fs = document.getElementById('filterStatus');
+  const prev = fs.value;
   fs.innerHTML = `<option value="">${t('filter_all_status')}</option>` + Object.keys(STATUS_KEYS).map(k=>`<option value="${k}">${t('status_'+k)}</option>`).join('');
+  fs.value = [...fs.options].some(o=>o.value===prev) ? prev : '';
 }
 
 function setLang(lang){
@@ -620,6 +631,7 @@ let users = [];
 let currentUser = null;
 let saveTimer = null, userSaveTimer = null;
 let lastResetInfo = null;
+let distributionCursor = 0;
 
 function uid(prefix){ return prefix + '_' + Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4); }
 
@@ -670,12 +682,21 @@ async function saveUsersNow(){
 }
 function saveData(){
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(()=>saveDataNow().catch(()=>showToast(t('toast_save_error'))), 150);
+  saveTimer = setTimeout(()=>{ saveTimer = null; saveDataNow().catch(()=>showToast(t('toast_save_error'))); }, 150);
 }
 function saveUsers(){
   clearTimeout(userSaveTimer);
-  userSaveTimer = setTimeout(()=>saveUsersNow().catch(()=>showToast(t('toast_save_error'))), 150);
+  userSaveTimer = setTimeout(()=>{ userSaveTimer = null; saveUsersNow().catch(()=>showToast(t('toast_save_error'))); }, 150);
 }
+async function flushPendingSaves(){
+  const pending = [];
+  if(saveTimer){ clearTimeout(saveTimer); saveTimer = null; pending.push(saveDataNow()); }
+  if(userSaveTimer){ clearTimeout(userSaveTimer); userSaveTimer = null; pending.push(saveUsersNow()); }
+  if(pending.length) await Promise.all(pending).catch(()=>showToast(t('toast_save_error')));
+}
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'hidden') flushPendingSaves();
+});
 
 function showToast(msg){
   const el = document.getElementById('toast');
@@ -712,7 +733,7 @@ function fallbackCopy(text){
   }catch(e){}
 }
 
-function assignableUsers(){ return users.filter(u=>u.role==='agent' || u.role==='admin'); }
+function assignableUsers(){ return users.filter(u=>u.role==='agent'); }
 function userById(id){ return users.find(u=>u.id===id); }
 function userDisplayName(id){ const u=userById(id); return u ? u.name : '—'; }
 
@@ -746,6 +767,8 @@ document.getElementById('tabLogin').addEventListener('click', ()=>showAuthView('
 document.getElementById('tabRegister').addEventListener('click', ()=>showAuthView('register'));
 document.getElementById('forgotLink').addEventListener('click', (e)=>{ e.preventDefault(); showAuthView('reset'); });
 document.getElementById('backToLoginLink').addEventListener('click', (e)=>{ e.preventDefault(); showAuthView('login'); });
+document.getElementById('forgotLink').addEventListener('keydown', (e)=>{ if(e.key==='Enter' || e.key===' '){ e.preventDefault(); e.currentTarget.click(); } });
+document.getElementById('backToLoginLink').addEventListener('keydown', (e)=>{ if(e.key==='Enter' || e.key===' '){ e.preventDefault(); e.currentTarget.click(); } });
 
 document.getElementById('loginForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
@@ -937,7 +960,7 @@ function renderDashboard(){
       const s = {in_work:0, success:0, no_answer:0, failed:0, assigned:0};
       own.forEach(p=>{ if(s[p.status]!==undefined) s[p.status]++; });
       return `<tr>
-        <td><b>${escapeHtml(a.name)}</b> <span class="badge ${a.role==='admin'?'b-admin':'b-agent'}" style="margin-left:4px;"><span class="dot"></span>${t('role_'+a.role)}</span></td>
+        <td><b>${escapeHtml(a.name)}</b> <span class="badge b-agent" style="margin-left:4px;"><span class="dot"></span>${escapeHtml(t('role_'+a.role))}</span></td>
         <td class="mono">${own.length}</td><td class="mono">${s.assigned}</td><td class="mono">${s.in_work}</td>
         <td class="mono" style="color:#1F6459;">${s.success}</td><td class="mono" style="color:#C15B4A;">${s.no_answer + s.failed}</td>
       </tr>`;
@@ -950,20 +973,35 @@ function renderDashboard(){
 function renderFilterAgentOptions(){
   const sel = document.getElementById('filterAgent');
   const prev = sel.value;
-  sel.innerHTML = `<option value="">${t('filter_all_agents')}</option>` + assignableUsers().map(a=>`<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
+  sel.innerHTML = `<option value="">${t('filter_all_agents')}</option>` + assignableUsers().map(a=>`<option value="${escapeHtml(a.id)}">${escapeHtml(a.name)}</option>`).join('');
   sel.value = [...sel.options].some(o=>o.value===prev) ? prev : '';
 }
 
 function nextActionButtons(p){
   const btns = [];
-  if(p.status==='assigned') btns.push(`<button class="btn btn-ghost btn-sm act" data-id="${p.id}" data-status="in_work">${t('act_take')}</button>`);
+  const safeId = escapeHtml(p.id);
+  if(p.status==='assigned') btns.push(`<button class="btn btn-ghost btn-sm act" data-id="${safeId}" data-status="in_work">${t('act_take')}</button>`);
   if(p.status==='in_work'){
-    btns.push(`<button class="btn btn-teal btn-sm act" data-id="${p.id}" data-status="success">${t('act_success')}</button>`);
-    btns.push(`<button class="btn btn-ghost btn-sm act" data-id="${p.id}" data-status="no_answer">${t('act_no_answer')}</button>`);
-    btns.push(`<button class="btn btn-danger btn-sm act" data-id="${p.id}" data-status="failed">${t('act_failed')}</button>`);
+    btns.push(`<button class="btn btn-teal btn-sm act" data-id="${safeId}" data-status="success">${t('act_success')}</button>`);
+    btns.push(`<button class="btn btn-ghost btn-sm act" data-id="${safeId}" data-status="no_answer">${t('act_no_answer')}</button>`);
+    btns.push(`<button class="btn btn-danger btn-sm act" data-id="${safeId}" data-status="failed">${t('act_failed')}</button>`);
   }
-  if(['success','no_answer','failed'].includes(p.status)) btns.push(`<button class="btn btn-ghost btn-sm act" data-id="${p.id}" data-status="in_work">${t('act_return')}</button>`);
+  if(['success','no_answer','failed'].includes(p.status)) btns.push(`<button class="btn btn-ghost btn-sm act" data-id="${safeId}" data-status="in_work">${t('act_return')}</button>`);
   return btns.join(' ');
+}
+
+function filteredWorklistPlayers(){
+  const isAdmin = currentUser.role === 'admin';
+  const search = document.getElementById('searchInput').value.trim().toLowerCase();
+  const fAgent = isAdmin ? document.getElementById('filterAgent').value : currentUser.id;
+  const fStatus = document.getElementById('filterStatus').value;
+
+  return players.filter(p=>{
+    if(fAgent && p.agentId !== fAgent) return false;
+    if(fStatus && p.status !== fStatus) return false;
+    if(search && !`${p.phone} ${p.email} ${p.messenger}`.toLowerCase().includes(search)) return false;
+    return true;
+  }).sort((a,b)=> (b.updatedAt||b.importedAt||0) - (a.updatedAt||a.importedAt||0));
 }
 
 function renderWorklist(){
@@ -971,17 +1009,7 @@ function renderWorklist(){
   const isAdmin = currentUser.role === 'admin';
   document.getElementById('worklistSub').textContent = isAdmin ? t('worklist_sub_admin') : t('worklist_sub_agent');
   document.getElementById('filterAgent').style.display = isAdmin ? '' : 'none';
-
-  const search = document.getElementById('searchInput').value.trim().toLowerCase();
-  const fAgent = isAdmin ? document.getElementById('filterAgent').value : currentUser.id;
-  const fStatus = document.getElementById('filterStatus').value;
-
-  let list = players.filter(p=>{
-    if(fAgent && p.agentId !== fAgent) return false;
-    if(fStatus && p.status !== fStatus) return false;
-    if(search && !`${p.phone} ${p.email} ${p.messenger}`.toLowerCase().includes(search)) return false;
-    return true;
-  }).sort((a,b)=> (b.updatedAt||b.importedAt||0) - (a.updatedAt||a.importedAt||0));
+  const list = filteredWorklistPlayers();
 
   const wrap = document.getElementById('worklistTableWrap');
   if(list.length===0){
@@ -1002,7 +1030,7 @@ function renderWorklist(){
         <td class="mono">${escapeHtml(p.email||'—')}</td>
         <td class="mono">${escapeHtml(p.messenger||'—')}</td>
         ${isAdmin ? `<td>${escapeHtml(userDisplayName(p.agentId))}</td>` : ''}
-        <td><span class="badge ${STATUS_CLASS[p.status]}"><span class="dot"></span>${t('status_'+p.status)}</span></td>
+        <td><span class="badge ${escapeHtml(STATUS_CLASS[p.status]||'b-new')}"><span class="dot"></span>${escapeHtml(t('status_'+p.status))}</span></td>
         <td>${nextActionButtons(p)}</td>
       </tr>`;
     }).join('')}</tbody></table>`;
@@ -1018,23 +1046,33 @@ function renderWorklist(){
   });
 }
 
-document.getElementById('searchInput').addEventListener('input', renderWorklist);
+let worklistSearchTimer = null;
+document.getElementById('searchInput').addEventListener('input', ()=>{
+  clearTimeout(worklistSearchTimer);
+  worklistSearchTimer = setTimeout(renderWorklist, 275);
+});
 document.getElementById('filterAgent').addEventListener('change', renderWorklist);
 document.getElementById('filterStatus').addEventListener('change', renderWorklist);
 
 document.getElementById('exportBtn').addEventListener('click', ()=>{
   const rows = [[t('th_contact'), t('th_email'), t('th_messenger'), t('th_agent'), t('th_status')]];
   const isAdmin = currentUser.role === 'admin';
-  const scope = isAdmin ? players : players.filter(p=>p.agentId===currentUser.id);
+  const scope = filteredWorklistPlayers();
   scope.forEach(p=>{
     const locked = !isAdmin && p.status==='assigned';
     rows.push([locked ? maskPhone(p.phone) : (p.phone||''), p.email||'', p.messenger||'', userDisplayName(p.agentId), t('status_'+p.status)]);
   });
-  const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const safeCsvValue = value=>{
+    let text = String(value);
+    if(/^[=+\-@]/.test(text)) text = "'" + text;
+    return `"${text.replace(/"/g,'""')}"`;
+  };
+  const csv = '\uFEFF' + rows.map(r=>r.map(safeCsvValue).join(',')).join('\r\n');
   const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = 'players_export.csv'; a.click();
-  URL.revokeObjectURL(url);
+  const a = document.createElement('a'); a.href = url; a.download = 'players_export.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
 });
 
 /* ==================== Render: distribute ==================== */
@@ -1042,11 +1080,14 @@ function renderDistribute(){
   const unassigned = players.filter(p=>p.status==='new');
   document.getElementById('unassignedCount').textContent = unassigned.length;
   const checks = document.getElementById('distAgentChecks');
+  const previousInputs = [...checks.querySelectorAll('input[type="checkbox"]')];
+  const previousChecked = new Set(previousInputs.filter(i=>i.checked).map(i=>i.value));
+  const hadPreviousSelection = previousInputs.length > 0;
   const list = assignableUsers();
   checks.innerHTML = list.length===0
     ? `<span class="sub" style="margin:0;">${t('distribute_no_agents')}</span>`
-    : list.map(a=>`<label class="chk"><input type="checkbox" value="${a.id}" checked> ${escapeHtml(a.name)}</label>`).join('');
-  document.getElementById('manualAgentSelect').innerHTML = list.map(a=>`<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
+    : list.map(a=>`<label class="chk"><input type="checkbox" value="${escapeHtml(a.id)}" ${!hadPreviousSelection || previousChecked.has(a.id) ? 'checked' : ''}> ${escapeHtml(a.name)}</label>`).join('');
+  document.getElementById('manualAgentSelect').innerHTML = list.map(a=>`<option value="${escapeHtml(a.id)}">${escapeHtml(a.name)}</option>`).join('');
 }
 
 document.getElementById('distributeBtn').addEventListener('click', ()=>{
@@ -1054,7 +1095,8 @@ document.getElementById('distributeBtn').addEventListener('click', ()=>{
   if(checked.length===0){ showToast(t('toast_pick_agent')); return; }
   const unassigned = players.filter(p=>p.status==='new');
   if(unassigned.length===0){ showToast(t('toast_no_unassigned')); return; }
-  unassigned.forEach((p, i)=>{ p.agentId = checked[i % checked.length]; p.status = 'assigned'; p.updatedAt = Date.now(); });
+  unassigned.forEach((p, i)=>{ p.agentId = checked[(distributionCursor + i) % checked.length]; p.status = 'assigned'; p.updatedAt = Date.now(); });
+  distributionCursor = (distributionCursor + unassigned.length) % checked.length;
   saveData(); render();
   showToast(`${t('toast_distributed')} ${checked.length}`);
 });
@@ -1063,13 +1105,14 @@ document.getElementById('manualSearch').addEventListener('input', renderManualRe
 function renderManualResults(){
   const q = document.getElementById('manualSearch').value.trim().toLowerCase();
   const box = document.getElementById('manualResults');
+  delete box.dataset.selectedId;
   if(!q){ box.innerHTML=''; return; }
   const matches = players.filter(p=> (p.phone||'').toLowerCase().includes(q) || (p.email||'').toLowerCase().includes(q)).slice(0,8);
   if(matches.length===0){ box.innerHTML = `<span class="sub" style="margin:0;">${t('manual_none_found')}</span>`; return; }
   box.innerHTML = matches.map(p=>`
     <div class="user-row">
-      <span class="mono">${escapeHtml(p.phone||p.email)} · <span class="badge ${STATUS_CLASS[p.status]}"><span class="dot"></span>${t('status_'+p.status)}</span> · ${escapeHtml(userDisplayName(p.agentId))}</span>
-      <button class="btn btn-ghost btn-sm pick" data-id="${p.id}">${t('manual_pick_btn')}</button>
+      <span class="mono">${escapeHtml(p.phone||p.email)} · <span class="badge ${escapeHtml(STATUS_CLASS[p.status]||'b-new')}"><span class="dot"></span>${escapeHtml(t('status_'+p.status))}</span> · ${escapeHtml(userDisplayName(p.agentId))}</span>
+      <button class="btn btn-ghost btn-sm pick" data-id="${escapeHtml(p.id)}">${t('manual_pick_btn')}</button>
     </div>`).join('');
   box.querySelectorAll('.pick').forEach(btn=>{
     btn.addEventListener('click', ()=>{ box.dataset.selectedId = btn.dataset.id; showToast(t('manual_selected')); });
@@ -1083,7 +1126,7 @@ document.getElementById('manualAssignBtn').addEventListener('click', ()=>{
   const agentId = document.getElementById('manualAgentSelect').value;
   if(!agentId){ showToast(t('manual_no_agents')); return; }
   p.agentId = agentId;
-  if(p.status==='new') p.status = 'assigned';
+  p.status = 'assigned';
   p.updatedAt = Date.now();
   saveData(); render();
   showToast(`${t('toast_assigned_to')} ${userDisplayName(agentId)}`);
@@ -1138,17 +1181,19 @@ function renderAccessView(){
   renderResetRevealBox();
   const allWrap = document.getElementById('allUsersList');
   allWrap.innerHTML = users.map(u=>{
-    const roleBadge = `<span class="badge ${u.role==='admin'?'b-admin':'b-agent'}"><span class="dot"></span>${t('role_'+u.role)}</span>`;
+    const safeId = escapeHtml(u.id);
+    const safeRole = u.role==='admin' ? 'admin' : 'agent';
+    const roleBadge = `<span class="badge ${safeRole==='admin'?'b-admin':'b-agent'}"><span class="dot"></span>${escapeHtml(t('role_'+safeRole))}</span>`;
     const isSelf = u.id === currentUser.id;
     const cnt = players.filter(p=>p.agentId===u.id).length;
     return `<div class="user-row">
       <div class="who"><span class="name">${escapeHtml(u.name)} ${roleBadge}</span><span class="uname">@${escapeHtml(u.username)}${cnt?' · '+cnt:''}</span></div>
       <div class="actions">
         ${isSelf ? `<span class="sub" style="margin:0;">${t('access_you')}</span>` : `
-          ${u.role!=='agent' ? `<button class="btn btn-ghost btn-sm setrole" data-id="${u.id}" data-role="agent">${t('access_make_agent')}</button>` : ''}
-          ${u.role!=='admin' ? `<button class="btn btn-ghost btn-sm setrole" data-id="${u.id}" data-role="admin">${t('access_make_admin')}</button>` : ''}
-          <button class="btn btn-blue btn-sm reset-pw" data-id="${u.id}">${t('access_reset_pw')}</button>
-          <button class="btn btn-danger btn-sm remove-user" data-id="${u.id}">${t('access_remove')}</button>
+          ${u.role!=='agent' ? `<button class="btn btn-ghost btn-sm setrole" data-id="${safeId}" data-role="agent">${t('access_make_agent')}</button>` : ''}
+          ${u.role!=='admin' ? `<button class="btn btn-ghost btn-sm setrole" data-id="${safeId}" data-role="admin">${t('access_make_admin')}</button>` : ''}
+          <button class="btn btn-blue btn-sm reset-pw" data-id="${safeId}">${t('access_reset_pw')}</button>
+          <button class="btn btn-danger btn-sm remove-user" data-id="${safeId}">${t('access_remove')}</button>
         `}
       </div>
     </div>`;
@@ -1180,7 +1225,7 @@ function renderAccessView(){
     btn.addEventListener('click', ()=>{
       if(!confirm(t('confirm_remove_user'))) return;
       const id = btn.dataset.id;
-      players.forEach(p=>{ if(p.agentId===id){ p.agentId=null; p.status='new'; } });
+      players.forEach(p=>{ if(p.agentId===id){ p.agentId=null; p.status='new'; p.updatedAt=Date.now(); } });
       users = users.filter(u=>u.id!==id);
       saveData(); saveUsers(); render();
       showToast(t('toast_user_removed'));
