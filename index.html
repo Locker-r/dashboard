@@ -400,6 +400,9 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+<script src="./src/domain.js"></script>
+<script src="./src/data/data-service.js"></script>
+<script src="./src/data/local-storage-data-service.js"></script>
 <script>
 /* ==================== i18n ==================== */
 const I18N = {
@@ -637,48 +640,20 @@ function uid(prefix){ return prefix + '_' + Math.random().toString(36).slice(2,9
 
 /* ==================== Storage ==================== */
 const STORAGE_KEYS = { data:'crm-data', users:'crm-users' };
-
-async function readStorageValue(key){
-  // Use the host storage when available, then mirror it to localStorage.
-  if(window.storage && typeof window.storage.get === 'function'){
-    try{
-      const res = await window.storage.get(key, true);
-      if(res && typeof res.value === 'string'){
-        try{ localStorage.setItem(key, res.value); }catch(_e){}
-        return res.value;
-      }
-    }catch(_e){}
-  }
-  try{ return localStorage.getItem(key); }catch(_e){ return null; }
-}
-
-async function writeStorageValue(key, value){
-  let saved = false;
-  if(window.storage && typeof window.storage.set === 'function'){
-    try{ await window.storage.set(key, value, true); saved = true; }catch(_e){}
-  }
-  try{ localStorage.setItem(key, value); saved = true; }catch(_e){}
-  if(!saved) throw new Error('Storage is unavailable');
-}
+const dataService = window.ReactivationData.createBrowserDataService({ keys: STORAGE_KEYS });
 
 async function loadData(){
-  players = [];
-  users = [];
-  try{
-    const raw = await readStorageValue(STORAGE_KEYS.data);
-    if(raw) players = (JSON.parse(raw).players) || [];
-  }catch(_e){ players = []; }
-  try{
-    const raw = await readStorageValue(STORAGE_KEYS.users);
-    if(raw) users = JSON.parse(raw) || [];
-  }catch(_e){ users = []; }
+  [players, users] = await Promise.all([
+    dataService.loadPlayers(),
+    dataService.loadUsers()
+  ]);
 }
 
 async function saveDataNow(){
-  await writeStorageValue(STORAGE_KEYS.data, JSON.stringify({players}));
+  await dataService.savePlayers(players);
 }
 async function saveUsersNow(){
-  await writeStorageValue(STORAGE_KEYS.users, JSON.stringify(users));
+  await dataService.saveUsers(users);
 }
 function saveData(){
   clearTimeout(saveTimer);
@@ -781,6 +756,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e)=>{
   const hash = await hashValue(password, u.salt);
   if(hash !== u.passwordHash){ showAuthError(t('auth_err_creds')); return; }
   currentUser = u;
+  await dataService.saveCurrentUser(u);
   if(u.lang){ currentLang = u.lang; }
   enterApp();
 });
@@ -817,6 +793,7 @@ document.getElementById('registerForm').addEventListener('submit', async (e)=>{
     return;
   }
   currentUser = newUser;
+  await dataService.saveCurrentUser(newUser);
   document.getElementById('registerForm').reset();
   enterApp();
 });
@@ -843,7 +820,8 @@ document.getElementById('resetForm').addEventListener('submit', async (e)=>{
 });
 
 document.getElementById('logoutBtn').addEventListener('click', logout);
-function logout(){
+async function logout(){
+  await dataService.clearSession();
   currentUser = null;
   document.getElementById('authScreen').style.display='flex';
   document.getElementById('appShell').style.display='none';
@@ -1249,6 +1227,7 @@ function render(){
 /* ==================== Boot ==================== */
 (async function boot(){
   await loadData();
+  currentUser = await dataService.getCurrentUser();
   applyStaticTranslations();
 })();
 </script>
