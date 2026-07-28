@@ -37,6 +37,53 @@ test('enforces approved status transitions by role', () => {
   assert.equal(domain.canRoleTransitionStatus('admin', 'new', 'success'), false);
 });
 
+test('allows no_answer to return to assigned', () => {
+  assert.equal(domain.isStatusTransitionAllowed('no_answer', 'assigned'), true);
+});
+
+test('rejects terminal-to-assigned and malformed transitions safely', () => {
+  assert.equal(domain.canRoleTransitionStatus('agent', 'success', 'assigned'), false);
+  assert.equal(domain.canRoleTransitionStatus('agent', 'failed', 'assigned'), false);
+  assert.equal(domain.isStatusTransitionAllowed('assigned', 'assigned'), false);
+  assert.equal(domain.isStatusTransitionAllowed('unknown', 'assigned'), false);
+  assert.equal(domain.isStatusTransitionAllowed('assigned', 'unknown'), false);
+});
+
+test('checks the current user and player ownership', () => {
+  const ownPlayer = { id: 'p_1', agentId: 'u_agent', status: 'assigned' };
+  const otherPlayer = { id: 'p_2', agentId: 'u_other', status: 'assigned' };
+  const agent = { id: 'u_agent', role: 'agent' };
+
+  assert.equal(domain.canUserChangePlayerStatus(agent, ownPlayer), true);
+  assert.equal(domain.evaluateStatusTransition(agent, ownPlayer, 'in_work').allowed, true);
+  assert.equal(domain.canUserChangePlayerStatus(agent, otherPlayer), false);
+  assert.equal(domain.evaluateStatusTransition(agent, otherPlayer, 'in_work').reason, 'not_owner');
+  assert.equal(domain.evaluateStatusTransition(null, ownPlayer, 'in_work').reason, 'no_current_user');
+});
+
+test('requires confirmation for an administrator to reopen a final status', () => {
+  const admin = { id: 'u_admin', role: 'admin' };
+  for (const status of ['success', 'failed']) {
+    const player = { id: `p_${status}`, agentId: 'u_agent', status };
+    const before = { ...player };
+    const pendingConfirmation = domain.evaluateStatusTransition(admin, player, 'in_work');
+    assert.equal(pendingConfirmation.allowed, false);
+    assert.equal(pendingConfirmation.reason, 'confirmation_required');
+    assert.deepEqual(player, before);
+    const confirmed = domain.evaluateStatusTransition(admin, player, 'in_work', { adminConfirmed: true });
+    assert.equal(confirmed.allowed, true);
+    assert.equal(confirmed.reason, 'allowed');
+  }
+});
+
+test('blocks agents from reopening final statuses', () => {
+  const agent = { id: 'u_agent', role: 'agent' };
+  for (const status of ['success', 'failed']) {
+    const player = { id: `p_${status}`, agentId: agent.id, status };
+    assert.equal(domain.evaluateStatusTransition(agent, player, 'in_work').reason, 'role_forbidden');
+  }
+});
+
 test('requires admin and confirmation to reassign final players', () => {
   assert.equal(domain.canReassignPlayer('agent', 'assigned', true), false);
   assert.equal(domain.canReassignPlayer('admin', 'assigned', false), true);

@@ -24,9 +24,24 @@
     [STATUSES.FAILED]: Object.freeze([STATUSES.IN_WORK])
   });
 
+  const STATUS_TRANSITION_REASONS = Object.freeze({
+    ALLOWED: 'allowed',
+    NO_CURRENT_USER: 'no_current_user',
+    PLAYER_NOT_FOUND: 'player_not_found',
+    UNKNOWN_ROLE: 'unknown_role',
+    NOT_OWNER: 'not_owner',
+    INVALID_TRANSITION: 'invalid_transition',
+    ROLE_FORBIDDEN: 'role_forbidden',
+    CONFIRMATION_REQUIRED: 'confirmation_required'
+  });
+
   function normalizeRole(role) {
     const normalized = String(role || '').trim().toLowerCase();
     return normalized === ROLES.ADMIN ? ROLES.ADMIN : ROLES.AGENT;
+  }
+
+  function isKnownRole(role) {
+    return role === ROLES.ADMIN || role === ROLES.AGENT;
   }
 
   function normalizePhone(phone) {
@@ -62,6 +77,34 @@
     return true;
   }
 
+  function canUserChangePlayerStatus(user, player) {
+    if (!user || !player || !isKnownRole(user.role)) return false;
+    if (user.role === ROLES.ADMIN) return true;
+    return Boolean(user.id && player.agentId && user.id === player.agentId);
+  }
+
+  function evaluateStatusTransition(user, player, nextStatus, options) {
+    if (!user) return { allowed: false, reason: STATUS_TRANSITION_REASONS.NO_CURRENT_USER };
+    if (!player) return { allowed: false, reason: STATUS_TRANSITION_REASONS.PLAYER_NOT_FOUND };
+    if (!isKnownRole(user.role)) return { allowed: false, reason: STATUS_TRANSITION_REASONS.UNKNOWN_ROLE };
+    if (!canUserChangePlayerStatus(user, player)) {
+      return { allowed: false, reason: STATUS_TRANSITION_REASONS.NOT_OWNER };
+    }
+    if (!isStatusTransitionAllowed(player.status, nextStatus)) {
+      return { allowed: false, reason: STATUS_TRANSITION_REASONS.INVALID_TRANSITION };
+    }
+    if (!canRoleTransitionStatus(user.role, player.status, nextStatus)) {
+      return { allowed: false, reason: STATUS_TRANSITION_REASONS.ROLE_FORBIDDEN };
+    }
+    const needsAdminConfirmation = user.role === ROLES.ADMIN
+      && isFinalStatus(player.status)
+      && nextStatus === STATUSES.IN_WORK;
+    if (needsAdminConfirmation && !(options && options.adminConfirmed === true)) {
+      return { allowed: false, reason: STATUS_TRANSITION_REASONS.CONFIRMATION_REQUIRED };
+    }
+    return { allowed: true, reason: STATUS_TRANSITION_REASONS.ALLOWED };
+  }
+
   function canReassignPlayer(role, playerStatus, hasExplicitConfirmation) {
     if (normalizeRole(role) !== ROLES.ADMIN) return false;
     return !isFinalStatus(playerStatus) || hasExplicitConfirmation === true;
@@ -80,13 +123,17 @@
     ROLES,
     STATUSES,
     STATUS_TRANSITIONS,
+    STATUS_TRANSITION_REASONS,
     normalizeRole,
+    isKnownRole,
     normalizePhone,
     normalizeEmail,
     duplicateKeyFor,
     isFinalStatus,
     isStatusTransitionAllowed,
     canRoleTransitionStatus,
+    canUserChangePlayerStatus,
+    evaluateStatusTransition,
     canReassignPlayer,
     canPerformAdministrativeAction
   });
