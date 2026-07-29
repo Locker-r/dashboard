@@ -1212,7 +1212,7 @@ function statusTransitionErrorMessage(reason){
     : t('toast_status_forbidden');
 }
 
-function requestPlayerStatusTransition(playerId, nextStatus){
+async function requestPlayerStatusTransition(playerId, nextStatus){
   const player = players.find(item=>item.id===playerId);
   let decision = window.ReactivationDomain.evaluateStatusTransition(currentUser, player, nextStatus);
   const transitionOptions = {};
@@ -1230,12 +1230,17 @@ function requestPlayerStatusTransition(playerId, nextStatus){
     ...transitionOptions, historyId:uid('h'), changedAt
   });
   if(!prepared.allowed) return false;
+  if(dataMode==='supabase'){
+    try { await dataService.changePlayerStatus(playerId,nextStatus,prepared.historyEntry.id,transitionOptions); await loadData(); }
+    catch(_error){ showToast(t('toast_save_error')); return false; }
+  }else{
   player.statusHistory = [prepared.historyEntry, ...window.ReactivationDomain.normalizeStatusHistory(player)];
   player.status = nextStatus;
   player.updatedAt = changedAt;
   saveData();
+  }
   render();
-  showToast(t('toast_status_updated') + ': ' + t('status_'+player.status));
+  showToast(t('toast_status_updated') + ': ' + t('status_'+nextStatus));
   return true;
 }
 
@@ -1300,19 +1305,21 @@ function canManagePlayerOrNotify(player){
   return false;
 }
 
-function savePlayerFollowUp(playerId, rawValue, shouldClear){
+async function savePlayerFollowUp(playerId, rawValue, shouldClear){
   const player = players.find(item=>item.id===playerId);
   if(!canManagePlayerOrNotify(player)) return false;
   const normalized = shouldClear ? null : window.ReactivationDomain.normalizeFollowUpAt(rawValue);
   if(!shouldClear && !normalized){ showToast(t('follow_up_invalid')); return false; }
-  player.followUpAt = normalized;
-  player.updatedAt = Date.now();
-  saveData(); render();
+  if(dataMode==='supabase'){
+    try { await dataService.setPlayerFollowUp(playerId,normalized); await loadData(); }
+    catch(_error){ showToast(t('toast_save_error')); return false; }
+  }else{ player.followUpAt = normalized; player.updatedAt = Date.now(); saveData(); }
+  render();
   showToast(t(shouldClear ? 'follow_up_cleared' : 'follow_up_saved'));
   return true;
 }
 
-function addPlayerComment(playerId, text){
+async function addPlayerComment(playerId, text){
   const player = players.find(item=>item.id===playerId);
   if(!canManagePlayerOrNotify(player)) return false;
   const result = window.ReactivationDomain.createComment({id:uid('c'), text, createdAt:Date.now(), user:currentUser});
@@ -1320,9 +1327,11 @@ function addPlayerComment(playerId, text){
     showToast(t(result.reason==='comment_too_long' ? 'comment_long_error' : 'comment_empty_error'));
     return false;
   }
-  player.comments = [result.comment, ...window.ReactivationDomain.normalizeComments(player)];
-  player.updatedAt = Date.now();
-  saveData(); render();
+  if(dataMode==='supabase'){
+    try { await dataService.addPlayerComment(playerId,result.comment.id,result.comment.text); await loadData(); }
+    catch(_error){ showToast(t('toast_save_error')); return false; }
+  }else{ player.comments = [result.comment, ...window.ReactivationDomain.normalizeComments(player)]; player.updatedAt = Date.now(); saveData(); }
+  render();
   showToast(t('comment_saved'));
   return true;
 }
@@ -1451,14 +1460,17 @@ function renderDistribute(){
   document.getElementById('manualAgentSelect').innerHTML = list.map(a=>`<option value="${escapeHtml(a.id)}">${escapeHtml(a.name)}</option>`).join('');
 }
 
-document.getElementById('distributeBtn').addEventListener('click', ()=>{
+document.getElementById('distributeBtn').addEventListener('click', async ()=>{
   const checked = [...document.querySelectorAll('#distAgentChecks input:checked')].map(i=>i.value);
   if(checked.length===0){ showToast(t('toast_pick_agent')); return; }
   const unassigned = players.filter(p=>p.status==='new');
   if(unassigned.length===0){ showToast(t('toast_no_unassigned')); return; }
-  unassigned.forEach((p, i)=>{ p.agentId = checked[(distributionCursor + i) % checked.length]; p.status = 'assigned'; p.updatedAt = Date.now(); });
+  if(dataMode==='supabase'){
+    try { await dataService.assignPlayers(unassigned.map(p=>p.id),checked); await loadData(); }
+    catch(_error){ showToast(t('toast_save_error')); return; }
+  }else{ unassigned.forEach((p, i)=>{ p.agentId = checked[(distributionCursor + i) % checked.length]; p.status = 'assigned'; p.updatedAt = Date.now(); }); saveData(); }
   distributionCursor = (distributionCursor + unassigned.length) % checked.length;
-  saveData(); render();
+  render();
   showToast(`${t('toast_distributed')} ${checked.length}`);
 });
 
@@ -1480,16 +1492,17 @@ function renderManualResults(){
   });
 }
 
-document.getElementById('manualAssignBtn').addEventListener('click', ()=>{
+document.getElementById('manualAssignBtn').addEventListener('click', async ()=>{
   const box = document.getElementById('manualResults');
   const p = players.find(x=>x.id===box.dataset.selectedId);
   if(!p){ showToast(t('manual_pick_first')); return; }
   const agentId = document.getElementById('manualAgentSelect').value;
   if(!agentId){ showToast(t('manual_no_agents')); return; }
-  p.agentId = agentId;
-  p.status = 'assigned';
-  p.updatedAt = Date.now();
-  saveData(); render();
+  if(dataMode==='supabase'){
+    try { await dataService.assignPlayers([p.id],[agentId]); await loadData(); }
+    catch(_error){ showToast(t('toast_save_error')); return; }
+  }else{ p.agentId = agentId; p.status = 'assigned'; p.updatedAt = Date.now(); saveData(); }
+  render();
   showToast(`${t('toast_assigned_to')} ${userDisplayName(agentId)}`);
 });
 
@@ -1499,16 +1512,20 @@ function importedPlayer(row){
   return { id:uid('p'), phone:row.phone||'', email:row.email||'', messenger:row.contact||'', status:'new', agentId:null, importedAt:now, updatedAt:now };
 }
 
-document.getElementById('importBtn').addEventListener('click', ()=>{
+document.getElementById('importBtn').addEventListener('click', async ()=>{
   const raw = document.getElementById('importArea').value.trim();
   if(!raw){ showToast(t('import_empty_warn')); return; }
   const prepared = window.ReactivationLeadImport.prepareCsvImport(raw, players);
   if(!prepared.ok){ showToast(t('file_error_'+prepared.reason)); return; }
-  players = window.ReactivationLeadImport.appendPrepared(players, prepared, importedPlayer);
+  const imported = prepared.valid.map(importedPlayer);
+  if(dataMode==='supabase'){
+    try { await dataService.createPlayers(imported); await loadData(); }
+    catch(_error){ showToast(t('toast_save_error')); return; }
+  }else{ players = players.concat(imported); saveData(); }
   const added = prepared.valid.length;
   document.getElementById('importArea').value = '';
   document.getElementById('importHint').textContent = `${t('import_done')}: ${added}`;
-  saveData(); render();
+  render();
   showToast(`${t('import_done')}: ${added}`);
 });
 
@@ -1543,9 +1560,11 @@ async function confirmFileImport(){
   const cancelButton = document.getElementById('cancelFileImport');
   confirmButton.disabled=true; cancelButton.disabled=true; setFileBusy(true); setFileStatus('neutral',t('file_status_importing'));
   const previousPlayers = players;
-  players = window.ReactivationLeadImport.appendPrepared(players, preview, importedPlayer);
-  try { await saveDataNow(); }
-  catch(_error){ players = previousPlayers; showFileImportError('read'); return; }
+  const imported = preview.valid.map(importedPlayer);
+  try {
+    if(dataMode==='supabase'){ await dataService.createPlayers(imported); await loadData(); }
+    else{ players = players.concat(imported); await saveDataNow(); }
+  } catch(_error){ players = previousPlayers; showFileImportError('read'); return; }
   const report = { total:preview.total, added:preview.valid.length, duplicates:preview.duplicates.length, errors:preview.errors };
   pendingFileImport = null; fileImportInput.value=''; render();
   setFileBusy(false); setFileStatus('success',`${t('import_done')}: ${report.added}`);
@@ -1572,14 +1591,18 @@ async function handleImportFile(file){
 }
 fileImportInput.addEventListener('change', ()=>handleImportFile(fileImportInput.files&&fileImportInput.files[0]));
 
-document.getElementById('singleAddBtn').addEventListener('click', ()=>{
+document.getElementById('singleAddBtn').addEventListener('click', async ()=>{
   const phone = document.getElementById('singlePhone').value.trim();
   const email = document.getElementById('singleEmail').value.trim();
   const msg = document.getElementById('singleMsg').value.trim();
   if(!phone && !email && !msg){ showToast(t('single_empty_warn')); return; }
-  players.push({id:uid('p'), phone, email, messenger:msg, status:'new', agentId:null, importedAt:Date.now(), updatedAt:Date.now()});
+  const player={id:uid('p'), phone, email, messenger:msg, status:'new', agentId:null, importedAt:Date.now(), updatedAt:Date.now()};
+  if(dataMode==='supabase'){
+    try { await dataService.createPlayers([player]); await loadData(); }
+    catch(_error){ showToast(t('toast_save_error')); return; }
+  }else{ players.push(player); saveData(); }
   document.getElementById('singlePhone').value=''; document.getElementById('singleEmail').value=''; document.getElementById('singleMsg').value='';
-  saveData(); render();
+  render();
   showToast(t('single_added'));
 });
 

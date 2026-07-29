@@ -10,14 +10,6 @@
 
   const DataService = dependencies.DataService;
 
-  class ReadOnlyDataError extends Error {
-    constructor() {
-      super('READ_ONLY');
-      this.name = 'ReadOnlyDataError';
-      this.code = 'READ_ONLY';
-    }
-  }
-
   function list(value) { return Array.isArray(value) ? value : []; }
   function stringOrEmpty(value) { return value == null ? '' : String(value); }
 
@@ -79,6 +71,12 @@
     return list(result.data);
   }
 
+  async function callRpc(client, name, parameters) {
+    const result = await client.rpc(name, parameters);
+    if (result.error) throw result.error;
+    return result.data;
+  }
+
   class SupabaseDataService extends DataService {
     constructor(client) {
       super();
@@ -111,10 +109,43 @@
       return players.filter(row => row && row.id).map(row => mapPlayer(row, commentsByPlayer.get(row.id), historyByPlayer.get(row.id)));
     }
 
-    async saveUsers() { throw new ReadOnlyDataError(); }
-    async savePlayers() { throw new ReadOnlyDataError(); }
-    async saveCurrentUser() { throw new ReadOnlyDataError(); }
+    async saveUsers() { throw Object.assign(new Error('RPC_REQUIRED'), { code: 'RPC_REQUIRED' }); }
+    async savePlayers() { throw Object.assign(new Error('RPC_REQUIRED'), { code: 'RPC_REQUIRED' }); }
+    async saveCurrentUser() { throw Object.assign(new Error('RPC_REQUIRED'), { code: 'RPC_REQUIRED' }); }
     canInitializeUsers() { return false; }
+
+    async createPlayers(items) {
+      return callRpc(this.client, 'create_players_atomic', { p_players: list(items).map(player => ({
+        id: player.id, phone: stringOrEmpty(player.phone), email: stringOrEmpty(player.email),
+        messenger: stringOrEmpty(player.messenger), imported_at: player.importedAt ? new Date(player.importedAt).toISOString() : null
+      })) });
+    }
+
+    async assignPlayers(playerIds, agentIds, options) {
+      return callRpc(this.client, 'assign_players_atomic', {
+        p_player_ids: list(playerIds), p_agent_ids: list(agentIds),
+        p_confirm_final: Boolean(options && options.adminConfirmed)
+      });
+    }
+
+    async changePlayerStatus(playerId, nextStatus, historyId, options) {
+      return callRpc(this.client, 'change_player_status_atomic', {
+        p_player_id: playerId, p_next_status: nextStatus, p_history_id: historyId,
+        p_confirm_reopen: Boolean(options && options.adminConfirmed)
+      });
+    }
+
+    async addPlayerComment(playerId, commentId, text) {
+      return callRpc(this.client, 'add_player_comment_atomic', {
+        p_player_id: playerId, p_comment_id: commentId, p_text: text
+      });
+    }
+
+    async setPlayerFollowUp(playerId, followUpAt) {
+      return callRpc(this.client, 'set_player_follow_up_atomic', {
+        p_player_id: playerId, p_follow_up_at: followUpAt || null
+      });
+    }
 
     async getCurrentUser() {
       const sessionResult = await this.client.auth.getSession();
@@ -132,5 +163,5 @@
     }
   }
 
-  return { ReadOnlyDataError, SupabaseDataService, mapProfile, mapComment, mapHistory, mapPlayer };
+  return { SupabaseDataService, mapProfile, mapComment, mapHistory, mapPlayer, callRpc };
 });
