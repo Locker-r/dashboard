@@ -10,6 +10,8 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Tracked-file secret scan failed.' }
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'check-atomic-writes.ps1')
   if ($LASTEXITCODE -ne 0) { throw 'Atomic write checks failed.' }
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'check-runtime-smoke-harness.ps1')
+  if ($LASTEXITCODE -ne 0) { throw 'Runtime smoke harness checks failed.' }
   & git diff --check
   if ($LASTEXITCODE -ne 0) { throw 'git diff --check failed.' }
   Write-Host 'All local quality gates passed.'

@@ -42,3 +42,6 @@ jobs:
       - name: Check atomic write SQL
         shell: powershell
         run: .\scripts\check-atomic-writes.ps1
+      - name: Check runtime smoke harness structure
+        shell: powershell
+        run: .\scripts\check-runtime-smoke-harness.ps1
