@@ -7,7 +7,7 @@ try {
     if (-not [Environment]::GetEnvironmentVariable($name)) { throw "Missing environment variable: $name" }
   }
   $ErrorActionPreference = 'Continue'
-  $null = & npx.cmd supabase start -x realtime,storage-api,imgproxy,postgres-meta,studio,edge-runtime,logflare,vector,supavisor 2>&1
+  $null = & npx.cmd supabase start -x realtime,storage-api,imgproxy,postgres-meta,studio,logflare,vector,supavisor 2>&1
   $ErrorActionPreference = 'Stop'
   if ($LASTEXITCODE -ne 0) { throw 'Local Supabase failed to start.' }
   $ErrorActionPreference = 'Continue'

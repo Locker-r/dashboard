@@ -373,6 +373,7 @@ allow_dynamic_registration = false
 
 [edge_runtime]
 enabled = true
+
 # Supported request policies: `oneshot`, `per_worker`.
 # `per_worker` (default) — enables hot reload during local development.
 # `oneshot` — fallback mode if hot reload causes issues (e.g. in large repos or with symlinks).
@@ -381,6 +382,10 @@ policy = "per_worker"
 inspector_port = 8083
 # The Deno major version to use.
 deno_version = 2
+
+[functions.team-management]
+enabled = true
+verify_jwt = true
 
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"

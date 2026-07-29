@@ -12,6 +12,8 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Atomic write checks failed.' }
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'check-runtime-smoke-harness.ps1')
   if ($LASTEXITCODE -ne 0) { throw 'Runtime smoke harness checks failed.' }
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'check-team-management.ps1')
+  if ($LASTEXITCODE -ne 0) { throw 'Team management checks failed.' }
   & git diff --check
   if ($LASTEXITCODE -ne 0) { throw 'git diff --check failed.' }
   Write-Host 'All local quality gates passed.'
