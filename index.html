@@ -118,6 +118,38 @@
   .btn-sm{padding:5px 10px;font-size:12px;}
   .btn:disabled{opacity:.4;cursor:not-allowed;}
 
+  .import-methods{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,.82fr);gap:14px;margin-top:16px;}
+  .import-method{border:1px solid var(--line);border-radius:9px;padding:15px;background:#FBFAF7;min-width:0;}
+  .import-method h4{font-family:var(--font-display);font-size:13.5px;margin:0 0 4px;}
+  .import-method .method-note{font-size:12px;color:var(--text-dim);margin:0 0 12px;}
+  .import-method textarea{min-height:138px;background:#fff;}
+  .file-dropzone{min-height:138px;border:1.5px dashed #B9B6AC;border-radius:8px;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px;transition:border-color .15s,background .15s;cursor:pointer;}
+  .file-dropzone:hover{border-color:var(--teal);background:#F7FBFA;}
+  .file-dropzone:focus-visible{outline:3px solid rgba(47,143,130,.45);outline-offset:2px;border-color:var(--teal);}
+  .file-dropzone.dragover{border-color:var(--teal);background:var(--teal-soft);}
+  .file-dropzone.busy{cursor:wait;opacity:.72;}
+  .drop-title{font-weight:600;font-size:13px;margin-bottom:4px;}
+  .drop-note{font-size:11.5px;color:var(--text-dim);margin-bottom:12px;}
+  .file-status{margin-top:10px;padding:8px 10px;border-radius:7px;font-size:12px;overflow-wrap:anywhere;}
+  .file-status.neutral{background:var(--slate-soft);color:var(--text-dim);}
+  .file-status.success{background:var(--teal-soft);color:#1F6459;}
+  .file-status.error{background:var(--rust-soft);color:var(--rust);}
+  .import-preview{border:1px solid var(--line);border-radius:9px;margin-top:14px;overflow:hidden;background:#fff;}
+  .import-preview-head{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;}
+  .import-preview-head h4{font-family:var(--font-display);font-size:13.5px;margin:0 0 3px;}
+  .selected-file{font-family:var(--font-mono);font-size:11.5px;color:var(--teal);overflow-wrap:anywhere;}
+  .import-summary{display:flex;gap:6px;flex-wrap:wrap;}
+  .summary-chip{padding:4px 8px;border-radius:20px;font-size:11.5px;background:var(--slate-soft);color:var(--text-dim);}
+  .summary-chip.success{background:var(--teal-soft);color:#1F6459;}
+  .summary-chip.error{background:var(--rust-soft);color:var(--rust);}
+  .summary-chip.duplicate{background:var(--amber-soft);color:#96631E;}
+  .import-preview-body{padding:8px 16px 14px;}
+  .preview-valid td:first-child{border-left:3px solid var(--teal);}
+  .import-issue{padding:6px 9px;border-left:3px solid var(--line);font-size:12px;background:#FBFAF7;border-radius:0 6px 6px 0;}
+  .import-issue.error{border-left-color:var(--rust);background:var(--rust-soft);color:#873D31;}
+  .import-issue.duplicate{border-left-color:var(--amber);background:var(--amber-soft);color:#80541A;}
+  .import-actions{padding:12px 16px;border-top:1px solid var(--line);display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+
   table{width:100%;border-collapse:collapse;font-size:13px;}
   .table-scroll{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;}
   thead th{text-align:left;font-family:var(--font-mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-dim);border-bottom:1px solid var(--line);padding:8px 10px;font-weight:500;}
@@ -182,6 +214,7 @@
     .brand small, nav button span.txt, .who-box, .lang-box button span.txt{display:none;}
     .main{padding:20px;}
     .player-detail{grid-template-columns:1fr;}
+    .import-methods{grid-template-columns:1fr;}
   }
 </style>
 </head>
@@ -383,11 +416,29 @@
       <div class="card">
         <h3 data-i18n="import_bulk_title">Массовый импорт</h3>
         <p class="sub" data-i18n="import_bulk_sub">По одной строке на игрока, поля через запятую или точку с запятой: телефон, email, мессенджер. Email и мессенджер необязательны.</p>
-        <textarea id="importArea" data-i18n-ph="import_textarea_placeholder"></textarea>
-        <div class="row" style="margin-top:12px;">
-          <button class="btn btn-primary" id="importBtn" data-i18n="import_btn">Импортировать</button>
-          <span class="sub" id="importHint" style="margin:0;"></span>
+        <div class="import-methods">
+          <section class="import-method" aria-labelledby="manualImportTitle">
+            <h4 id="manualImportTitle" data-i18n="manual_import_title">Вставить список</h4>
+            <p class="method-note" data-i18n="manual_import_note">Для быстрого импорта из текста</p>
+            <textarea id="importArea" data-i18n-ph="import_textarea_placeholder"></textarea>
+            <div class="row" style="margin-top:12px;">
+              <button class="btn btn-primary" id="importBtn" data-i18n="import_btn">Импортировать</button>
+              <span class="sub" id="importHint" style="margin:0;"></span>
+            </div>
+          </section>
+          <section class="import-method" aria-labelledby="fileImportTitle">
+            <h4 id="fileImportTitle" data-i18n="file_import_title">Загрузить файл</h4>
+            <p class="method-note" data-i18n="file_import_note">CSV с предпросмотром перед сохранением</p>
+            <div class="file-dropzone" id="fileDropzone">
+              <span class="drop-title" data-i18n="file_drop_title">Перетащите CSV сюда</span>
+              <span class="drop-note" id="fileDropNote" data-i18n="file_drop_note">до 5 МБ и 10 000 строк</span>
+              <button class="btn btn-ghost" id="fileImportBtn" type="button" data-i18n="file_import_btn">Выбрать файл</button>
+              <input type="file" id="fileImportInput" accept=".csv,.xlsx" hidden>
+            </div>
+            <div class="file-status neutral" id="fileImportStatus" aria-live="polite" data-i18n="file_status_empty">Файл не выбран</div>
+          </section>
         </div>
+        <div id="fileImportPreview"></div>
       </div>
       <div class="card">
         <h3 data-i18n="single_title">Добавить одного игрока</h3>
@@ -440,6 +491,7 @@
 <script src="./src/domain.js"></script>
 <script src="./src/auth.js"></script>
 <script src="./src/analytics.js"></script>
+<script src="./src/lead-import.js"></script>
 <script src="./src/data/data-service.js"></script>
 <script src="./src/data/local-storage-data-service.js"></script>
 <script>
@@ -492,7 +544,7 @@ ru:{
   import_title:'Импорт игроков', import_sub:'Загрузите выгрузку игроков, у которых не прошла транзакция другими методами',
   import_bulk_title:'Массовый импорт', import_bulk_sub:'По одной строке на игрока, поля через запятую или точку с запятой: телефон, email, мессенджер. Email и мессенджер необязательны.',
   import_textarea_placeholder:'+593987654321, ana@mail.com, @ana_tg\n+593991234567,, только WhatsApp\n+593998765432, carlos@mail.com,',
-  import_btn:'Импортировать', import_empty_warn:'Вставьте список игроков', import_done:'Добавлено',
+  import_btn:'Импортировать', import_empty_warn:'Вставьте список игроков', import_done:'Добавлено', manual_import_title:'Вставить список', manual_import_note:'Для быстрого импорта из текста', file_import_title:'Загрузить файл', file_import_note:'CSV с предпросмотром перед сохранением', file_drop_title:'Перетащите CSV сюда', file_drop_note:'до 5 МБ и 10 000 строк', file_status_empty:'Файл не выбран', file_status_checking:'Проверяем файл…', file_status_ready:'Файл проверен и готов к подтверждению', file_status_importing:'Сохраняем лиды…', file_import_btn:'Выбрать файл', file_preview_title:'Предпросмотр файла', file_rows:'Найдено строк', file_valid:'Валидных', file_invalid:'Ошибочных', file_duplicates:'Возможных дубликатов', file_confirm:'Подтвердить импорт', file_cancel:'Отмена', file_total:'Всего обработано', file_error_invalid_email:'некорректный email', file_error_empty_row:'пустая строка', file_error_duplicate:'дубликат', file_error_unsupported_format:'Поддерживаются только CSV и XLSX', file_error_xlsx_unavailable:'Для XLSX требуется отдельный локальный модуль чтения. Используйте CSV.', file_error_file_too_large:'Файл превышает лимит 5 МБ', file_error_too_many_rows:'Файл превышает лимит 10 000 строк', file_error_empty_file:'Файл пуст', file_error_unrecognized_structure:'Не удалось распознать структуру файла', file_error_read:'Не удалось прочитать файл', file_report_title:'Отчёт об импорте', file_new_import:'Закрыть отчёт',
   single_title:'Добавить одного игрока', single_phone_ph:'Телефон', single_email_ph:'Email (необязательно)', single_msg_ph:'Мессенджер (необязательно)',
   single_add_btn:'Добавить', single_empty_warn:'Заполните хотя бы одно поле', single_added:'Игрок добавлен',
   access_title:'Доступы', access_sub:'Управляйте ролями команды и сбрасывайте пароли агентам',
@@ -564,7 +616,7 @@ en:{
   import_title:'Import players', import_sub:'Upload the list of players whose transaction failed through other methods',
   import_bulk_title:'Bulk import', import_bulk_sub:'One player per line, fields separated by comma or semicolon: phone, email, messenger. Email and messenger are optional.',
   import_textarea_placeholder:'+593987654321, ana@mail.com, @ana_tg\n+593991234567,, WhatsApp only\n+593998765432, carlos@mail.com,',
-  import_btn:'Import', import_empty_warn:'Paste a list of players', import_done:'Added',
+  import_btn:'Import', import_empty_warn:'Paste a list of players', import_done:'Added', manual_import_title:'Paste a list', manual_import_note:'For quick import from text', file_import_title:'Upload a file', file_import_note:'CSV with preview before saving', file_drop_title:'Drop a CSV here', file_drop_note:'up to 5 MB and 10,000 rows', file_status_empty:'No file selected', file_status_checking:'Checking file…', file_status_ready:'File checked and ready to confirm', file_status_importing:'Saving leads…', file_import_btn:'Choose file', file_preview_title:'File preview', file_rows:'Rows found', file_valid:'Valid', file_invalid:'Invalid', file_duplicates:'Possible duplicates', file_confirm:'Confirm import', file_cancel:'Cancel', file_total:'Total processed', file_error_invalid_email:'invalid email', file_error_empty_row:'empty row', file_error_duplicate:'duplicate', file_error_unsupported_format:'Only CSV and XLSX are supported', file_error_xlsx_unavailable:'XLSX needs a separate local reader. Use CSV.', file_error_file_too_large:'File exceeds the 5 MB limit', file_error_too_many_rows:'File exceeds the 10,000 row limit', file_error_empty_file:'File is empty', file_error_unrecognized_structure:'File structure was not recognized', file_error_read:'The file could not be read', file_report_title:'Import report', file_new_import:'Close report',
   single_title:'Add one player', single_phone_ph:'Phone', single_email_ph:'Email (optional)', single_msg_ph:'Messenger (optional)',
   single_add_btn:'Add', single_empty_warn:'Fill in at least one field', single_added:'Player added',
   access_title:'Access', access_sub:'Manage team roles and reset agent passwords',
@@ -636,7 +688,7 @@ es:{
   import_title:'Importar jugadores', import_sub:'Sube la lista de jugadores cuya transacción falló por otros métodos',
   import_bulk_title:'Importación masiva', import_bulk_sub:'Un jugador por línea, campos separados por coma o punto y coma: teléfono, email, mensajería. Email y mensajería son opcionales.',
   import_textarea_placeholder:'+593987654321, ana@mail.com, @ana_tg\n+593991234567,, solo WhatsApp\n+593998765432, carlos@mail.com,',
-  import_btn:'Importar', import_empty_warn:'Pega una lista de jugadores', import_done:'Agregados',
+  import_btn:'Importar', import_empty_warn:'Pega una lista de jugadores', import_done:'Agregados', manual_import_title:'Pegar una lista', manual_import_note:'Para importar rápidamente desde texto', file_import_title:'Subir un archivo', file_import_note:'CSV con vista previa antes de guardar', file_drop_title:'Arrastra un CSV aquí', file_drop_note:'hasta 5 MB y 10 000 filas', file_status_empty:'Ningún archivo seleccionado', file_status_checking:'Verificando archivo…', file_status_ready:'Archivo verificado y listo para confirmar', file_status_importing:'Guardando leads…', file_import_btn:'Elegir archivo', file_preview_title:'Vista previa', file_rows:'Filas encontradas', file_valid:'Válidas', file_invalid:'Erróneas', file_duplicates:'Posibles duplicados', file_confirm:'Confirmar importación', file_cancel:'Cancelar', file_total:'Total procesado', file_error_invalid_email:'email inválido', file_error_empty_row:'fila vacía', file_error_duplicate:'duplicado', file_error_unsupported_format:'Solo se admiten CSV y XLSX', file_error_xlsx_unavailable:'XLSX requiere un lector local separado. Usa CSV.', file_error_file_too_large:'El archivo supera el límite de 5 MB', file_error_too_many_rows:'El archivo supera el límite de 10 000 filas', file_error_empty_file:'El archivo está vacío', file_error_unrecognized_structure:'No se reconoció la estructura', file_error_read:'No se pudo leer el archivo', file_report_title:'Informe de importación', file_new_import:'Cerrar informe',
   single_title:'Agregar un jugador', single_phone_ph:'Teléfono', single_email_ph:'Email (opcional)', single_msg_ph:'Mensajería (opcional)',
   single_add_btn:'Agregar', single_empty_warn:'Completa al menos un campo', single_added:'Jugador agregado',
   access_title:'Accesos', access_sub:'Gestiona los roles del equipo y restablece contraseñas de agentes',
@@ -1441,22 +1493,83 @@ document.getElementById('manualAssignBtn').addEventListener('click', ()=>{
 });
 
 /* ==================== Import ==================== */
+function importedPlayer(row){
+  const now = Date.now();
+  return { id:uid('p'), phone:row.phone||'', email:row.email||'', messenger:row.contact||'', status:'new', agentId:null, importedAt:now, updatedAt:now };
+}
+
 document.getElementById('importBtn').addEventListener('click', ()=>{
   const raw = document.getElementById('importArea').value.trim();
   if(!raw){ showToast(t('import_empty_warn')); return; }
-  const lines = raw.split('\n').map(l=>l.trim()).filter(Boolean);
-  let added = 0;
-  lines.forEach(line=>{
-    const [phone, email, messenger] = line.split(/[;,]/).map(s=>s.trim());
-    if(!phone && !email && !messenger) return;
-    players.push({ id: uid('p'), phone: phone||'', email: email||'', messenger: messenger||'', status:'new', agentId:null, importedAt:Date.now(), updatedAt:Date.now() });
-    added++;
-  });
+  const prepared = window.ReactivationLeadImport.prepareCsvImport(raw, players);
+  if(!prepared.ok){ showToast(t('file_error_'+prepared.reason)); return; }
+  players = window.ReactivationLeadImport.appendPrepared(players, prepared, importedPlayer);
+  const added = prepared.valid.length;
   document.getElementById('importArea').value = '';
   document.getElementById('importHint').textContent = `${t('import_done')}: ${added}`;
   saveData(); render();
   showToast(`${t('import_done')}: ${added}`);
 });
+
+let pendingFileImport = null;
+const fileImportInput = document.getElementById('fileImportInput');
+const fileImportPreview = document.getElementById('fileImportPreview');
+const fileDropzone = document.getElementById('fileDropzone');
+const fileImportStatus = document.getElementById('fileImportStatus');
+function importReason(reason){ return t('file_error_'+reason); }
+function setFileStatus(kind, message){ fileImportStatus.className=`file-status ${kind}`; fileImportStatus.textContent=message; }
+function setFileBusy(busy){ fileDropzone.classList.toggle('busy', busy); document.getElementById('fileImportBtn').disabled=busy; }
+function clearFileImport(){ pendingFileImport=null; fileImportInput.value=''; fileImportPreview.innerHTML=''; setFileBusy(false); setFileStatus('neutral',t('file_status_empty')); }
+function renderFileImportPreview(){
+  if(!pendingFileImport){ fileImportPreview.innerHTML=''; return; }
+  const preview = pendingFileImport.preview;
+  const sample = preview.valid.slice(0,10);
+  const issues = [...preview.errors, ...preview.duplicates].slice(0,10);
+  fileImportPreview.innerHTML = `<div class="import-preview">
+    <div class="import-preview-head"><div><h4>${escapeHtml(t('file_preview_title'))}</h4><div class="selected-file">${escapeHtml(pendingFileImport.name)}</div></div><div class="import-summary"><span class="summary-chip">${escapeHtml(t('file_rows'))}: ${preview.total}</span><span class="summary-chip success">${escapeHtml(t('file_valid'))}: ${preview.valid.length}</span><span class="summary-chip error">${escapeHtml(t('file_invalid'))}: ${preview.errors.length}</span><span class="summary-chip duplicate">${escapeHtml(t('file_duplicates'))}: ${preview.duplicates.length}</span></div></div>
+    <div class="import-preview-body"><div class="table-scroll"><table><thead><tr><th>#</th><th>phone</th><th>email</th><th>contact</th></tr></thead><tbody>${sample.map(row=>`<tr class="preview-valid"><td>${row.rowNumber}</td><td>${escapeHtml(row.phone)}</td><td>${escapeHtml(row.email)}</td><td>${escapeHtml(row.contact)}</td></tr>`).join('')}</tbody></table></div>
+    ${issues.length?`<div class="activity-list" style="margin-top:10px;">${issues.map(item=>`<div class="import-issue ${item.reason==='duplicate'?'duplicate':'error'}">#${item.rowNumber}: ${escapeHtml(importReason(item.reason))}</div>`).join('')}</div>`:''}</div>
+    <div class="import-actions"><button class="btn btn-primary" id="confirmFileImport" ${preview.valid.length?'':'disabled'}>${escapeHtml(t('file_confirm'))}</button><button class="btn btn-ghost" id="cancelFileImport">${escapeHtml(t('file_cancel'))}</button></div>
+  </div>`;
+  document.getElementById('confirmFileImport').addEventListener('click', confirmFileImport);
+  document.getElementById('cancelFileImport').addEventListener('click', clearFileImport);
+}
+function showFileImportError(reason){ pendingFileImport=null; setFileBusy(false); setFileStatus('error',importReason(reason)); fileImportPreview.innerHTML=''; }
+async function confirmFileImport(){
+  if(!pendingFileImport) return;
+  const preview = pendingFileImport.preview;
+  const confirmButton = document.getElementById('confirmFileImport');
+  const cancelButton = document.getElementById('cancelFileImport');
+  confirmButton.disabled=true; cancelButton.disabled=true; setFileBusy(true); setFileStatus('neutral',t('file_status_importing'));
+  const previousPlayers = players;
+  players = window.ReactivationLeadImport.appendPrepared(players, preview, importedPlayer);
+  try { await saveDataNow(); }
+  catch(_error){ players = previousPlayers; showFileImportError('read'); return; }
+  const report = { total:preview.total, added:preview.valid.length, duplicates:preview.duplicates.length, errors:preview.errors };
+  pendingFileImport = null; fileImportInput.value=''; render();
+  setFileBusy(false); setFileStatus('success',`${t('import_done')}: ${report.added}`);
+  fileImportPreview.innerHTML = `<div class="import-preview"><div class="import-preview-head"><div><h4>${escapeHtml(t('file_report_title'))}</h4></div><div class="import-summary"><span class="summary-chip">${escapeHtml(t('file_total'))}: ${report.total}</span><span class="summary-chip success">${escapeHtml(t('import_done'))}: ${report.added}</span><span class="summary-chip duplicate">${escapeHtml(t('file_duplicates'))}: ${report.duplicates}</span><span class="summary-chip error">${escapeHtml(t('file_invalid'))}: ${report.errors.length}</span></div></div>${report.errors.length?`<div class="import-preview-body"><div class="activity-list">${report.errors.slice(0,100).map(item=>`<div class="import-issue error">#${item.rowNumber}: ${escapeHtml(importReason(item.reason))}</div>`).join('')}</div></div>`:''}<div class="import-actions"><button class="btn btn-ghost" id="closeFileReport">${escapeHtml(t('file_new_import'))}</button></div></div>`;
+  document.getElementById('closeFileReport').addEventListener('click', clearFileImport);
+}
+document.getElementById('fileImportBtn').addEventListener('click', event=>{ event.stopPropagation(); fileImportInput.click(); });
+fileDropzone.addEventListener('click', ()=>{ if(!fileDropzone.classList.contains('busy')) fileImportInput.click(); });
+['dragenter','dragover'].forEach(type=>fileDropzone.addEventListener(type,event=>{event.preventDefault();if(!fileDropzone.classList.contains('busy'))fileDropzone.classList.add('dragover');}));
+['dragleave','drop'].forEach(type=>fileDropzone.addEventListener(type,event=>{event.preventDefault();fileDropzone.classList.remove('dragover');}));
+fileDropzone.addEventListener('drop', event=>{ const file=event.dataTransfer&&event.dataTransfer.files&&event.dataTransfer.files[0]; if(file) handleImportFile(file); });
+async function handleImportFile(file){
+  if(!file) return;
+  setFileBusy(true); setFileStatus('neutral',`${file.name} · ${t('file_status_checking')}`); fileImportPreview.innerHTML='';
+  const fileCheck = window.ReactivationLeadImport.validateFile(file);
+  if(!fileCheck.ok){ showFileImportError(fileCheck.reason); return; }
+  try {
+    const preview = window.ReactivationLeadImport.prepareCsvImport(await file.text(), players, { fileSize:file.size });
+    if(!preview.ok){ showFileImportError(preview.reason); return; }
+    pendingFileImport = { name:file.name, preview };
+    setFileBusy(false); setFileStatus('success',`${file.name} · ${t('file_status_ready')}`);
+    renderFileImportPreview();
+  } catch(_error){ showFileImportError('read'); }
+}
+fileImportInput.addEventListener('change', ()=>handleImportFile(fileImportInput.files&&fileImportInput.files[0]));
 
 document.getElementById('singleAddBtn').addEventListener('click', ()=>{
   const phone = document.getElementById('singlePhone').value.trim();
