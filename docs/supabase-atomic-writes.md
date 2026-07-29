@@ -19,3 +19,11 @@ These checks do not connect to Supabase. `atomic-writes.sql` must not be applied
 2. Copy it with `scripts/copy-atomic-writes.ps1`, then apply it once in Supabase SQL Editor.
 3. Run `supabase/verify-atomic-writes.sql`; all five rows must report `ok = true`.
 4. Enable `supabase` mode only after verification. Keep the publishable key in the ignored local config and never place a service-role key in the browser.
+
+## Production-release checklist
+
+- [x] Apply and verify all five RPC definitions in the target Supabase project.
+- [x] Confirm player creation through the real application and Supabase runtime.
+- [ ] Before any production release, complete the deferred two-account runtime smoke test: admin assignment, allowed status transition with history, comment, follow-up, rejected invalid transition, and rejection when an agent targets another agent's player.
+
+The final item requires dedicated non-production admin and agent accounts and must not reuse or modify roles of real users. A successful schema verification or player-creation smoke test does not replace it.
