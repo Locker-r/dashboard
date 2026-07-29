@@ -445,6 +445,7 @@
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script src="./config/supabase-config.local.js"></script>
+<script src="./config/data-config.local.js"></script>
 <script src="./vendor/supabase.js"></script>
 <script src="./src/supabase-auth-service.js"></script>
 <script src="./src/migration-preflight.js"></script>
@@ -455,6 +456,8 @@
 <script src="./src/lead-import.js"></script>
 <script src="./src/data/data-service.js"></script>
 <script src="./src/data/local-storage-data-service.js"></script>
+<script src="./src/data/supabase-data-service.js"></script>
+<script src="./src/data/data-service-factory.js"></script>
 <script>
 /* ==================== i18n ==================== */
 const I18N = {
@@ -738,8 +741,18 @@ function uid(prefix){ return prefix + '_' + Math.random().toString(36).slice(2,9
 
 /* ==================== Storage ==================== */
 const STORAGE_KEYS = { data:'crm-data', users:'crm-users' };
-const dataService = window.ReactivationData.createBrowserDataService({ keys: STORAGE_KEYS });
+let dataService = null;
+let dataMode = 'local';
 let authService = null;
+
+function configureDataService(){
+  dataMode = window.ReactivationData.normalizeDataMode(window.REACTIVATION_DATA_CONFIG && window.REACTIVATION_DATA_CONFIG.mode);
+  dataService = window.ReactivationData.createConfiguredDataService({
+    mode:dataMode,
+    createLocal:()=>window.ReactivationData.createBrowserDataService({ keys:STORAGE_KEYS }),
+    createSupabase:()=>new window.ReactivationData.SupabaseDataService(authService.client)
+  });
+}
 
 async function loadData(){
   [players, users] = await Promise.all([
@@ -865,6 +878,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e)=>{
   submit.disabled = true;
   try{
     currentUser = await authService.signIn(email, password);
+    if(dataMode === 'supabase') await loadData();
     if(currentUser.lang){ currentLang = currentUser.lang; }
     enterApp();
   }catch(error){
@@ -1656,7 +1670,6 @@ function render(){
 
 /* ==================== Boot ==================== */
 (async function boot(){
-  await loadData();
   try{
     authService = window.ReactivationSupabaseAuth.createBrowserAuthService(
       window.REACTIVATION_SUPABASE_CONFIG,
@@ -1664,6 +1677,8 @@ function render(){
       window.localStorage
     );
     currentUser = await authService.getCurrentUser();
+    configureDataService();
+    await loadData();
     if(currentUser){
       if(currentUser.lang){ currentLang = currentUser.lang; }
       enterApp();
