@@ -270,6 +270,7 @@
 
     <nav id="nav">
       <button data-view="dashboard" class="active" aria-label="Дашборд" data-i18n-aria="nav_dashboard"><span class="dot"></span><span class="txt" data-i18n="nav_dashboard">Дашборд</span></button>
+      <button data-view="analytics" data-admin aria-label="Аналитика" data-i18n-aria="nav_analytics"><span class="dot"></span><span class="txt" data-i18n="nav_analytics">Аналитика</span></button>
       <button data-view="worklist" aria-label="Список игроков" data-i18n-aria="nav_worklist"><span class="dot"></span><span class="txt" data-i18n="nav_worklist">Список игроков</span></button>
       <button data-view="distribute" data-admin aria-label="Распределение" data-i18n-aria="nav_distribute"><span class="dot"></span><span class="txt" data-i18n="nav_distribute">Распределение</span></button>
       <button data-view="import" data-admin aria-label="Импорт" data-i18n-aria="nav_import"><span class="dot"></span><span class="txt" data-i18n="nav_import">Импорт</span></button>
@@ -309,6 +310,26 @@
         <p class="sub" data-i18n="agentstats_sub">Нагрузка и результативность каждого агента</p>
         <div id="agentStatsTable" class="table-scroll"></div>
       </div>
+    </section>
+
+    <!-- ANALYTICS -->
+    <section class="view" id="view-analytics">
+      <div class="topbar">
+        <div><h1 data-i18n="analytics_title">Аналитика</h1><p data-i18n="analytics_sub">Эффективность процесса и агентов</p></div>
+        <div class="row"><select class="field" id="analyticsPeriod"></select><select class="field" id="analyticsAgent"></select></div>
+      </div>
+      <div class="card">
+        <h3 data-i18n="analytics_snapshot_title">Текущий снимок</h3>
+        <p class="sub" data-i18n="analytics_snapshot_note">Текущие статусы и follow-up не зависят от выбранного периода.</p>
+        <div class="stat-row" id="analyticsSnapshotCards"></div>
+      </div>
+      <div class="card">
+        <h3 data-i18n="analytics_events_title">События за период</h3>
+        <p class="sub" data-i18n="analytics_events_note">Учитываются только датированные записи истории и комментариев.</p>
+        <div class="stat-row" id="analyticsEventCards"></div>
+      </div>
+      <div class="card"><h3 data-i18n="analytics_agents_title">Эффективность агентов</h3><div id="analyticsAgentsTable" class="table-scroll"></div></div>
+      <div id="analyticsDetail"></div>
     </section>
 
     <!-- WORKLIST -->
@@ -383,6 +404,7 @@
     <section class="view" id="view-access">
       <div class="topbar">
         <div><h1 data-i18n="access_title">Доступы</h1><p data-i18n="access_sub">Управляйте ролями команды и сбрасывайте пароли агентам</p></div>
+        <div class="row"><button class="btn btn-ghost btn-sm" id="backupBtn" data-i18n="backup_btn">Создать резервную копию</button></div>
       </div>
       <div id="resetRevealBox"></div>
       <div class="card">
@@ -416,6 +438,8 @@
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script src="./src/domain.js"></script>
+<script src="./src/auth.js"></script>
+<script src="./src/analytics.js"></script>
 <script src="./src/data/data-service.js"></script>
 <script src="./src/data/local-storage-data-service.js"></script>
 <script>
@@ -429,7 +453,7 @@ ru:{
   auth_err_username:'Логин: 3–20 символов, латинские буквы, цифры, точка, дефис или подчёркивание. Разделители нельзя ставить подряд или по краям.',
   auth_err_password:'Пароль: 8–64 символа, минимум одна буква и одна цифра, без пробелов.',
   auth_err_security:'Секретный ответ: 2–64 символа, буквы, цифры, пробелы и безопасные знаки.',
-  auth_err_save:'Не удалось сохранить аккаунт в браузере. Проверьте доступ к хранилищу и повторите попытку.',
+  auth_err_save:'Не удалось сохранить аккаунт в браузере. Проверьте доступ к хранилищу и повторите попытку.', auth_err_storage:'Хранилище пользователей повреждено. Регистрация остановлена, чтобы не перезаписать данные.',
   auth_name_rules:'2–50 символов: буквы, пробел, дефис или апостроф.',
   auth_username_rules:'3–20 символов: латинские буквы, цифры, точка, дефис или подчёркивание.',
   auth_password_rules:'8–64 символа, минимум одна буква и одна цифра, без пробелов.',
@@ -438,7 +462,7 @@ ru:{
   auth_new_password:'Новый пароль', auth_reset_btn:'Сохранить новый пароль',
   auth_err_reset:'Логин или секретный ответ не совпадают', auth_reset_success:'Пароль обновлён. Теперь войдите с новым паролем.',
   brand_title:'Reactivation Desk', brand_sub:'ECUADOR OPS',
-  nav_dashboard:'Дашборд', nav_worklist:'Список игроков', nav_distribute:'Распределение', nav_import:'Импорт', nav_access:'Доступы',
+  nav_dashboard:'Дашборд', nav_analytics:'Аналитика', nav_worklist:'Список игроков', nav_distribute:'Распределение', nav_import:'Импорт', nav_access:'Доступы',
   role_admin:'Администратор', role_agent:'Агент',
   change_pw_link:'Сменить пароль', change_pw_title:'Сменить пароль', change_pw_current:'Текущий пароль', change_pw_new:'Новый пароль',
   change_pw_submit:'Сохранить', change_pw_cancel:'Отмена', change_pw_wrong:'Неверный текущий пароль', change_pw_success:'Пароль изменён',
@@ -474,7 +498,7 @@ ru:{
   access_title:'Доступы', access_sub:'Управляйте ролями команды и сбрасывайте пароли агентам',
   access_users_title:'Все аккаунты', access_users_sub:'Новые регистрации автоматически получают роль агента. Здесь можно выдать администраторский доступ или отозвать его.',
   access_make_agent:'Сделать агентом', access_make_admin:'Сделать админом', access_remove:'Удалить', access_you:'Это вы',
-  access_reset_pw:'Сбросить пароль', access_reset_reveal:'Временный пароль для', access_reset_note:'Скопируйте и передайте агенту — после входа он сможет сменить его сам.',
+  access_reset_pw:'Сбросить пароль', access_reset_reveal:'Временный пароль для', access_reset_note:'Скопируйте и передайте агенту — после входа он сможет сменить его сам.', backup_btn:'Создать резервную копию', backup_done:'Резервная копия создана',
   copy_btn:'Скопировать', copied_toast:'Скопировано', dismiss_btn:'Скрыть',
   toast_status_updated:'Статус обновлён', toast_status_forbidden:'Этот переход статуса недоступен', toast_status_not_owner:'Нельзя изменить статус чужого игрока',
   confirm_reopen_status:'Переоткрыть завершённого игрока и вернуть его в работу?', toast_distributed:'Распределено между', toast_no_unassigned:'Нет нераспределённых игроков',
@@ -482,6 +506,13 @@ ru:{
   follow_up_save:'Сохранить', follow_up_clear:'Очистить', follow_up_saved:'Следующий контакт сохранён', follow_up_cleared:'Следующий контакт очищен', follow_up_invalid:'Укажите корректные дату и время',
   comments_title:'Комментарии', comment_placeholder:'Добавить комментарий…', comment_add:'Добавить', comments_empty:'Комментариев пока нет', comment_empty_error:'Введите текст комментария', comment_long_error:'Комментарий слишком длинный', comment_saved:'Комментарий добавлен',
   history_title:'История статусов', history_empty:'История пока пуста', player_edit_forbidden:'Недостаточно прав для изменения этого игрока',
+  analytics_title:'Аналитика', analytics_sub:'Эффективность процесса и агентов', analytics_snapshot_title:'Текущий снимок', analytics_snapshot_note:'Текущие статусы и follow-up не зависят от выбранного периода.',
+  analytics_events_title:'События за период', analytics_events_note:'Учитываются только датированные записи истории и комментариев.', analytics_agents_title:'Эффективность агентов', analytics_access_denied:'Раздел доступен только администраторам',
+  analytics_period_today:'Сегодня', analytics_period_7d:'Последние 7 дней', analytics_period_30d:'Последние 30 дней', analytics_period_all:'Всё время', analytics_all_agents:'Все агенты', analytics_agent_missing:'Выбранный агент не найден',
+  analytics_total:'Всего игроков', analytics_assigned:'Назначено агентам', analytics_inwork:'В работе сейчас', analytics_current_success:'Текущий success', analytics_current_failed:'Текущий failed', analytics_no_answer:'Не ответили', analytics_unassigned:'Без назначения', analytics_overdue:'Просроченные follow-up', analytics_today:'Follow-up сегодня', analytics_current_conversion:'Текущая конверсия',
+  analytics_period_success:'Успехи за период', analytics_period_failed:'Неудачи за период', analytics_event_conversion:'Событийная конверсия', analytics_status_changes:'Смены статуса', analytics_comments:'Комментарии', analytics_conversion_note:'success / (success + failed)',
+  analytics_th_period_success:'Успехи за период', analytics_th_conversion:'Конверсия', analytics_th_overdue:'Просрочено', analytics_th_today:'Сегодня', analytics_th_changes:'Смены статуса', analytics_th_comments:'Комментарии', analytics_select:'Выбрать', analytics_no_agents:'Агенты отсутствуют',
+  analytics_detail_title:'Детализация агента', analytics_current_players:'Текущие игроки', analytics_recent_statuses:'Последние смены статуса', analytics_upcoming_followups:'Ближайшие follow-up', analytics_recent_comments:'Последние комментарии', analytics_no_activity:'Нет данных за выбранный период',
   toast_pick_agent:'Выберите хотя бы одного агента', toast_assigned_to:'Игрок назначен на', toast_agent_added:'Агент добавлен',
   toast_role_updated:'Роль обновлена', toast_user_removed:'Аккаунт удалён', toast_save_error:'Не удалось сохранить данные',
   confirm_remove_user:'Удалить этот аккаунт? Назначенные ему игроки станут нераспределёнными.',
@@ -494,7 +525,7 @@ en:{
   auth_err_username:'Username: 3–20 characters using Latin letters, numbers, dots, hyphens or underscores. Separators cannot repeat or appear at the edges.',
   auth_err_password:'Password: 8–64 characters, at least one letter and one number, with no spaces.',
   auth_err_security:'Secret answer: 2–64 characters using letters, numbers, spaces and safe punctuation.',
-  auth_err_save:'The account could not be saved in this browser. Check storage access and try again.',
+  auth_err_save:'The account could not be saved in this browser. Check storage access and try again.', auth_err_storage:'User storage is damaged. Registration was stopped to avoid overwriting data.',
   auth_name_rules:'2–50 characters: letters, spaces, hyphens or apostrophes.',
   auth_username_rules:'3–20 characters: Latin letters, numbers, dot, hyphen or underscore.',
   auth_password_rules:'8–64 characters, at least one letter and one number, no spaces.',
@@ -503,7 +534,7 @@ en:{
   auth_new_password:'New password', auth_reset_btn:'Save new password',
   auth_err_reset:'Username or secret answer does not match', auth_reset_success:'Password updated. Log in with your new password.',
   brand_title:'Reactivation Desk', brand_sub:'ECUADOR OPS',
-  nav_dashboard:'Dashboard', nav_worklist:'Player list', nav_distribute:'Distribution', nav_import:'Import', nav_access:'Access',
+  nav_dashboard:'Dashboard', nav_analytics:'Analytics', nav_worklist:'Player list', nav_distribute:'Distribution', nav_import:'Import', nav_access:'Access',
   role_admin:'Admin', role_agent:'Agent',
   change_pw_link:'Change password', change_pw_title:'Change password', change_pw_current:'Current password', change_pw_new:'New password',
   change_pw_submit:'Save', change_pw_cancel:'Cancel', change_pw_wrong:'Current password is incorrect', change_pw_success:'Password changed',
@@ -539,7 +570,7 @@ en:{
   access_title:'Access', access_sub:'Manage team roles and reset agent passwords',
   access_users_title:'All accounts', access_users_sub:'New registrations automatically get the agent role. Grant or revoke admin access here.',
   access_make_agent:'Make agent', access_make_admin:'Make admin', access_remove:'Remove', access_you:'This is you',
-  access_reset_pw:'Reset password', access_reset_reveal:'Temporary password for', access_reset_note:'Copy it and share it with the agent — they can change it themselves after logging in.',
+  access_reset_pw:'Reset password', access_reset_reveal:'Temporary password for', access_reset_note:'Copy it and share it with the agent — they can change it themselves after logging in.', backup_btn:'Create backup', backup_done:'Backup created',
   copy_btn:'Copy', copied_toast:'Copied', dismiss_btn:'Dismiss',
   toast_status_updated:'Status updated', toast_status_forbidden:'This status transition is not available', toast_status_not_owner:'You cannot change another agent’s player',
   confirm_reopen_status:'Reopen this completed player and return them to in progress?', toast_distributed:'Distributed among', toast_no_unassigned:'No unassigned players',
@@ -547,6 +578,13 @@ en:{
   follow_up_save:'Save', follow_up_clear:'Clear', follow_up_saved:'Next contact saved', follow_up_cleared:'Next contact cleared', follow_up_invalid:'Enter a valid date and time',
   comments_title:'Comments', comment_placeholder:'Add a comment…', comment_add:'Add', comments_empty:'No comments yet', comment_empty_error:'Enter a comment', comment_long_error:'Comment is too long', comment_saved:'Comment added',
   history_title:'Status history', history_empty:'No status history yet', player_edit_forbidden:'You cannot change this player',
+  analytics_title:'Analytics', analytics_sub:'Process and agent performance', analytics_snapshot_title:'Current snapshot', analytics_snapshot_note:'Current statuses and follow-ups are independent of the selected period.',
+  analytics_events_title:'Events in period', analytics_events_note:'Only dated status-history and comment records are included.', analytics_agents_title:'Agent performance', analytics_access_denied:'Analytics is available to administrators only',
+  analytics_period_today:'Today', analytics_period_7d:'Last 7 days', analytics_period_30d:'Last 30 days', analytics_period_all:'All time', analytics_all_agents:'All agents', analytics_agent_missing:'Selected agent was not found',
+  analytics_total:'Total players', analytics_assigned:'Assigned to agents', analytics_inwork:'Currently in progress', analytics_current_success:'Current success', analytics_current_failed:'Current failed', analytics_no_answer:'No answer', analytics_unassigned:'Unassigned', analytics_overdue:'Overdue follow-ups', analytics_today:'Follow-ups today', analytics_current_conversion:'Current conversion',
+  analytics_period_success:'Successes in period', analytics_period_failed:'Failures in period', analytics_event_conversion:'Event conversion', analytics_status_changes:'Status changes', analytics_comments:'Comments', analytics_conversion_note:'success / (success + failed)',
+  analytics_th_period_success:'Successes in period', analytics_th_conversion:'Conversion', analytics_th_overdue:'Overdue', analytics_th_today:'Today', analytics_th_changes:'Status changes', analytics_th_comments:'Comments', analytics_select:'Select', analytics_no_agents:'No agents available',
+  analytics_detail_title:'Agent details', analytics_current_players:'Current players', analytics_recent_statuses:'Recent status changes', analytics_upcoming_followups:'Upcoming follow-ups', analytics_recent_comments:'Recent comments', analytics_no_activity:'No data for the selected period',
   toast_pick_agent:'Select at least one agent', toast_assigned_to:'Player assigned to', toast_agent_added:'Agent added',
   toast_role_updated:'Role updated', toast_user_removed:'Account removed', toast_save_error:'Could not save data',
   confirm_remove_user:'Remove this account? Their assigned players will become unassigned.',
@@ -559,7 +597,7 @@ es:{
   auth_err_username:'Usuario: 3–20 caracteres con letras latinas, números, puntos, guiones o guiones bajos. Los separadores no pueden repetirse ni ir al inicio o al final.',
   auth_err_password:'Contraseña: 8–64 caracteres, al menos una letra y un número, sin espacios.',
   auth_err_security:'Respuesta secreta: 2–64 caracteres con letras, números, espacios y signos seguros.',
-  auth_err_save:'No se pudo guardar la cuenta en este navegador. Verifica el acceso al almacenamiento e inténtalo de nuevo.',
+  auth_err_save:'No se pudo guardar la cuenta en este navegador. Verifica el acceso al almacenamiento e inténtalo de nuevo.', auth_err_storage:'El almacenamiento de usuarios está dañado. Se detuvo el registro para evitar sobrescribir datos.',
   auth_name_rules:'2–50 caracteres: letras, espacios, guiones o apóstrofes.',
   auth_username_rules:'3–20 caracteres: letras latinas, números, punto, guion o guion bajo.',
   auth_password_rules:'8–64 caracteres, al menos una letra y un número, sin espacios.',
@@ -568,7 +606,7 @@ es:{
   auth_new_password:'Nueva contraseña', auth_reset_btn:'Guardar nueva contraseña',
   auth_err_reset:'El usuario o la respuesta secreta no coinciden', auth_reset_success:'Contraseña actualizada. Inicia sesión con la nueva contraseña.',
   brand_title:'Reactivation Desk', brand_sub:'ECUADOR OPS',
-  nav_dashboard:'Panel', nav_worklist:'Lista de jugadores', nav_distribute:'Distribución', nav_import:'Importar', nav_access:'Accesos',
+  nav_dashboard:'Panel', nav_analytics:'Analítica', nav_worklist:'Lista de jugadores', nav_distribute:'Distribución', nav_import:'Importar', nav_access:'Accesos',
   role_admin:'Administrador', role_agent:'Agente',
   change_pw_link:'Cambiar contraseña', change_pw_title:'Cambiar contraseña', change_pw_current:'Contraseña actual', change_pw_new:'Nueva contraseña',
   change_pw_submit:'Guardar', change_pw_cancel:'Cancelar', change_pw_wrong:'La contraseña actual es incorrecta', change_pw_success:'Contraseña cambiada',
@@ -604,7 +642,7 @@ es:{
   access_title:'Accesos', access_sub:'Gestiona los roles del equipo y restablece contraseñas de agentes',
   access_users_title:'Todas las cuentas', access_users_sub:'Los nuevos registros reciben automáticamente el rol de agente. Aquí puedes otorgar o quitar el acceso de administrador.',
   access_make_agent:'Hacer agente', access_make_admin:'Hacer admin', access_remove:'Eliminar', access_you:'Eres tú',
-  access_reset_pw:'Restablecer contraseña', access_reset_reveal:'Contraseña temporal para', access_reset_note:'Cópiala y compártela con el agente — podrá cambiarla él mismo después de iniciar sesión.',
+  access_reset_pw:'Restablecer contraseña', access_reset_reveal:'Contraseña temporal para', access_reset_note:'Cópiala y compártela con el agente — podrá cambiarla él mismo después de iniciar sesión.', backup_btn:'Crear copia de seguridad', backup_done:'Copia de seguridad creada',
   copy_btn:'Copiar', copied_toast:'Copiado', dismiss_btn:'Ocultar',
   toast_status_updated:'Estado actualizado', toast_status_forbidden:'Esta transición de estado no está disponible', toast_status_not_owner:'No puedes cambiar el estado de un jugador de otro agente',
   confirm_reopen_status:'¿Reabrir este jugador finalizado y devolverlo a gestión?', toast_distributed:'Distribuido entre', toast_no_unassigned:'No hay jugadores sin asignar',
@@ -612,6 +650,13 @@ es:{
   follow_up_save:'Guardar', follow_up_clear:'Limpiar', follow_up_saved:'Próximo contacto guardado', follow_up_cleared:'Próximo contacto eliminado', follow_up_invalid:'Ingresa una fecha y hora válidas',
   comments_title:'Comentarios', comment_placeholder:'Agregar un comentario…', comment_add:'Agregar', comments_empty:'Aún no hay comentarios', comment_empty_error:'Escribe un comentario', comment_long_error:'El comentario es demasiado largo', comment_saved:'Comentario agregado',
   history_title:'Historial de estados', history_empty:'Aún no hay historial', player_edit_forbidden:'No puedes modificar este jugador',
+  analytics_title:'Analítica', analytics_sub:'Rendimiento del proceso y de los agentes', analytics_snapshot_title:'Estado actual', analytics_snapshot_note:'Los estados y seguimientos actuales no dependen del período seleccionado.',
+  analytics_events_title:'Eventos del período', analytics_events_note:'Solo se incluyen historiales y comentarios con fecha.', analytics_agents_title:'Rendimiento de agentes', analytics_access_denied:'La analítica solo está disponible para administradores',
+  analytics_period_today:'Hoy', analytics_period_7d:'Últimos 7 días', analytics_period_30d:'Últimos 30 días', analytics_period_all:'Todo el tiempo', analytics_all_agents:'Todos los agentes', analytics_agent_missing:'No se encontró el agente seleccionado',
+  analytics_total:'Total de jugadores', analytics_assigned:'Asignados a agentes', analytics_inwork:'Actualmente en gestión', analytics_current_success:'Éxito actual', analytics_current_failed:'Fallo actual', analytics_no_answer:'No contesta', analytics_unassigned:'Sin asignar', analytics_overdue:'Seguimientos vencidos', analytics_today:'Seguimientos hoy', analytics_current_conversion:'Conversión actual',
+  analytics_period_success:'Éxitos del período', analytics_period_failed:'Fallos del período', analytics_event_conversion:'Conversión por eventos', analytics_status_changes:'Cambios de estado', analytics_comments:'Comentarios', analytics_conversion_note:'success / (success + failed)',
+  analytics_th_period_success:'Éxitos del período', analytics_th_conversion:'Conversión', analytics_th_overdue:'Vencidos', analytics_th_today:'Hoy', analytics_th_changes:'Cambios de estado', analytics_th_comments:'Comentarios', analytics_select:'Elegir', analytics_no_agents:'No hay agentes',
+  analytics_detail_title:'Detalle del agente', analytics_current_players:'Jugadores actuales', analytics_recent_statuses:'Cambios de estado recientes', analytics_upcoming_followups:'Próximos seguimientos', analytics_recent_comments:'Comentarios recientes', analytics_no_activity:'No hay datos para el período seleccionado',
   toast_pick_agent:'Selecciona al menos un agente', toast_assigned_to:'Jugador asignado a', toast_agent_added:'Agente agregado',
   toast_role_updated:'Rol actualizado', toast_user_removed:'Cuenta eliminada', toast_save_error:'No se pudo guardar la información',
   confirm_remove_user:'¿Eliminar esta cuenta? Sus jugadores asignados quedarán sin asignar.',
@@ -723,9 +768,7 @@ function showToast(msg){
 /* ==================== Crypto helpers ==================== */
 function randomHex(n){ const arr = new Uint8Array(n); crypto.getRandomValues(arr); return [...arr].map(b=>b.toString(16).padStart(2,'0')).join(''); }
 async function hashValue(value, salt){
-  const enc = new TextEncoder();
-  const digest = await crypto.subtle.digest('SHA-256', enc.encode(salt + ':' + value));
-  return [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('');
+  return window.ReactivationAuth.hashValue(value, salt, crypto);
 }
 function generateTempPassword(len){
   len = len || 10;
@@ -791,10 +834,9 @@ document.getElementById('loginForm').addEventListener('submit', async (e)=>{
   const username = document.getElementById('loginUsername').value.trim().toLowerCase();
   const password = document.getElementById('loginPassword').value;
   if(!username || !password){ showAuthError(t('auth_err_fields')); return; }
-  const u = users.find(x=>x.username===username);
-  if(!u){ showAuthError(t('auth_err_creds')); return; }
-  const hash = await hashValue(password, u.salt);
-  if(hash !== u.passwordHash){ showAuthError(t('auth_err_creds')); return; }
+  const authResult = await window.ReactivationAuth.authenticateUser(users, username, password, crypto);
+  if(!authResult.ok){ showAuthError(t('auth_err_creds')); return; }
+  const u = authResult.user;
   currentUser = u;
   await dataService.saveCurrentUser(u);
   if(u.lang){ currentLang = u.lang; }
@@ -813,17 +855,17 @@ document.getElementById('registerForm').addEventListener('submit', async (e)=>{
   if(!REGISTRATION_RULES.username.test(username)){ showAuthError(t('auth_err_username')); return; }
   if(!REGISTRATION_RULES.password.test(password)){ showAuthError(t('auth_err_password')); return; }
   if(!REGISTRATION_RULES.securityAnswer.test(securityAnswer)){ showAuthError(t('auth_err_security')); return; }
-  if(users.find(x=>x.username===username)){ showAuthError(t('auth_err_exists')); return; }
+  if(window.ReactivationAuth.usernameExists(users, username)){ showAuthError(t('auth_err_exists')); return; }
+  if(users.length === 0 && !dataService.canInitializeUsers()){ showAuthError(t('auth_err_storage')); return; }
   const salt = randomHex(16);
   const passwordHash = await hashValue(password, salt);
   const securitySalt = randomHex(16);
   const securityAnswerHash = await hashValue(securityAnswer.toLocaleLowerCase(), securitySalt);
-  const isFirst = users.length === 0;
   const newUser = {
     id: uid('u'), username, salt, passwordHash, securitySalt, securityAnswerHash,
-    name, role: isFirst ? 'admin' : 'agent', createdAt: Date.now(), lang: currentLang
+    name, role: window.ReactivationAuth.roleForRegistration(users, dataService.canInitializeUsers()), createdAt: Date.now(), lang: currentLang
   };
-  users.push(newUser);
+  users = window.ReactivationAuth.appendUser(users, newUser);
   try{
     // Wait for durable browser storage before opening the application.
     await saveUsersNow();
@@ -909,6 +951,10 @@ document.getElementById('changePwForm').addEventListener('submit', async (e)=>{
 document.getElementById('nav').addEventListener('click', (e)=>{
   const btn = e.target.closest('button[data-view]');
   if(!btn) return;
+  if(btn.dataset.view==='analytics' && !window.ReactivationAnalytics.canAccessAnalytics(currentUser)){
+    showToast(t('analytics_access_denied'));
+    return;
+  }
   document.querySelectorAll('#nav button').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
@@ -986,6 +1032,102 @@ function renderDashboard(){
     wrap.innerHTML = `<table><thead><tr><th>${t('th_agent')}</th><th>${t('th_total')}</th><th>${t('th_assigned')}</th><th>${t('th_inwork')}</th><th>${t('th_success')}</th><th>${t('th_fail')}</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
 }
+
+document.getElementById('backupBtn').addEventListener('click', ()=>{
+  if(!currentUser || currentUser.role !== 'admin') return;
+  const backup = { format:'reactivation-desk-backup', version:1, createdAt:new Date().toISOString(), users, data:{ players } };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type:'application/json' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `reactivation-desk-backup-${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(()=>URL.revokeObjectURL(link.href), 0);
+  showToast(t('backup_done'));
+});
+
+/* ==================== Render: analytics ==================== */
+function analyticsPercent(value){ return `${Number.isFinite(value) ? value.toFixed(1) : '0.0'}%`; }
+
+function renderAnalyticsCards(targetId, cards){
+  document.getElementById(targetId).innerHTML = cards.map(([label,value,note])=>`
+    <div class="stat-card"><div class="num">${escapeHtml(value)}</div><div class="label">${escapeHtml(label)}</div>${note?`<div class="activity-meta">${escapeHtml(note)}</div>`:''}</div>`).join('');
+}
+
+function populateAnalyticsFilters(){
+  const periodSelect = document.getElementById('analyticsPeriod');
+  const previousPeriod = periodSelect.value || '7d';
+  periodSelect.innerHTML = [
+    ['today','analytics_period_today'], ['7d','analytics_period_7d'], ['30d','analytics_period_30d'], ['all','analytics_period_all']
+  ].map(([value,key])=>`<option value="${value}">${t(key)}</option>`).join('');
+  periodSelect.value = [...periodSelect.options].some(option=>option.value===previousPeriod) ? previousPeriod : '7d';
+
+  const agentSelect = document.getElementById('analyticsAgent');
+  const previousAgent = agentSelect.value;
+  const agents = users.filter(user=>user && user.role==='agent');
+  agentSelect.innerHTML = `<option value="">${t('analytics_all_agents')}</option>` + agents.map(agent=>`<option value="${escapeHtml(agent.id)}">${escapeHtml(agent.name||'—')}</option>`).join('');
+  agentSelect.value = [...agentSelect.options].some(option=>option.value===previousAgent) ? previousAgent : '';
+}
+
+function analyticsContactLabel(player){ return (player && (player.phone || player.email || player.messenger || player.id)) || '—'; }
+
+function renderAnalyticsDetail(result){
+  const target = document.getElementById('analyticsDetail');
+  if(result.selectedAgentMissing){ target.innerHTML=`<div class="card"><div class="empty"><b>${t('analytics_agent_missing')}</b></div></div>`; return; }
+  if(!result.detail){ target.innerHTML=''; return; }
+  const detail = result.detail;
+  const itemOrEmpty = (items, renderItem)=>items.length ? items.map(renderItem).join('') : `<span class="detail-empty">${t('analytics_no_activity')}</span>`;
+  target.innerHTML = `<div class="card"><h3>${t('analytics_detail_title')}: ${escapeHtml(result.selectedAgent.name||'—')}</h3>
+    <div class="player-detail">
+      <section class="detail-section"><h4>${t('analytics_current_players')}</h4><div class="activity-list">${itemOrEmpty(detail.players.slice(0,10), player=>`<div class="activity-item">${escapeHtml(analyticsContactLabel(player))}<span class="activity-meta">${escapeHtml(t('status_'+player.status))}</span></div>`)}</div></section>
+      <section class="detail-section"><h4>${t('analytics_recent_statuses')}</h4><div class="activity-list">${itemOrEmpty(detail.statusEvents, event=>`<div class="activity-item">${escapeHtml(t('status_'+event.fromStatus))} → ${escapeHtml(t('status_'+(event.toStatus||event.newStatus)))}<span class="activity-meta">${escapeHtml(event.userName||'—')} · ${escapeHtml(formatLocalDateTime(event.changedAt))}</span></div>`)}</div></section>
+      <section class="detail-section"><h4>${t('analytics_upcoming_followups')}</h4><div class="activity-list">${itemOrEmpty(detail.followUps, player=>`<div class="activity-item">${escapeHtml(analyticsContactLabel(player))}<span class="activity-meta">${escapeHtml(formatLocalDateTime(player.followUpAt))}</span></div>`)}</div></section>
+      <section class="detail-section"><h4>${t('analytics_recent_comments')}</h4><div class="activity-list">${itemOrEmpty(detail.comments, comment=>`<div class="activity-item">${escapeHtml(comment.text||'')}<span class="activity-meta">${escapeHtml(comment.authorName||'—')} · ${escapeHtml(formatLocalDateTime(comment.createdAt))}</span></div>`)}</div></section>
+    </div></div>`;
+}
+
+function renderAnalytics(){
+  if(!window.ReactivationAnalytics.canAccessAnalytics(currentUser)){
+    document.getElementById('analyticsSnapshotCards').innerHTML='';
+    document.getElementById('analyticsEventCards').innerHTML='';
+    document.getElementById('analyticsAgentsTable').innerHTML=`<div class="empty"><b>${t('analytics_access_denied')}</b></div>`;
+    document.getElementById('analyticsDetail').innerHTML='';
+    return false;
+  }
+  populateAnalyticsFilters();
+  const period = document.getElementById('analyticsPeriod').value;
+  const agentId = document.getElementById('analyticsAgent').value || null;
+  const result = window.ReactivationAnalytics.buildAnalytics(players, users, {period, agentId, now:Date.now()});
+  const snapshot = result.snapshot;
+  renderAnalyticsCards('analyticsSnapshotCards', [
+    [t('analytics_total'),snapshot.total], [t('analytics_assigned'),snapshot.assigned], [t('analytics_inwork'),snapshot.inWork],
+    [t('analytics_current_success'),snapshot.success], [t('analytics_current_failed'),snapshot.failed], [t('analytics_no_answer'),snapshot.noAnswer],
+    [t('analytics_unassigned'),snapshot.unassigned], [t('analytics_overdue'),snapshot.overdue], [t('analytics_today'),snapshot.today],
+    [t('analytics_current_conversion'),analyticsPercent(snapshot.currentConversion),t('analytics_conversion_note')]
+  ]);
+  renderAnalyticsCards('analyticsEventCards', [
+    [t('analytics_period_success'),result.events.success], [t('analytics_period_failed'),result.events.failed],
+    [t('analytics_event_conversion'),analyticsPercent(result.events.conversion),t('analytics_conversion_note')],
+    [t('analytics_status_changes'),result.events.statusChanges], [t('analytics_comments'),result.events.comments]
+  ]);
+
+  const rows = agentId ? result.agents.filter(agent=>String(agent.id)===String(agentId)) : result.agents;
+  const table = document.getElementById('analyticsAgentsTable');
+  if(!rows.length){ table.innerHTML=`<div class="empty"><b>${t('analytics_no_agents')}</b></div>`; }
+  else table.innerHTML=`<table><thead><tr><th>${t('th_agent')}</th><th>${t('th_total')}</th><th>${t('th_assigned')}</th><th>${t('th_inwork')}</th><th>${t('status_success')}</th><th>${t('status_failed')}</th><th>${t('status_no_answer')}</th><th>${t('analytics_th_period_success')}</th><th>${t('analytics_th_conversion')}</th><th>${t('analytics_th_overdue')}</th><th>${t('analytics_th_today')}</th><th>${t('analytics_th_changes')}</th><th>${t('analytics_th_comments')}</th><th></th></tr></thead><tbody>${rows.map(agent=>`<tr>
+    <td><b>${escapeHtml(agent.name)}</b></td><td>${agent.total}</td><td>${agent.assigned}</td><td>${agent.in_work}</td><td>${agent.success}</td><td>${agent.failed}</td><td>${agent.no_answer}</td><td>${agent.successfulReactivations}</td><td>${analyticsPercent(agent.conversion)}</td><td>${agent.overdue}</td><td>${agent.today}</td><td>${agent.statusChanges}</td><td>${agent.comments}</td><td><button class="btn btn-ghost btn-sm analytics-pick" data-id="${escapeHtml(agent.id)}">${t('analytics_select')}</button></td>
+  </tr>`).join('')}</tbody></table>`;
+  table.querySelectorAll('.analytics-pick').forEach(button=>button.addEventListener('click',()=>{
+    document.getElementById('analyticsAgent').value=button.dataset.id;
+    renderAnalytics();
+  }));
+  renderAnalyticsDetail(result);
+  return true;
+}
+
+document.getElementById('analyticsPeriod').addEventListener('change', renderAnalytics);
+document.getElementById('analyticsAgent').addEventListener('change', renderAnalytics);
 
 /* ==================== Render: worklist ==================== */
 function renderFilterAgentOptions(){
@@ -1409,7 +1551,7 @@ function render(){
   applyStaticTranslations();
   renderDashboard();
   renderWorklist();
-  if(currentUser.role==='admin'){ renderDistribute(); renderAccessView(); }
+  if(currentUser.role==='admin'){ renderAnalytics(); renderDistribute(); renderAccessView(); }
 }
 
 /* ==================== Boot ==================== */

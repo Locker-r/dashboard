@@ -19,6 +19,7 @@
       this.hostStorage = config.hostStorage || null;
       this.keys = Object.assign({}, DEFAULT_STORAGE_KEYS, config.keys || {});
       this.currentUser = null;
+      this.usersLoadState = 'unloaded';
     }
 
     async readStorageValue(key) {
@@ -58,13 +59,67 @@
       }
     }
 
+    inspectArray(raw) {
+      if (raw === null || typeof raw === 'undefined') return { state: 'missing', value: [] };
+      if (typeof raw !== 'string') return { state: 'invalid', value: [] };
+      try {
+        const value = JSON.parse(raw);
+        return Array.isArray(value) ? { state: 'valid', value } : { state: 'invalid', value: [] };
+      } catch (_error) {
+        return { state: 'invalid', value: [] };
+      }
+    }
+
+    async readHostValue(key) {
+      if (!this.hostStorage || typeof this.hostStorage.get !== 'function') return null;
+      try {
+        const result = await this.hostStorage.get(key, true);
+        return result && typeof result.value === 'string' ? result.value : null;
+      } catch (_error) {
+        return null;
+      }
+    }
+
     async loadUsers() {
-      return this.parseArray(await this.readStorageValue(this.keys.users));
+      let localRaw = null;
+      try { localRaw = this.localStorage ? this.localStorage.getItem(this.keys.users) : null; } catch (_error) {}
+      const local = this.inspectArray(localRaw);
+      const hostRaw = await this.readHostValue(this.keys.users);
+      const host = this.inspectArray(hostRaw);
+      if (local.state === 'valid') {
+        this.usersLoadState = 'valid';
+        return local.value;
+      }
+      if (local.state === 'invalid') {
+        this.usersLoadState = 'invalid';
+        return [];
+      }
+      if (host.state === 'valid') {
+        this.usersLoadState = 'valid';
+        try { if (this.localStorage) this.localStorage.setItem(this.keys.users, hostRaw); } catch (_error) {}
+        return host.value;
+      }
+      this.usersLoadState = host.state === 'invalid' ? 'invalid' : 'missing';
+      return [];
     }
 
     async saveUsers(users) {
       const safeUsers = Array.isArray(users) ? users : [];
+      if (safeUsers.length === 0) {
+        let localRaw = null;
+        try { localRaw = this.localStorage ? this.localStorage.getItem(this.keys.users) : null; } catch (_error) {}
+        const hostRaw = await this.readHostValue(this.keys.users);
+        const existing = [this.inspectArray(localRaw), this.inspectArray(hostRaw)];
+        if (existing.some(entry => entry.state === 'valid' && entry.value.length > 0)) {
+          throw new Error('Refusing to replace non-empty users storage with an empty array');
+        }
+      }
       await this.writeStorageValue(this.keys.users, JSON.stringify(safeUsers));
+      this.usersLoadState = 'valid';
+    }
+
+    canInitializeUsers() {
+      return this.usersLoadState === 'missing' || this.usersLoadState === 'valid';
     }
 
     async loadPlayers() {

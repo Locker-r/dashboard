@@ -8,6 +8,7 @@
   class DataService {
     async loadUsers() { throw new Error('loadUsers() is not implemented'); }
     async saveUsers(_users) { throw new Error('saveUsers() is not implemented'); }
+    canInitializeUsers() { return false; }
     async loadPlayers() { throw new Error('loadPlayers() is not implemented'); }
     async savePlayers(_players) { throw new Error('savePlayers() is not implemented'); }
     async getCurrentUser() { throw new Error('getCurrentUser() is not implemented'); }

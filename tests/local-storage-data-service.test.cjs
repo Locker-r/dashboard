@@ -57,7 +57,7 @@ test('returns safe defaults for empty, corrupt, or wrong-shaped storage', async 
   }
 });
 
-test('prefers host storage and mirrors it to localStorage', async () => {
+test('keeps a valid local users array when host storage differs', async () => {
   const local = memoryStorage({ 'crm-users': JSON.stringify([{ id: 'local' }]) });
   const host = {
     async get(key, shared) {
@@ -67,17 +67,58 @@ test('prefers host storage and mirrors it to localStorage', async () => {
     async set(_key, _value, shared) { assert.equal(shared, true); }
   };
   const service = new LocalStorageDataService({ localStorage: local, hostStorage: host });
-  assert.deepEqual(plain(await service.loadUsers()), [{ id: 'host' }]);
-  assert.deepEqual(JSON.parse(local.value('crm-users')), [{ id: 'host' }]);
+  assert.deepEqual(plain(await service.loadUsers()), [{ id: 'local' }]);
+  assert.deepEqual(JSON.parse(local.value('crm-users')), [{ id: 'local' }]);
+});
+
+test('empty host storage cannot override non-empty local users', async () => {
+  const local = memoryStorage({ 'crm-users': JSON.stringify([{ id: 'admin' }, { id: 'agent' }]) });
+  const host = { async get() { return { value: '[]' }; }, async set() {} };
+  const service = new LocalStorageDataService({ localStorage: local, hostStorage: host });
+  assert.deepEqual(plain(await service.loadUsers()).map(user => user.id), ['admin', 'agent']);
+});
+
+test('existing users survive service recreation without host storage', async () => {
+  const local = memoryStorage({ 'crm-users': JSON.stringify([{ id: 'admin', role: 'admin' }, { id: 'agent', role: 'agent' }]) });
+  const firstLoad = new LocalStorageDataService({ localStorage: local });
+  const secondLoad = new LocalStorageDataService({ localStorage: local });
+  assert.deepEqual(plain(await firstLoad.loadUsers()).map(user => user.role), ['admin', 'agent']);
+  assert.deepEqual(plain(await secondLoad.loadUsers()).map(user => user.role), ['admin', 'agent']);
+});
+
+test('corrupt users JSON is not overwritten during load and blocks initialization', async () => {
+  const local = memoryStorage({ 'crm-users': '{broken' });
+  const service = new LocalStorageDataService({ localStorage: local });
+  assert.deepEqual(plain(await service.loadUsers()), []);
+  assert.equal(service.canInitializeUsers(), false);
+  assert.equal(local.value('crm-users'), '{broken');
+});
+
+test('rejects replacing a non-empty users array with an empty array', async () => {
+  const local = memoryStorage({ 'crm-users': JSON.stringify([{ id: 'admin' }]) });
+  const service = new LocalStorageDataService({ localStorage: local });
+  await assert.rejects(service.saveUsers([]), /Refusing to replace/);
+  assert.deepEqual(JSON.parse(local.value('crm-users')), [{ id: 'admin' }]);
+});
+
+test('registration-style append persists existing users across reloads', async () => {
+  const local = memoryStorage({ 'crm-users': JSON.stringify([{ id: 'admin' }, { id: 'agent' }]) });
+  const service = new LocalStorageDataService({ localStorage: local });
+  const existing = await service.loadUsers();
+  await service.saveUsers([...existing, { id: 'new-agent' }]);
+  const reloaded = new LocalStorageDataService({ localStorage: local });
+  assert.deepEqual(plain(await reloaded.loadUsers()).map(user => user.id), ['admin', 'agent', 'new-agent']);
 });
 
 test('keeps the current session ephemeral', async () => {
-  const service = new LocalStorageDataService({ localStorage: memoryStorage() });
+  const storage = memoryStorage({ 'crm-users': JSON.stringify([{ id: 'u_1' }]) });
+  const service = new LocalStorageDataService({ localStorage: storage });
   assert.equal(await service.getCurrentUser(), null);
   await service.saveCurrentUser({ id: 'u_1' });
   assert.deepEqual(await service.getCurrentUser(), { id: 'u_1' });
   await service.clearSession();
   assert.equal(await service.getCurrentUser(), null);
+  assert.deepEqual(JSON.parse(storage.value('crm-users')), [{ id: 'u_1' }]);
 });
 
 test('round-trips player history, comments, and follow-up fields', async () => {
