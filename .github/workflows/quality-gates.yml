@@ -1,0 +1,44 @@
+name: Quality gates
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Tests, syntax, diff, and secrets
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run check:js
+      - run: npm run check:secrets
+      - name: Check changed-line whitespace
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then BASE_SHA="HEAD^"; fi
+          git diff --check "$BASE_SHA" "$GITHUB_SHA"
+
+  windows-powershell:
+    name: Atomic SQL PowerShell check
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check atomic write SQL
+        shell: powershell
+        run: .\scripts\check-atomic-writes.ps1
