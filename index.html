@@ -409,9 +409,28 @@
     <section class="view" id="view-access">
       <div class="topbar">
         <div><h1 data-i18n="access_title">Доступы</h1><p data-i18n="access_sub">Управляйте ролями команды и сбрасывайте пароли агентам</p></div>
-        <div class="row"><button class="btn btn-ghost btn-sm" id="backupBtn" data-i18n="backup_btn">Создать резервную копию</button></div>
+        <div class="row"><button class="btn btn-danger btn-sm" id="backupBtn" type="button">Полная recovery-копия</button><button class="btn btn-ghost btn-sm" id="snapshotBtn" type="button">Sanitized snapshot</button></div>
       </div>
       <div id="resetRevealBox"></div>
+      <div class="card">
+        <h3>Предварительная проверка миграции</h3>
+        <p class="sub">Только чтение: файл соответствий не сохраняется, Supabase не изменяется.</p>
+        <div class="row">
+          <input type="file" id="migrationMapInput" accept=".json,application/json">
+          <button class="btn btn-ghost btn-sm" id="migrationDryRunBtn" type="button">Запустить dry run</button>
+        </div>
+        <div id="migrationDryRunReport" class="file-status neutral" aria-live="polite">Dry run ещё не запускался.</div>
+      </div>
+      <div class="card">
+        <h3>Очистка тестовых локальных данных</h3>
+        <p class="sub">Удаляются только строгие test01@example.com…test30@example.com после проверки и подтверждения.</p>
+        <div class="row">
+          <button class="btn btn-ghost btn-sm" id="testCleanupPreviewBtn" type="button">Проверить тестовые данные</button>
+          <input type="text" id="testCleanupPhrase" autocomplete="off" placeholder="DELETE 30 TEST PLAYERS" style="min-width:240px;">
+          <button class="btn btn-danger btn-sm" id="testCleanupBtn" type="button" disabled>Удалить 30 тестовых игроков</button>
+        </div>
+        <div id="testCleanupReport" class="file-status neutral" aria-live="polite">Проверка ещё не выполнялась.</div>
+      </div>
       <div class="card">
         <h3 data-i18n="access_users_title">Все аккаунты</h3>
         <p class="sub" data-i18n="access_users_sub">Новые регистрации автоматически получают роль агента. Здесь можно выдать администраторский доступ или отозвать его.</p>
@@ -428,6 +447,8 @@
 <script src="./config/supabase-config.local.js"></script>
 <script src="./vendor/supabase.js"></script>
 <script src="./src/supabase-auth-service.js"></script>
+<script src="./src/migration-preflight.js"></script>
+<script src="./src/test-data-cleanup.js"></script>
 <script src="./src/domain.js"></script>
 <script src="./src/auth.js"></script>
 <script src="./src/analytics.js"></script>
@@ -961,18 +982,108 @@ function renderDashboard(){
   }
 }
 
+function downloadPrivateJson(payload, filename){
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type:'application/json' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob); link.download = filename;
+  document.body.appendChild(link); link.click(); link.remove();
+  setTimeout(()=>URL.revokeObjectURL(link.href), 0);
+}
+
 document.getElementById('backupBtn').addEventListener('click', ()=>{
   if(!currentUser || currentUser.role !== 'admin') return;
-  const backup = { format:'reactivation-desk-backup', version:1, createdAt:new Date().toISOString(), users, data:{ players } };
-  const blob = new Blob([JSON.stringify(backup, null, 2)], { type:'application/json' });
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = `reactivation-desk-backup-${new Date().toISOString().slice(0,10)}.json`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(()=>URL.revokeObjectURL(link.href), 0);
+  downloadPrivateJson(window.ReactivationMigrationPreflight.createRecoveryBackup(players, users), `reactivation-desk-recovery-sensitive-${new Date().toISOString().replace(/[:.]/g,'-')}.json`);
   showToast(t('backup_done'));
+});
+
+document.getElementById('snapshotBtn').addEventListener('click', ()=>{
+  if(!currentUser || currentUser.role !== 'admin') return;
+  downloadPrivateJson(window.ReactivationMigrationPreflight.createSanitizedSnapshot(players, users), `reactivation-desk-migration-snapshot-${new Date().toISOString().replace(/[:.]/g,'-')}.json`);
+  showToast(t('backup_done'));
+});
+
+async function readMigrationMap(){
+  const input = document.getElementById('migrationMapInput');
+  if(!input.files || !input.files[0]) return {};
+  const parsed = JSON.parse(await input.files[0].text());
+  if(!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('mapping_invalid');
+  return parsed;
+}
+
+async function loadMigrationReferences(){
+  const client = authService && authService.client;
+  if(!client) throw new Error('client_missing');
+  const queries = await Promise.all([
+    client.from('profiles').select('id,username'),
+    client.from('players').select('id,phone,email,messenger'),
+    client.from('player_comments').select('id'),
+    client.from('player_status_history').select('id')
+  ]);
+  const failed = queries.find(result=>result.error);
+  if(failed) throw failed.error;
+  return { profiles:queries[0].data||[], remotePlayers:queries[1].data||[], remoteComments:queries[2].data||[], remoteHistory:queries[3].data||[] };
+}
+
+function renderMigrationSummary(result){
+  const s = result.summary;
+  const values = [
+    ['users',s.localUsers],['mapped',s.confirmedMappings],['unmapped',s.unmappedUsers],['ambiguous',s.ambiguousMappings],['missing refs',s.missingUserReferences],
+    ['players',s.players],['valid',s.validPlayers],['errors',s.invalidPlayers],['blocked',s.blockedPlayers],
+    ['exact ID duplicates',s.exact_id_duplicate],['contact duplicates',s.contact_duplicate],['local duplicates',s.duplicate_inside_local],['clean',s.clean_record],
+    ['comments',s.comments],['blocked comments',s.blockedComments],['existing comment IDs',s.exactCommentIdDuplicates],
+    ['history',s.history],['blocked history',s.blockedHistory],['existing history IDs',s.exactHistoryIdDuplicates]
+  ];
+  document.getElementById('migrationDryRunReport').textContent = values.map(([label,value])=>`${label}: ${value}`).join(' · ') + ` · migration blocked: ${result.migrationBlocked ? 'yes' : 'no'}`;
+}
+
+document.getElementById('migrationDryRunBtn').addEventListener('click', async ()=>{
+  if(!currentUser || currentUser.role !== 'admin') return;
+  const button = document.getElementById('migrationDryRunBtn'); button.disabled=true;
+  try{
+    const references = await loadMigrationReferences();
+    const result = window.ReactivationMigrationPreflight.dryRun({ players, users, userMapping:await readMigrationMap(), ...references });
+    renderMigrationSummary(result);
+  }catch(error){
+    document.getElementById('migrationDryRunReport').textContent='Dry run failed. No data was changed.';
+    logAuthDiagnostic(error);
+  }finally{ button.disabled=false; }
+});
+
+let latestTestCleanupPreview = null;
+function renderTestCleanupPreview(plan, label){
+  latestTestCleanupPreview = plan;
+  const c = plan.counts;
+  document.getElementById('testCleanupReport').textContent = `${label || 'preview'} · test players: ${c.testPlayers} · history: ${c.historyEvents} · comments: ${c.comments} · referenced users: ${c.referencedUsers} · other players using users: ${c.otherPlayersUsingReferencedUsers} · admins preserved: ${c.adminsPreserved} · remaining players: ${c.remainingPlayers}`;
+  updateTestCleanupButton();
+}
+function updateTestCleanupButton(){
+  const phraseMatches = document.getElementById('testCleanupPhrase').value === window.ReactivationTestDataCleanup.CONFIRMATION_PHRASE;
+  document.getElementById('testCleanupBtn').disabled = !(latestTestCleanupPreview && latestTestCleanupPreview.eligible && phraseMatches);
+}
+document.getElementById('testCleanupPhrase').addEventListener('input', updateTestCleanupButton);
+document.getElementById('testCleanupPreviewBtn').addEventListener('click', ()=>{
+  if(!currentUser || currentUser.role !== 'admin') return;
+  renderTestCleanupPreview(window.ReactivationTestDataCleanup.preview(players, users), 'preview');
+});
+document.getElementById('testCleanupBtn').addEventListener('click', async ()=>{
+  if(!currentUser || currentUser.role !== 'admin') return;
+  const phrase = document.getElementById('testCleanupPhrase').value;
+  const result = window.ReactivationTestDataCleanup.clean(players, users, phrase);
+  if(!result.ok){ renderTestCleanupPreview(result.plan, 'blocked'); return; }
+  downloadPrivateJson(window.ReactivationMigrationPreflight.createRecoveryBackup(players, users), `reactivation-desk-recovery-sensitive-pre-cleanup-${new Date().toISOString().replace(/[:.]/g,'-')}.json`);
+  const button = document.getElementById('testCleanupBtn'); button.disabled=true;
+  try{
+    await dataService.savePlayers(result.players);
+    players = result.players;
+    await dataService.saveUsers(result.users);
+    users = result.users;
+    document.getElementById('testCleanupPhrase').value='';
+    render();
+    renderTestCleanupPreview(window.ReactivationTestDataCleanup.preview(players, users), 'after cleanup');
+  }catch(_error){
+    renderTestCleanupPreview(window.ReactivationTestDataCleanup.preview(players, users), 'save error');
+    showToast(t('toast_save_error'));
+  }
 });
 
 /* ==================== Render: analytics ==================== */
