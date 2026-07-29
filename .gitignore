@@ -1,4 +1,5 @@
 config/supabase-config.local.js
+config/data-config.local.js
 node_modules/
 reactivation-desk-recovery-sensitive-*.json
 reactivation-desk-migration-snapshot-*.json
