@@ -225,66 +225,21 @@
   <div class="auth-card">
     <div class="auth-brand">Reactivation Desk<small>ECUADOR OPS</small></div>
 
-    <div class="auth-tabs" id="authTabs">
-      <button id="tabLogin" class="active" data-i18n="auth_tab_login">Войти</button>
-      <button id="tabRegister" data-i18n="auth_tab_register">Регистрация</button>
-    </div>
-
     <div class="auth-error" id="authError"></div>
     <div class="auth-hint" id="authHint"></div>
 
-    <form id="loginForm">
+    <div id="authLoading" class="auth-hint show" role="status">Проверяем сессию…</div>
+
+    <form id="loginForm" style="display:none;">
       <div class="auth-field">
-        <label for="loginUsername" data-i18n="auth_username">Логин</label>
-        <input type="text" id="loginUsername" autocomplete="username">
+        <label for="loginEmail">Email</label>
+        <input type="email" id="loginEmail" autocomplete="username" required autocapitalize="none" spellcheck="false">
       </div>
       <div class="auth-field">
         <label for="loginPassword" data-i18n="auth_password">Пароль</label>
         <input type="password" id="loginPassword" autocomplete="current-password">
       </div>
-      <div class="auth-forgot"><a id="forgotLink" tabindex="0" role="button" data-i18n="auth_forgot_link">Забыли пароль?</a></div>
       <button type="submit" class="auth-submit" data-i18n="auth_login_btn">Войти</button>
-    </form>
-
-    <form id="registerForm" style="display:none;">
-      <div class="auth-field">
-        <label for="regName" data-i18n="auth_name">Имя</label>
-        <input type="text" id="regName" autocomplete="name" required minlength="2" maxlength="50">
-        <div class="hint" data-i18n="auth_name_rules">2–50 символов: буквы, пробел, дефис или апостроф.</div>
-      </div>
-      <div class="auth-field">
-        <label for="regUsername" data-i18n="auth_username">Логин</label>
-        <input type="text" id="regUsername" autocomplete="username" required minlength="3" maxlength="20" autocapitalize="none" spellcheck="false">
-        <div class="hint" data-i18n="auth_username_rules">3–20 символов: латинские буквы, цифры, точка, дефис или подчёркивание.</div>
-      </div>
-      <div class="auth-field">
-        <label for="regPassword" data-i18n="auth_password">Пароль</label>
-        <input type="password" id="regPassword" autocomplete="new-password" required minlength="8" maxlength="64">
-        <div class="hint" data-i18n="auth_password_rules">8–64 символа, минимум одна буква и одна цифра, без пробелов.</div>
-      </div>
-      <div class="auth-field">
-        <label for="regSecurityAnswer" data-i18n="auth_security_answer">Секретный ответ (для восстановления пароля)</label>
-        <input type="text" id="regSecurityAnswer" autocomplete="off" required minlength="2" maxlength="64">
-        <div class="hint" data-i18n="auth_security_hint">Например: имя первого питомца. Понадобится, если забудете пароль.</div>
-      </div>
-      <button type="submit" class="auth-submit" data-i18n="auth_register_btn">Создать аккаунт</button>
-    </form>
-
-    <form id="resetForm" style="display:none;">
-      <a class="auth-back" id="backToLoginLink" tabindex="0" role="button" data-i18n="auth_back_to_login">← Назад ко входу</a>
-      <div class="auth-field">
-        <label for="resetUsername" data-i18n="auth_username">Логин</label>
-        <input type="text" id="resetUsername" autocomplete="username">
-      </div>
-      <div class="auth-field">
-        <label for="resetSecurityAnswer" data-i18n="auth_security_answer">Секретный ответ (для восстановления пароля)</label>
-        <input type="text" id="resetSecurityAnswer" autocomplete="off">
-      </div>
-      <div class="auth-field">
-        <label for="resetNewPassword" data-i18n="auth_new_password">Новый пароль</label>
-        <input type="password" id="resetNewPassword" autocomplete="new-password">
-      </div>
-      <button type="submit" class="auth-submit" data-i18n="auth_reset_btn">Сохранить новый пароль</button>
     </form>
 
     <div class="auth-lang">
@@ -314,7 +269,6 @@
       <div class="who-box">
         <div class="who-name" id="whoName">—</div>
         <div class="who-role" id="whoRole">—</div>
-        <button class="who-change-pw" id="openChangePw" data-i18n="change_pw_link">Сменить пароль</button>
       </div>
       <div class="lang-box">
         <button data-lang="ru" class="lang-pick-app" aria-pressed="true">RU</button>
@@ -469,25 +423,11 @@
 </div>
 </div>
 
-<!-- ============ CHANGE PASSWORD MODAL ============ -->
-<div class="modal-overlay" id="changePwOverlay">
-  <div class="modal-card">
-    <h3 data-i18n="change_pw_title">Сменить пароль</h3>
-    <div class="auth-error" id="changePwError"></div>
-    <div class="auth-hint" id="changePwHint"></div>
-    <form id="changePwForm">
-      <div class="auth-field"><label for="cpCurrent" data-i18n="change_pw_current">Текущий пароль</label><input type="password" id="cpCurrent"></div>
-      <div class="auth-field"><label for="cpNew" data-i18n="change_pw_new">Новый пароль</label><input type="password" id="cpNew"></div>
-      <div class="row" style="margin-top:6px;">
-        <button type="submit" class="btn btn-primary btn-sm" data-i18n="change_pw_submit">Сохранить</button>
-        <button type="button" class="btn btn-ghost btn-sm" id="cpCancel" data-i18n="change_pw_cancel">Отмена</button>
-      </div>
-    </form>
-  </div>
-</div>
-
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+<script src="./config/supabase-config.local.js"></script>
+<script src="./vendor/supabase.js"></script>
+<script src="./src/supabase-auth-service.js"></script>
 <script src="./src/domain.js"></script>
 <script src="./src/auth.js"></script>
 <script src="./src/analytics.js"></script>
@@ -778,6 +718,7 @@ function uid(prefix){ return prefix + '_' + Math.random().toString(36).slice(2,9
 /* ==================== Storage ==================== */
 const STORAGE_KEYS = { data:'crm-data', users:'crm-users' };
 const dataService = window.ReactivationData.createBrowserDataService({ keys: STORAGE_KEYS });
+let authService = null;
 
 async function loadData(){
   [players, users] = await Promise.all([
@@ -864,103 +805,66 @@ function showAuthError(msg){ authHint.classList.remove('show'); authError.textCo
 function showAuthHint(msg){ authError.classList.remove('show'); authHint.textContent = msg; authHint.classList.add('show'); }
 function clearAuthMsgs(){ authError.classList.remove('show'); authHint.classList.remove('show'); }
 
-function showAuthView(view){
+function showLogin(){
   clearAuthMsgs();
-  document.getElementById('loginForm').style.display = view==='login' ? '' : 'none';
-  document.getElementById('registerForm').style.display = view==='register' ? '' : 'none';
-  document.getElementById('resetForm').style.display = view==='reset' ? '' : 'none';
-  document.getElementById('authTabs').style.display = view==='reset' ? 'none' : 'flex';
-  document.getElementById('tabLogin').classList.toggle('active', view==='login');
-  document.getElementById('tabRegister').classList.toggle('active', view==='register');
+  document.getElementById('authLoading').style.display = 'none';
+  document.getElementById('loginForm').style.display = '';
+  document.getElementById('authScreen').style.display = 'flex';
+  document.getElementById('appShell').style.display = 'none';
 }
-document.getElementById('tabLogin').addEventListener('click', ()=>showAuthView('login'));
-document.getElementById('tabRegister').addEventListener('click', ()=>showAuthView('register'));
-document.getElementById('forgotLink').addEventListener('click', (e)=>{ e.preventDefault(); showAuthView('reset'); });
-document.getElementById('backToLoginLink').addEventListener('click', (e)=>{ e.preventDefault(); showAuthView('login'); });
-document.getElementById('forgotLink').addEventListener('keydown', (e)=>{ if(e.key==='Enter' || e.key===' '){ e.preventDefault(); e.currentTarget.click(); } });
-document.getElementById('backToLoginLink').addEventListener('keydown', (e)=>{ if(e.key==='Enter' || e.key===' '){ e.preventDefault(); e.currentTarget.click(); } });
+
+function authErrorMessage(error){
+  const messages = {
+    ru:{ invalid_credentials:'Неправильный email или пароль.', profile_missing:'Профиль сотрудника не найден. Обратитесь к администратору.', profile_inactive:'Профиль сотрудника отключён.', profile_load_error:'Не удалось загрузить профиль. Повторите попытку или обратитесь к администратору.', network_error:'Нет соединения с сервером. Проверьте сеть и повторите попытку.', config_missing:'Конфигурация Supabase не заполнена.', config_invalid:'Конфигурация Supabase содержит неправильный Project URL.', client_missing:'Не удалось загрузить клиент Supabase.', auth_error:'Не удалось выполнить вход. Повторите попытку.' },
+    en:{ invalid_credentials:'Incorrect email or password.', profile_missing:'Employee profile not found. Contact an administrator.', profile_inactive:'Employee profile is disabled.', profile_load_error:'Could not load the employee profile. Try again or contact an administrator.', network_error:'Cannot reach the server. Check your network and try again.', config_missing:'Supabase configuration is missing.', config_invalid:'The Supabase configuration contains an invalid Project URL.', client_missing:'The Supabase client could not be loaded.', auth_error:'Could not log in. Try again.' },
+    es:{ invalid_credentials:'Email o contraseña incorrectos.', profile_missing:'No se encontró el perfil del empleado. Contacta con un administrador.', profile_inactive:'El perfil del empleado está desactivado.', profile_load_error:'No se pudo cargar el perfil. Inténtalo de nuevo o contacta con un administrador.', network_error:'No se puede conectar con el servidor. Comprueba la red e inténtalo de nuevo.', config_missing:'Falta la configuración de Supabase.', config_invalid:'La configuración de Supabase contiene una URL de proyecto incorrecta.', client_missing:'No se pudo cargar el cliente de Supabase.', auth_error:'No se pudo iniciar sesión. Inténtalo de nuevo.' }
+  };
+  const code = error && error.code || 'auth_error';
+  return (messages[currentLang] || messages.ru)[code] || (messages[currentLang] || messages.ru).auth_error;
+}
+
+function logAuthDiagnostic(error){
+  const isDevelopment = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  if(!isDevelopment || !window.console || typeof console.error !== 'function') return;
+  const source = error && error.cause || error || {};
+  console.error('Supabase Auth error', {
+    code: source.code || (error && error.code) || null,
+    status: source.status || (error && error.status) || null,
+    message: String(source.message || (error && error.message) || '')
+  });
+}
 
 document.getElementById('loginForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
   clearAuthMsgs();
-  const username = document.getElementById('loginUsername').value.trim().toLowerCase();
+  const email = document.getElementById('loginEmail').value.trim().toLowerCase();
   const password = document.getElementById('loginPassword').value;
-  if(!username || !password){ showAuthError(t('auth_err_fields')); return; }
-  const authResult = await window.ReactivationAuth.authenticateUser(users, username, password, crypto);
-  if(!authResult.ok){ showAuthError(t('auth_err_creds')); return; }
-  const u = authResult.user;
-  currentUser = u;
-  await dataService.saveCurrentUser(u);
-  if(u.lang){ currentLang = u.lang; }
-  enterApp();
-});
-
-document.getElementById('registerForm').addEventListener('submit', async (e)=>{
-  e.preventDefault();
-  clearAuthMsgs();
-  const name = document.getElementById('regName').value.trim().replace(/\s+/g, ' ');
-  const username = document.getElementById('regUsername').value.trim().toLowerCase();
-  const password = document.getElementById('regPassword').value;
-  const securityAnswer = document.getElementById('regSecurityAnswer').value.trim().replace(/\s+/g, ' ');
-  if(!name || !username || !password || !securityAnswer){ showAuthError(t('auth_err_fields')); return; }
-  if(!REGISTRATION_RULES.name.test(name)){ showAuthError(t('auth_err_name')); return; }
-  if(!REGISTRATION_RULES.username.test(username)){ showAuthError(t('auth_err_username')); return; }
-  if(!REGISTRATION_RULES.password.test(password)){ showAuthError(t('auth_err_password')); return; }
-  if(!REGISTRATION_RULES.securityAnswer.test(securityAnswer)){ showAuthError(t('auth_err_security')); return; }
-  if(window.ReactivationAuth.usernameExists(users, username)){ showAuthError(t('auth_err_exists')); return; }
-  if(users.length === 0 && !dataService.canInitializeUsers()){ showAuthError(t('auth_err_storage')); return; }
-  const salt = randomHex(16);
-  const passwordHash = await hashValue(password, salt);
-  const securitySalt = randomHex(16);
-  const securityAnswerHash = await hashValue(securityAnswer.toLocaleLowerCase(), securitySalt);
-  const newUser = {
-    id: uid('u'), username, salt, passwordHash, securitySalt, securityAnswerHash,
-    name, role: window.ReactivationAuth.roleForRegistration(users, dataService.canInitializeUsers()), createdAt: Date.now(), lang: currentLang
-  };
-  users = window.ReactivationAuth.appendUser(users, newUser);
+  if(!email || !password){ showAuthError(t('auth_err_fields')); return; }
+  const submit = e.currentTarget.querySelector('[type=submit]');
+  submit.disabled = true;
   try{
-    // Wait for durable browser storage before opening the application.
-    await saveUsersNow();
-  }catch(_e){
-    users = users.filter(u=>u.id !== newUser.id);
-    showAuthError(t('auth_err_save'));
-    return;
+    currentUser = await authService.signIn(email, password);
+    if(currentUser.lang){ currentLang = currentUser.lang; }
+    enterApp();
+  }catch(error){
+    currentUser = null;
+    logAuthDiagnostic(error);
+    showAuthError(authErrorMessage(error));
+  }finally{
+    submit.disabled = false;
   }
-  currentUser = newUser;
-  await dataService.saveCurrentUser(newUser);
-  document.getElementById('registerForm').reset();
-  enterApp();
-});
-
-document.getElementById('resetForm').addEventListener('submit', async (e)=>{
-  e.preventDefault();
-  clearAuthMsgs();
-  const username = document.getElementById('resetUsername').value.trim().toLowerCase();
-  const answer = document.getElementById('resetSecurityAnswer').value.trim().toLowerCase();
-  const newPassword = document.getElementById('resetNewPassword').value;
-  if(!username || !answer || !newPassword){ showAuthError(t('auth_err_fields')); return; }
-  if(!REGISTRATION_RULES.password.test(newPassword)){ showAuthError(t('auth_err_password')); return; }
-  const u = users.find(x=>x.username===username);
-  if(!u || !u.securitySalt){ showAuthError(t('auth_err_reset')); return; }
-  const answerHash = await hashValue(answer, u.securitySalt);
-  if(answerHash !== u.securityAnswerHash){ showAuthError(t('auth_err_reset')); return; }
-  const newSalt = randomHex(16);
-  u.salt = newSalt;
-  u.passwordHash = await hashValue(newPassword, newSalt);
-  saveUsers();
-  document.getElementById('resetForm').reset();
-  showAuthView('login');
-  showAuthHint(t('auth_reset_success'));
 });
 
 document.getElementById('logoutBtn').addEventListener('click', logout);
 async function logout(){
-  await dataService.clearSession();
-  currentUser = null;
-  document.getElementById('authScreen').style.display='flex';
-  document.getElementById('appShell').style.display='none';
-  document.getElementById('loginForm').reset();
-  showAuthView('login');
+  try{
+    await authService.signOut();
+    currentUser = null;
+    document.getElementById('loginForm').reset();
+    showLogin();
+  }catch(error){
+    showToast(authErrorMessage(error));
+  }
 }
 
 function enterApp(){
@@ -970,34 +874,6 @@ function enterApp(){
   applyStaticTranslations();
   render();
 }
-
-/* ==================== Change password (self) ==================== */
-const cpOverlay = document.getElementById('changePwOverlay');
-const cpError = document.getElementById('changePwError');
-const cpHint = document.getElementById('changePwHint');
-document.getElementById('openChangePw').addEventListener('click', ()=>{
-  cpError.classList.remove('show'); cpHint.classList.remove('show');
-  document.getElementById('changePwForm').reset();
-  cpOverlay.classList.add('show');
-});
-document.getElementById('cpCancel').addEventListener('click', ()=>cpOverlay.classList.remove('show'));
-document.getElementById('changePwForm').addEventListener('submit', async (e)=>{
-  e.preventDefault();
-  cpError.classList.remove('show'); cpHint.classList.remove('show');
-  const cur = document.getElementById('cpCurrent').value;
-  const next = document.getElementById('cpNew').value;
-  if(!cur || !next){ cpError.textContent = t('change_pw_fields'); cpError.classList.add('show'); return; }
-  if(!REGISTRATION_RULES.password.test(next)){ cpError.textContent = t('auth_err_password'); cpError.classList.add('show'); return; }
-  const hash = await hashValue(cur, currentUser.salt);
-  if(hash !== currentUser.passwordHash){ cpError.textContent = t('change_pw_wrong'); cpError.classList.add('show'); return; }
-  const newSalt = randomHex(16);
-  currentUser.salt = newSalt;
-  currentUser.passwordHash = await hashValue(next, newSalt);
-  saveUsers();
-  cpHint.textContent = t('change_pw_success'); cpHint.classList.add('show');
-  showToast(t('change_pw_success'));
-  setTimeout(()=>cpOverlay.classList.remove('show'), 900);
-});
 
 /* ==================== Nav ==================== */
 document.getElementById('nav').addEventListener('click', (e)=>{
@@ -1670,8 +1546,27 @@ function render(){
 /* ==================== Boot ==================== */
 (async function boot(){
   await loadData();
-  currentUser = await dataService.getCurrentUser();
-  applyStaticTranslations();
+  try{
+    authService = window.ReactivationSupabaseAuth.createBrowserAuthService(
+      window.REACTIVATION_SUPABASE_CONFIG,
+      window.supabase,
+      window.localStorage
+    );
+    currentUser = await authService.getCurrentUser();
+    if(currentUser){
+      if(currentUser.lang){ currentLang = currentUser.lang; }
+      enterApp();
+    }else{
+      showLogin();
+      applyStaticTranslations();
+    }
+  }catch(error){
+    currentUser = null;
+    logAuthDiagnostic(error);
+    showLogin();
+    showAuthError(authErrorMessage(error));
+    applyStaticTranslations();
+  }
 })();
 </script>
 </body>
