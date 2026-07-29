@@ -8,12 +8,12 @@ It never targets the previously created player or any record without the exact c
 
 - Every account email must start with `smoke_test` and all three accounts must be distinct.
 - Every player ID starts with `SMOKE_TEST_<run_id>_`; `run_id` is 12–40 lowercase letters/digits.
-- Every player also has the exact messenger marker `SMOKE_TEST:<run_id>`.
+- Every player has a unique messenger contact beginning with `SMOKE_TEST:<run_id>:`; the final suffix distinguishes the two rows without defeating contact-duplicate protection.
 - Writes require `SMOKE_TEST_WRITE_CONFIRMATION=I_UNDERSTAND_SMOKE_TEST_WRITES`.
 - The configured URL must exactly equal `SMOKE_TEST_ALLOWED_PROJECT_URL`.
 - Local mode accepts only loopback HTTP URLs.
 - Staging requires HTTPS `*.supabase.co` plus `SMOKE_TEST_STAGING_CONFIRMATION=STAGING_ONLY_NOT_PRODUCTION`.
-- Cleanup requires admin Auth, exact run ID, `DELETE_SMOKE_TEST_<run_id>`, marker equality, ID-prefix equality, and `created_by` equality. It deletes only matched `players`; child comments/history disappear through existing cascades.
+- Cleanup requires admin Auth, exact run ID, `DELETE_SMOKE_TEST_<run_id>`, marker-prefix equality, ID-prefix equality, and `created_by` equality. It deletes only matched `players`; child comments/history disappear through existing cascades.
 - Passwords and keys are environment variables. The scripts never print them.
 
 ## Local mode (preferred)

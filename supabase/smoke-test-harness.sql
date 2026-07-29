@@ -59,19 +59,19 @@ begin
   from public.player_comments c
   join public.players p on p.id = c.player_id
   where left(p.id, char_length(v_prefix)) = v_prefix
-    and p.messenger = v_marker
+    and left(p.messenger, char_length(v_marker) + 1) = v_marker || ':'
     and p.created_by = v_actor.id;
 
   select count(*) into v_history
   from public.player_status_history h
   join public.players p on p.id = h.player_id
   where left(p.id, char_length(v_prefix)) = v_prefix
-    and p.messenger = v_marker
+    and left(p.messenger, char_length(v_marker) + 1) = v_marker || ':'
     and p.created_by = v_actor.id;
 
   delete from public.players p
   where left(p.id, char_length(v_prefix)) = v_prefix
-    and p.messenger = v_marker
+    and left(p.messenger, char_length(v_marker) + 1) = v_marker || ':'
     and p.created_by = v_actor.id;
   get diagnostics v_players = row_count;
 

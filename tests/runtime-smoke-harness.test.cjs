@@ -41,21 +41,39 @@ test('write mode requires opt-in, distinct prefixed accounts, and environment cr
 
 test('run plan scopes every identifier and cleanup confirmation to one run', () => {
   const plan = harness.buildPlan('abc123def456');
-  assert.equal(plan.marker, 'SMOKE_TEST:abc123def456');
+  assert.equal(plan.markerPrefix, 'SMOKE_TEST:abc123def456');
+  assert.equal(plan.assignedMarker, 'SMOKE_TEST:abc123def456:assigned');
+  assert.equal(plan.otherMarker, 'SMOKE_TEST:abc123def456:other');
   assert.ok(plan.assignedPlayerId.startsWith('SMOKE_TEST_abc123def456_'));
   assert.ok(plan.otherPlayerId.startsWith('SMOKE_TEST_abc123def456_'));
   assert.equal(plan.cleanupConfirmation, 'DELETE_SMOKE_TEST_abc123def456');
   assert.throws(() => harness.buildPlan('../unsafe'), /INVALID_SMOKE_RUN_ID/);
 });
 
+test('each player has a unique contact while retaining the run cleanup prefix', () => {
+  const plan = harness.buildPlan('abc123def456');
+  const players = harness.buildPlayers(plan);
+  assert.equal(players.length, 2);
+  assert.equal(new Set(players.map(player => player.email)).size, 2);
+  assert.equal(new Set(players.map(player => player.messenger)).size, 2);
+  assert.ok(players.every(player => player.messenger.startsWith(`${plan.markerPrefix}:`)));
+});
+
 test('cleanup SQL is admin-only and deletes only triple-matched players', () => {
   const sql = fs.readFileSync(path.join(__dirname, '..', 'supabase', 'smoke-test-harness.sql'), 'utf8');
   assert.match(sql, /v_actor\.role <> 'admin'/);
   assert.match(sql, /left\(p\.id, char_length\(v_prefix\)\) = v_prefix/);
-  assert.match(sql, /p\.messenger = v_marker/);
+  assert.match(sql, /left\(p\.messenger, char_length\(v_marker\) \+ 1\) = v_marker \|\| ':'/);
   assert.match(sql, /p\.created_by = v_actor\.id/);
   assert.equal((sql.match(/delete\s+from/gi) || []).length, 1);
   assert.doesNotMatch(sql, /delete\s+from\s+public\.(profiles|player_comments|player_status_history)/i);
+});
+
+test('runtime failures identify the safe stage and run id and always enter cleanup', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'runtime-smoke.cjs'), 'utf8');
+  assert.match(source, /stage=\$\{stage\} run_id=\$\{plan\.runId\}/);
+  assert.match(source, /finally \{\s+if \(admin\) \{/);
+  assert.doesNotMatch(source, /writesStarted/);
 });
 
 test('ordinary CI never invokes a credentialed runtime smoke test', () => {
