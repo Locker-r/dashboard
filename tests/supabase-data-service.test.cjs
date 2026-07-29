@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const data = require('../src/data/supabase-data-service.js');
 
 function clientWith(results, authOverrides = {}) {
-  const calls = { tables: [], signOut: 0 };
+  const calls = { tables: [], rpcs: [], signOut: 0 };
   const client = {
     from(table) {
       calls.tables.push(table);
@@ -20,6 +20,7 @@ function clientWith(results, authOverrides = {}) {
         }
       };
     },
+    async rpc(name, parameters) { calls.rpcs.push({ name, parameters }); return { data: { ok: true }, error: null }; },
     auth: {
       async getSession() { return { data: { session: null }, error: null }; },
       async signOut() { calls.signOut += 1; return { error: null }; },
@@ -72,11 +73,33 @@ test('does not hide Supabase read errors', async () => {
   await assert.rejects(() => new data.SupabaseDataService(fixture.client).loadUsers(), error => error === expected);
 });
 
-test('rejects all direct save methods with READ_ONLY', async () => {
+test('rejects broad save methods because writes require scoped RPCs', async () => {
   const service = new data.SupabaseDataService(clientWith({}).client);
-  await assert.rejects(() => service.saveUsers([]), error => error.code === 'READ_ONLY');
-  await assert.rejects(() => service.savePlayers([]), error => error.code === 'READ_ONLY');
-  await assert.rejects(() => service.saveCurrentUser(null), error => error.code === 'READ_ONLY');
+  await assert.rejects(() => service.saveUsers([]), error => error.code === 'RPC_REQUIRED');
+  await assert.rejects(() => service.savePlayers([]), error => error.code === 'RPC_REQUIRED');
+  await assert.rejects(() => service.saveCurrentUser(null), error => error.code === 'RPC_REQUIRED');
+});
+
+test('routes every write through its narrowly scoped atomic RPC', async () => {
+  const fixture = clientWith({});
+  const service = new data.SupabaseDataService(fixture.client);
+  await service.createPlayers([{ id:'p1', phone:'+1', importedAt:0 }]);
+  await service.assignPlayers(['p1'],['a1']);
+  await service.changePlayerStatus('p1','in_work','h1',{ adminConfirmed:true });
+  await service.addPlayerComment('p1','c1',' note ');
+  await service.setPlayerFollowUp('p1','2026-01-01T00:00:00Z');
+  assert.deepEqual(fixture.calls.rpcs.map(call=>call.name), [
+    'create_players_atomic','assign_players_atomic','change_player_status_atomic',
+    'add_player_comment_atomic','set_player_follow_up_atomic'
+  ]);
+  assert.equal(fixture.calls.rpcs[2].parameters.p_confirm_reopen,true);
+});
+
+test('propagates RPC errors without a direct-write fallback', async () => {
+  const fixture = clientWith({});
+  const expected = Object.assign(new Error('denied'),{ code:'42501' });
+  fixture.client.rpc = async ()=>({ data:null,error:expected });
+  await assert.rejects(()=>new data.SupabaseDataService(fixture.client).setPlayerFollowUp('p1',null),error=>error===expected);
 });
 
 test('clearSession delegates to Supabase Auth signOut and propagates its error', async () => {

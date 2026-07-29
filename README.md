@@ -18,3 +18,5 @@ The dashboard is a static application, so it reads Supabase settings from a loca
 4. Run `npm install` and `npm run build:vendor` after cloning or updating dependencies.
 
 `config/supabase-config.local.js` and `node_modules` are ignored by Git. The generated `vendor/supabase.js` bundle is served locally, so the dashboard does not depend on a CDN.
+
+Supabase storage setup is documented in `docs/supabase-storage-foundation.md`. The optional atomic write RPC migration and its manual verification workflow are documented in `docs/supabase-atomic-writes.md`; repository scripts never apply SQL to a remote project.
