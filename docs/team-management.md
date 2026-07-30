@@ -34,7 +34,7 @@ Profiles remain visible directly only to self or admin under the existing RLS po
 
 ## Secrets and local operation
 
-Required Edge Function environment variables are `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`. Keep them in local Supabase secrets or staging secrets only. Never place them in client configuration, tracked `.env` files, command output, screenshots, or logs.
+Required Edge Function environment variables are `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and `TEAM_ALLOWED_ORIGIN`. `TEAM_ALLOWED_ORIGIN` is the exact staging Dashboard origin, including scheme and optional non-default port, with no path and no wildcard. Keep credentials in local Supabase secrets or staging secrets only. Never place them in client configuration, tracked `.env` files, command output, screenshots, or logs.
 
 Local checks:
 
@@ -52,7 +52,14 @@ The structural check needs no credentials and contacts no remote service. For a 
 
 ## Staging deployment
 
-After reviewing the migration, apply it only to a dedicated staging project, set the three function secrets in that project, and deploy `team-management` with JWT verification enabled. Production deployment requires a separate approval, backup, migration review, staging runtime results, and a rollback plan.
+After reviewing the migration, apply it only to a dedicated staging project, set the function secrets in that project, and deploy `team-management` with JWT verification enabled. Configure the non-secret origin separately with an exact value:
+
+```powershell
+$env:TEAM_ALLOWED_ORIGIN = 'https://staging-dashboard.example.com'
+npx.cmd supabase secrets set "TEAM_ALLOWED_ORIGIN=$env:TEAM_ALLOWED_ORIGIN" --project-ref <staging-project-ref>
+```
+
+Do not use `*`, a production origin, or a URL prefix. Production deployment requires a separate approval, backup, migration review, staging runtime results, and a rollback plan.
 
 ## Threats and controls
 

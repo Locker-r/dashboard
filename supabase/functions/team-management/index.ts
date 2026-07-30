@@ -125,9 +125,9 @@ Deno.serve(async request => {
   } catch (error) {
     if (error instanceof ApiError) return response(error.status, { ok: false, error: { code: error.code, message: error.message } }, corsOrigin);
     const code = typeof error === 'object' && error && 'message' in error ? String(error.message) : 'INTERNAL_ERROR';
-    const safeCodes = new Set(['SERVICE_ROLE_REQUIRED','ACTIVE_ADMIN_REQUIRED','SELF_PROMOTION_FORBIDDEN','LAST_ACTIVE_ADMIN','REASSIGNMENT_REQUIRED','INVALID_REASSIGNMENT_AGENT','MEMBER_NOT_FOUND','REQUEST_ID_REUSE','PROFILE_ALREADY_EXISTS','PLAYER_ASSIGNMENT_MISMATCH']);
+    const safeCodes = new Set(['SERVICE_ROLE_REQUIRED','ACTIVE_ADMIN_REQUIRED','SELF_PROMOTION_FORBIDDEN','LAST_ACTIVE_ADMIN','REASSIGNMENT_REQUIRED','INVALID_REASSIGNMENT_AGENT','MEMBER_NOT_FOUND','REQUEST_ID_REUSE','PROFILE_ALREADY_EXISTS','PLAYER_ASSIGNMENT_MISMATCH','REASSIGNMENT_COUNT_MISMATCH']);
     const databaseCode = typeof error === 'object' && error && 'code' in error && /^[A-Z0-9]{5,12}$/.test(String(error.code)) ? `DATABASE_${String(error.code)}` : null;
     const safe = safeCodes.has(code) ? code : (databaseCode || 'INTERNAL_ERROR');
-    return response(safe === 'INTERNAL_ERROR' || databaseCode ? 500 : 409, { ok: false, error: { code: safe, message: safe } }, corsOrigin);
+    return response(safeCodes.has(code) ? 409 : 500, { ok: false, error: { code: safe, message: safe } }, corsOrigin);
   }
 });
