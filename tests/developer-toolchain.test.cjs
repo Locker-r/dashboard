@@ -21,6 +21,17 @@ function currentBranch(cwd){
   const common=path.join(dev,'common.ps1').replaceAll("'","''");
   return spawnSync(shell,['-NoProfile','-ExecutionPolicy','Bypass','-Command',`. '${common}'; Get-CurrentBranch`],{cwd,encoding:'utf8'});
 }
+function withRemoteOnlyMain(callback){
+  const directory=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'developer-toolchain-remote-'));
+  const bare=path.join(directory,'origin.git'),source=path.join(directory,'source'),work=path.join(directory,'work');
+  try {
+    fs.mkdirSync(bare);git(bare,['init','--bare']);fs.mkdirSync(source);git(source,['init']);git(source,['config','user.name','Toolchain Test']);git(source,['config','user.email','toolchain@example.invalid']);
+    fs.writeFileSync(path.join(source,'fixture.txt'),'fixture\n');git(source,['add','--','fixture.txt']);git(source,['commit','-m','fixture']);git(source,['branch','-M','main']);git(source,['remote','add','origin',bare]);git(source,['push','origin','main']);
+    fs.mkdirSync(work);git(work,['init']);git(work,['remote','add','origin',bare]);git(work,['fetch','origin','main']);git(work,['checkout','--detach','origin/main']);
+    assert.equal(spawnSync('git',['show-ref','--verify','--quiet','refs/heads/main'],{cwd:work}).status,1);assert.equal(spawnSync('git',['show-ref','--verify','--quiet','refs/remotes/origin/main'],{cwd:work}).status,0);
+    return callback(work);
+  } finally { fs.rmSync(directory,{recursive:true,force:true}); }
+}
 
 test('common returns structured results, redacts secrets, and computes exit codes',()=>{
   const file=path.join(dev,'common.ps1').replaceAll("'","''");
@@ -43,6 +54,21 @@ test('current branch helper preserves a real Git failure',()=>{
 test('review reports detached HEAD from a real temporary repository',()=>withTempRepo((repo,sha)=>{
   git(repo,['checkout','--detach',sha]);const r=run('review.ps1',['-BaseBranch','main','-ReportPath','artifacts/review.md'],repo);assert.equal(r.status,0,r.stderr);
   const report=fs.readFileSync(path.join(repo,'artifacts','review.md'),'utf8');assert.match(report,/Current branch: `HEAD`/);
+}));
+test('review prefers a local base branch and reports its resolved ref',()=>withTempRepo(repo=>{
+  git(repo,['checkout','-b','feature/test']);const r=run('review.ps1',['-BaseBranch','main','-ReportPath','artifacts/review.md'],repo);assert.equal(r.status,0,r.stderr);assert.match(fs.readFileSync(path.join(repo,'artifacts','review.md'),'utf8'),/Resolved base ref: `main`/);
+}));
+test('review falls back to origin main without a local main branch',()=>withRemoteOnlyMain(repo=>{
+  const r=run('review.ps1',['-BaseBranch','main','-ReportPath','artifacts/review.md'],repo);assert.equal(r.status,0,r.stderr);const report=fs.readFileSync(path.join(repo,'artifacts','review.md'),'utf8');assert.match(report,/Current branch: `HEAD`/);assert.match(report,/Resolved base ref: `origin\/main`/);
+}));
+test('review accepts an exact origin remote-tracking ref',()=>withRemoteOnlyMain(repo=>{
+  const r=run('review.ps1',['-BaseBranch','origin/main','-ReportPath','artifacts/review.md'],repo);assert.equal(r.status,0,r.stderr);assert.match(fs.readFileSync(path.join(repo,'artifacts','review.md'),'utf8'),/Resolved base ref: `origin\/main`/);
+}));
+test('review reports a controlled error for a missing base ref',()=>withTempRepo(repo=>{
+  const r=run('review.ps1',['-BaseBranch','missing-branch','-ReportPath','artifacts/review.md'],repo);assert.notEqual(r.status,0);const output=`${r.stdout}\n${r.stderr}`;assert.match(output,/Cannot resolve base Git ref 'missing-branch'/);assert.doesNotMatch(output,/null-valued expression/i);assert.equal(fs.existsSync(path.join(repo,'artifacts','review.md')),false);
+}));
+test('review reports a controlled error when histories have no merge base',()=>withTempRepo(repo=>{
+  git(repo,['checkout','--orphan','unrelated']);git(repo,['rm','-f','fixture.txt']);fs.writeFileSync(path.join(repo,'other.txt'),'other\n');git(repo,['add','--','other.txt']);git(repo,['commit','-m','unrelated']);const r=run('review.ps1',['-BaseBranch','main','-ReportPath','artifacts/review.md'],repo);assert.notEqual(r.status,0);const output=`${r.stdout}\n${r.stderr}`;assert.match(output,/Cannot determine Git merge-base/);assert.match(output,/fetch sufficient history/);assert.doesNotMatch(output,/null-valued expression/i);
 }));
 test('PR dry-run is read-only in detached HEAD',()=>withTempRepo((repo,sha)=>{
   git(repo,['checkout','--detach',sha]);const before=git(repo,['status','--porcelain']);const r=run('pr.ps1',['-CommitMessage','test','-PrTitle','test'],repo);

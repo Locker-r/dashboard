@@ -23,6 +23,19 @@ function Resolve-ExternalCommand([string]$Name,[string]$GitRoot) {
 }
 function Get-GitRoot { $root=(& git rev-parse --show-toplevel 2>$null);if($LASTEXITCODE-ne 0-or-not$root){throw 'Current directory is not inside a Git repository.'};[IO.Path]::GetFullPath(($root|Select-Object -First 1).Trim()) }
 function Get-CurrentBranch { $previousErrorActionPreference=$ErrorActionPreference;try{$ErrorActionPreference='Continue';$branchOutput=@(& git branch --show-current 2>$null);$gitExitCode=$LASTEXITCODE}finally{$ErrorActionPreference=$previousErrorActionPreference};if($gitExitCode-ne 0){throw 'Cannot determine current Git branch.'};$branch=($branchOutput-join'').Trim();if([string]::IsNullOrWhiteSpace($branch)){return 'HEAD'};return $branch }
+function Resolve-GitBaseRef([string]$BaseBranch) {
+  if([string]::IsNullOrWhiteSpace($BaseBranch)){throw 'Base Git ref must not be empty.'}
+  if($BaseBranch.StartsWith('refs/')){$candidates=@([pscustomobject]@{Verify=$BaseBranch;Resolved=$BaseBranch;Kind='ExplicitRef'})}
+  elseif($BaseBranch.StartsWith('origin/')){$candidates=@([pscustomobject]@{Verify="refs/remotes/$BaseBranch";Resolved=$BaseBranch;Kind='ExplicitRef'})}
+  else{$candidates=@([pscustomobject]@{Verify="refs/heads/$BaseBranch";Resolved=$BaseBranch;Kind='LocalBranch'},[pscustomobject]@{Verify="refs/remotes/origin/$BaseBranch";Resolved="origin/$BaseBranch";Kind='RemoteTracking'})}
+  foreach($candidate in $candidates){$previousErrorActionPreference=$ErrorActionPreference;try{$ErrorActionPreference='Continue';$null=@(& git rev-parse --verify --quiet "$($candidate.Verify)^{commit}" 2>$null);$gitExitCode=$LASTEXITCODE}finally{$ErrorActionPreference=$previousErrorActionPreference};if($gitExitCode-eq 0){return [pscustomobject]@{Requested=$BaseBranch;Resolved=$candidate.Resolved;Kind=$candidate.Kind}}}
+  throw "Cannot resolve base Git ref '$BaseBranch'. Checked local and origin remote-tracking refs."
+}
+function Get-GitMergeBase([string]$RequestedBase,[string]$ResolvedBase) {
+  $previousErrorActionPreference=$ErrorActionPreference;try{$ErrorActionPreference='Continue';$output=@(& git merge-base $ResolvedBase HEAD 2>$null);$gitExitCode=$LASTEXITCODE}finally{$ErrorActionPreference=$previousErrorActionPreference}
+  if($gitExitCode-ne 0){throw "Cannot determine Git merge-base for requested ref '$RequestedBase' resolved as '$ResolvedBase'; fetch sufficient history or provide an available base ref."}
+  $mergeBase=($output-join'').Trim();if([string]::IsNullOrWhiteSpace($mergeBase)){throw "Git merge-base returned no commit for '$ResolvedBase' and HEAD; fetch sufficient history or provide an available base ref."};return $mergeBase
+}
 function Test-CleanWorkingTree { $status=@(& git status --porcelain 2>$null);if($LASTEXITCODE-ne 0){throw 'Cannot read Git status.'};return $status.Count-eq 0 }
 function New-SafeReportDirectory([string]$ReportPath,[string]$GitRoot) { if([string]::IsNullOrWhiteSpace($ReportPath)){return $null};$target=if([IO.Path]::IsPathRooted($ReportPath)){[IO.Path]::GetFullPath($ReportPath)}else{[IO.Path]::GetFullPath((Join-Path $GitRoot $ReportPath))};$prefix=$GitRoot.TrimEnd([IO.Path]::DirectorySeparatorChar)+[IO.Path]::DirectorySeparatorChar;if(-not$target.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)){throw 'ReportPath must stay inside the Git repository.'};$directory=Split-Path -Parent $target;if($directory-and-not(Test-Path -LiteralPath $directory)){New-Item -ItemType Directory -Path $directory -Force|Out-Null};return $target }
 function Invoke-CheckedCommand {
