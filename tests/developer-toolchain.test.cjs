@@ -59,7 +59,26 @@ test('preflight states unambiguously that runtime verification did not execute',
   const banner=s.slice(s.indexOf('READY FOR DEVELOPMENT'));
   assert.match(banner,/if\(\$IncludeRuntime\)\{[\s\S]*Runtime verification has NOT been executed[\s\S]*-AllowDatabaseReset/);
 });
-test('review creates markdown and detects sensitive diff categories',()=>{const report=`artifacts/review-test-${process.pid}.md`;const r=run('review.ps1',['-ReportPath',report]);assert.equal(r.status,0,r.stderr);const content=fs.readFileSync(path.join(root,report),'utf8');assert.match(content,/# Review report/);assert.match(content,/## Recommendation/);const s=read('review.ps1');assert.match(s,/SECURITY DEFINER/);assert.match(s,/ROW LEVEL SECURITY/);assert.match(s,/supabase\/migrations/);});
+// Runs in an isolated fixture repo: executing review.ps1 against the ambient working tree made this test
+// depend on whatever the current branch happens to contain, so any branch legitimately adding destructive
+// SQL (for example a retention purge) turned a correct BLOCKED verdict into a test failure.
+test('review creates markdown and detects sensitive diff categories',()=>withTempRepo(repo=>{
+  const report='artifacts/review-test.md';
+  const r=run('review.ps1',['-ReportPath',report],repo);
+  assert.equal(r.status,0,r.stderr);
+  const content=fs.readFileSync(path.join(repo,report),'utf8');
+  assert.match(content,/# Review report/);assert.match(content,/## Recommendation/);
+  const s=read('review.ps1');assert.match(s,/SECURITY DEFINER/);assert.match(s,/ROW LEVEL SECURITY/);assert.match(s,/supabase\/migrations/);
+}));
+test('review blocks a diff that adds destructive SQL to a migration',()=>withTempRepo(repo=>{
+  git(repo,['checkout','-b','feature/destructive']);
+  fs.mkdirSync(path.join(repo,'supabase','migrations'),{recursive:true});
+  fs.writeFileSync(path.join(repo,'supabase','migrations','20990101000100_probe.sql'),'delete from public.some_table;\n');
+  git(repo,['add','--','supabase/migrations']);git(repo,['commit','-m','destructive']);
+  const r=run('review.ps1',['-BaseBranch','main','-ReportPath','artifacts/review.md'],repo);
+  assert.equal(r.status,1,'destructive SQL must block');
+  assert.match(fs.readFileSync(path.join(repo,'artifacts','review.md'),'utf8'),/Potentially destructive SQL added/);
+}));
 test('pr is dry-run first and does not alter Git',()=>withTempRepo(repo=>{
   git(repo,['checkout','-b','feature/test-pr-dry-run']);const beforeStatus=git(repo,['status','--porcelain']);const beforeHead=git(repo,['rev-parse','HEAD']);
   const r=run('pr.ps1',['-CommitMessage','test','-PrTitle','test','-Paths','fixture.txt'],repo);assert.equal(r.status,0,r.stderr);assert.match(r.stdout,/DRY RUN/);assert.match(r.stdout,/Planned push:/);assert.match(r.stdout,/Planned PR:/);
