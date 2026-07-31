@@ -1,14 +1,27 @@
--- Secure Contact Boundary (PR A), phase 1: additive masked projection, helpers and safe RPC shapes.
--- Phase 1 changes no existing privilege. The cut-over that removes raw contact access is phase 2
--- (20260801000200_revoke_raw_contacts.sql) so an already-deployed frontend keeps working until it is switched.
+-- Secure Contact Boundary (PR A), file 1 of 2: additive masked projection, helpers and safe RPC shapes.
+--
+-- This file and 20260801000200_revoke_raw_contacts.sql separate additive objects from the privilege
+-- cut-over LOGICALLY only. The repository migration process applies both in a single deployment, so this
+-- is NOT a staged multi-release rollout: after deployment, a browser still running cached JavaScript that
+-- selects players.phone/email/messenger receives a permission error. Deployment therefore requires a
+-- coordinated frontend and backend release. A true staged rollout across releases is deferred.
 begin;
 
--- Canonical normalization. Declared immutable and written in SQL so the planner inlines them and the
--- existing expression indexes on players(phone/email/messenger) remain usable.
+-- Canonical normalization used by the projection for the has_* flags and by the masking helpers.
+-- These carry SET search_path, which means PostgreSQL will NOT inline them, so they must never appear
+-- inside an indexed predicate. Duplicate detection therefore uses the literal index expressions instead
+-- (see check_player_duplicates below); these helpers are for display and presence flags only.
+-- A phone is canonically present only when it contains at least one digit, so that phone_display and
+-- has_phone can never disagree: no digits means both NULL and false.
 create or replace function public.normalize_contact_phone(p_value text)
 returns text language sql immutable
 set search_path = pg_catalog, public
-as $$ select nullif(regexp_replace(coalesce(p_value,''), '[^0-9+]', '', 'g'), '') $$;
+as $$
+  select case
+    when regexp_replace(coalesce(p_value,''), '[^0-9]', '', 'g') = '' then null
+    else nullif(regexp_replace(coalesce(p_value,''), '[^0-9+]', '', 'g'), '')
+  end
+$$;
 
 create or replace function public.normalize_contact_email(p_value text)
 returns text language sql immutable
@@ -22,16 +35,18 @@ as $$ select nullif(lower(trim(coalesce(p_value,''))), '') $$;
 
 -- Masking. Applied inside the database; the raw value never leaves Postgres through these paths.
 -- left()/right() are character based, so multi-byte local parts and handles stay intact.
+-- Derived from the same canonical result as has_phone, so the display and the flag always agree:
+-- normalize returns null (flag false) exactly when this returns null.
 create or replace function public.mask_contact_phone(p_value text)
 returns text language sql immutable
 set search_path = pg_catalog, public
 as $$
   select case
-    when nullif(trim(coalesce(p_value,'')), '') is null then null
-    when char_length(regexp_replace(p_value, '[^0-9]', '', 'g')) < 6 then '***'
-    else repeat('*', char_length(regexp_replace(p_value, '[^0-9]', '', 'g')) - 4)
-         || right(regexp_replace(p_value, '[^0-9]', '', 'g'), 4)
+    when digits.value is null then null
+    when char_length(digits.value) < 6 then '***'
+    else repeat('*', char_length(digits.value) - 4) || right(digits.value, 4)
   end
+  from (select nullif(regexp_replace(coalesce(public.normalize_contact_phone(p_value), ''), '[^0-9]', '', 'g'), '') as value) digits
 $$;
 
 create or replace function public.mask_contact_email(p_value text)
@@ -76,6 +91,12 @@ as $$
   )
 $$;
 
+-- EXECUTE must be granted to authenticated even though these helpers are only referenced by the view.
+-- A view resolves TABLE permissions as the view owner, but FUNCTIONS invoked by the view are executed with
+-- the calling role's privileges; revoking these produces "permission denied for function
+-- mask_contact_phone" on every list query. Verified at runtime, do not "harden" this away.
+-- The helpers are pure and take only a caller-supplied text, so this grant discloses nothing:
+-- can_read_player merely reports whether the caller itself may read a row.
 revoke all on function public.normalize_contact_phone(text), public.normalize_contact_email(text),
   public.normalize_contact_messenger(text), public.mask_contact_phone(text), public.mask_contact_email(text),
   public.mask_contact_messenger(text), public.can_read_player(uuid) from public, anon;
@@ -118,63 +139,68 @@ returns table(row_index integer, duplicate boolean, matched_player_id text, matc
 language plpgsql security definer
 set search_path = pg_catalog, public
 as $$
-declare
-  v_actor public.profiles; v_item jsonb; v_index integer;
-  v_id text; v_phone text; v_email text; v_messenger text;
-  v_match_id text; v_fields text[];
+declare v_actor public.profiles;
 begin
   v_actor := public.require_active_profile();
   if v_actor.role <> 'admin' then raise exception using errcode = '42501', message = 'ADMIN_REQUIRED'; end if;
   if jsonb_typeof(p_candidates) <> 'array' or jsonb_array_length(p_candidates) > 5000 then
     raise exception using errcode = '22023', message = 'INVALID_CANDIDATE_BATCH';
   end if;
+  if exists (select 1 from jsonb_array_elements(p_candidates) e where jsonb_typeof(e.value) <> 'object') then
+    raise exception using errcode = '22023', message = 'INVALID_CANDIDATE';
+  end if;
 
-  for v_item, v_index in
-    select value, (ordinality - 1)::integer from jsonb_array_elements(p_candidates) with ordinality
-  loop
-    if jsonb_typeof(v_item) <> 'object' then
-      raise exception using errcode = '22023', message = 'INVALID_CANDIDATE';
-    end if;
-    v_id        := nullif(trim(coalesce(v_item->>'id','')), '');
-    v_phone     := public.normalize_contact_phone(v_item->>'phone');
-    v_email     := public.normalize_contact_email(v_item->>'email');
-    v_messenger := public.normalize_contact_messenger(v_item->>'messenger');
-    v_match_id  := null;
-    v_fields    := array[]::text[];
-
-    -- Resolve one match by a fixed priority so matched_fields always describes the reported player.
-    select p.id into v_match_id from public.players p
-    where (v_id is not null and p.id = v_id)
-    order by p.id limit 1;
-    if v_match_id is null and v_phone is not null then
-      select p.id into v_match_id from public.players p
-      where public.normalize_contact_phone(p.phone) = v_phone order by p.id limit 1;
-    end if;
-    if v_match_id is null and v_email is not null then
-      select p.id into v_match_id from public.players p
-      where public.normalize_contact_email(p.email) = v_email order by p.id limit 1;
-    end if;
-    if v_match_id is null and v_messenger is not null then
-      select p.id into v_match_id from public.players p
-      where public.normalize_contact_messenger(p.messenger) = v_messenger order by p.id limit 1;
-    end if;
-
-    if v_match_id is not null then
-      select
-        case when v_id is not null and p.id = v_id then array['id'] else array[]::text[] end
-        || case when v_phone is not null and public.normalize_contact_phone(p.phone) = v_phone then array['phone'] else array[]::text[] end
-        || case when v_email is not null and public.normalize_contact_email(p.email) = v_email then array['email'] else array[]::text[] end
-        || case when v_messenger is not null and public.normalize_contact_messenger(p.messenger) = v_messenger then array['messenger'] else array[]::text[] end
-      into v_fields
-      from public.players p where p.id = v_match_id;
-    end if;
-
-    row_index := v_index;
-    duplicate := v_match_id is not null;
-    matched_player_id := v_match_id;
-    matched_fields := coalesce(v_fields, array[]::text[]);
-    return next;
-  end loop;
+  -- One set-based pass instead of a scan per candidate. Each channel joins on the exact literal
+  -- expression and partial predicate of its expression index (players_phone_normalized_idx,
+  -- players_email_normalized_idx, players_messenger_normalized_idx), so the planner can use them.
+  -- The non-inlinable normalize_contact_* helpers are deliberately not called on the players side.
+  return query
+  with candidates as (
+    select
+      (e.ordinality - 1)::integer as row_index,
+      nullif(trim(coalesce(e.value->>'id','')), '')                                  as cand_id,
+      nullif(regexp_replace(coalesce(e.value->>'phone',''), '[^0-9+]', '', 'g'), '')  as cand_phone,
+      nullif(lower(trim(coalesce(e.value->>'email',''))), '')                         as cand_email,
+      nullif(lower(trim(coalesce(e.value->>'messenger',''))), '')                     as cand_messenger
+    from jsonb_array_elements(p_candidates) with ordinality as e(value, ordinality)
+  ),
+  matches as (
+    select c.row_index, p.id as player_id, 1 as priority, 'id' as field
+      from candidates c join public.players p on p.id = c.cand_id
+     where c.cand_id is not null
+    union all
+    select c.row_index, p.id, 2, 'phone'
+      from candidates c join public.players p
+        on regexp_replace(p.phone, '[^0-9+]', '', 'g') = c.cand_phone
+       and nullif(trim(p.phone), '') is not null
+     where c.cand_phone is not null
+    union all
+    select c.row_index, p.id, 3, 'email'
+      from candidates c join public.players p
+        on lower(trim(p.email)) = c.cand_email
+       and nullif(trim(p.email), '') is not null
+     where c.cand_email is not null
+    union all
+    select c.row_index, p.id, 4, 'messenger'
+      from candidates c join public.players p
+        on lower(trim(p.messenger)) = c.cand_messenger
+       and nullif(trim(p.messenger), '') is not null
+     where c.cand_messenger is not null
+  ),
+  -- Deterministic: lowest channel priority wins, then lowest player id.
+  ranked as (
+    select distinct on (m.row_index) m.row_index, m.player_id
+      from matches m order by m.row_index, m.priority, m.player_id
+  ),
+  resolved as (
+    select r.row_index, r.player_id, array_agg(m.field order by m.priority) as field_list
+      from ranked r join matches m on m.row_index = r.row_index and m.player_id = r.player_id
+     group by r.row_index, r.player_id
+  )
+  select c.row_index, resolved.player_id is not null, resolved.player_id,
+         coalesce(resolved.field_list, array[]::text[])
+    from candidates c left join resolved on resolved.row_index = c.row_index
+   order by c.row_index;
 end $$;
 
 revoke all on function public.check_player_duplicates(jsonb) from public, anon;

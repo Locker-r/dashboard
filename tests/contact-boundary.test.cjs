@@ -50,6 +50,45 @@ test('every new function pins search_path and is denied to public and anon', () 
   for (const definition of definitions) assert.match(definition, /set search_path = pg_catalog, public/);
   assert.doesNotMatch(projection, /execute\s+format|execute\s+'/i);
 });
+test('duplicate detection is set-based and matches the literal expression indexes', () => {
+  const fn = projection.slice(projection.indexOf('create or replace function public.check_player_duplicates'), projection.indexOf('revoke all on function public.check_player_duplicates'));
+  // No per-candidate procedural loop over players.
+  assert.doesNotMatch(fn, /for\s+\w+.*\s+loop/i);
+  assert.match(fn, /return query\s*\n\s*with candidates as/);
+  // The players side must use the exact index expressions, never the non-inlinable helpers.
+  assert.match(fn, /regexp_replace\(p\.phone, '\[\^0-9\+\]', '', 'g'\) = c\.cand_phone/);
+  assert.match(fn, /lower\(trim\(p\.email\)\) = c\.cand_email/);
+  assert.match(fn, /lower\(trim\(p\.messenger\)\) = c\.cand_messenger/);
+  // Partial index predicates must be present so the partial indexes are usable.
+  for (const column of ['phone', 'email', 'messenger']) {
+    assert.match(fn, new RegExp(`nullif\\(trim\\(p\\.${column}\\), ''\\) is not null`));
+  }
+  assert.doesNotMatch(fn, /normalize_contact_\w+\(p\./);
+  assert.match(fn, /distinct on \(m\.row_index\)[\s\S]*order by m\.row_index, m\.priority, m\.player_id/);
+});
+test('phone display and presence flag derive from one canonical result', () => {
+  const normalize = projection.slice(projection.indexOf('create or replace function public.normalize_contact_phone'), projection.indexOf('create or replace function public.normalize_contact_email'));
+  assert.match(normalize, /when regexp_replace\(coalesce\(p_value,''\), '\[\^0-9\]', '', 'g'\) = '' then null/);
+  const mask = projection.slice(projection.indexOf('create or replace function public.mask_contact_phone'), projection.indexOf('create or replace function public.mask_contact_email'));
+  assert.match(mask, /public\.normalize_contact_phone\(p_value\)/);
+  assert.match(mask, /when digits\.value is null then null/);
+});
+test('view helper functions keep EXECUTE for authenticated because views run functions as the caller', () => {
+  // Revoking these breaks every list query with "permission denied for function mask_contact_phone":
+  // a view resolves table permissions as its owner, but invoked functions use the caller's privileges.
+  assert.match(projection, /grant execute on function public\.normalize_contact_phone\(text\)[\s\S]*?to authenticated;/);
+  assert.match(projection, /mask_contact_phone\(text\)[\s\S]*?to authenticated;/);
+  assert.match(projection, /can_read_player\(uuid\) to authenticated;/);
+  assert.match(projection, /from public, anon;/);
+  assert.match(projection, /grant execute on function public\.check_player_duplicates\(jsonb\) to authenticated/);
+});
+test('migration headers state the deployment reality instead of claiming staged rollout', () => {
+  for (const sql of [projection, revoke]) {
+    assert.match(sql, /applies both.{0,40}in (a |one )single deployment|applies both files in one deployment/i);
+    assert.match(sql, /permission error/i);
+  }
+  assert.match(projection, /NOT a staged multi-release rollout/i);
+});
 test('duplicate contract returns only metadata and never a players rowtype', () => {
   const fn = projection.slice(projection.indexOf('create or replace function public.check_player_duplicates'), projection.indexOf('revoke all on function public.check_player_duplicates'));
   assert.match(fn, /returns table\(row_index integer, duplicate boolean, matched_player_id text, matched_fields text\[\]\)/);

@@ -1,5 +1,9 @@
--- Secure Contact Boundary (PR A), phase 2: cut-over that removes raw contact access for authenticated.
--- Apply only after the frontend reads public.players_secure (phase 1 plus the application change).
+-- Secure Contact Boundary (PR A), file 2 of 2: cut-over that removes raw contact access for authenticated.
+--
+-- Separated from 20260801000100 for reviewability, not for staged rollout: the repository migration
+-- process applies both files in one deployment. Cached frontend clients that still select raw contact
+-- columns will receive permission errors until they load the updated application, so frontend and
+-- backend must be released together. A true multi-release staged rollout is deferred.
 --
 -- A table level GRANT SELECT implicitly covers every column, and a column level REVOKE cannot subtract from
 -- it. The table grant is therefore replaced by an explicit column list that omits phone, email and messenger.
