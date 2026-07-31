@@ -90,7 +90,7 @@ async function signIn(config, account) {
   const profile = await client.from('profiles').select('id,role,is_active').eq('id', result.data.user.id).single();
   if (profile.error) throw profile.error;
   if (!profile.data.is_active || profile.data.role !== account.role) throw new Error(`UNEXPECTED_${account.role.toUpperCase()}_PROFILE`);
-  return { client, id: result.data.user.id };
+  return { client, id: result.data.user.id, accessToken: result.data.session.access_token };
 }
 
 async function expectRpcFailure(client, name, parameters, expected) {
@@ -107,7 +107,7 @@ async function cleanup(adminClient, plan) {
 }
 
 async function assertRunEmpty(adminClient, plan) {
-  const result = await adminClient.from('players').select('id').in('id', [plan.assignedPlayerId, plan.otherPlayerId]);
+  const result = await adminClient.from('players_secure').select('id').in('id', [plan.assignedPlayerId, plan.otherPlayerId]);
   if (result.error) throw result.error;
   if (result.data.length !== 0) throw new Error('SMOKE_CLEANUP_INCOMPLETE');
 }
@@ -138,12 +138,32 @@ async function runSmoke(config) {
     await adminData.assignPlayers([plan.otherPlayerId], [agentB.id]);
 
     stage = 'verify_agent_rls';
-    const visibleToAgent = await agentA.client.from('players').select('id,status,agent_id').in('id', [plan.assignedPlayerId, plan.otherPlayerId]);
+    const visibleToAgent = await agentA.client.from('players_secure').select('id,status,agent_id,email_display,messenger_display,contact_access_state').in('id', [plan.assignedPlayerId, plan.otherPlayerId]);
     if (visibleToAgent.error) throw visibleToAgent.error;
     if (visibleToAgent.data.length !== 1 || visibleToAgent.data[0].id !== plan.assignedPlayerId) throw new Error('AGENT_RLS_VISIBILITY_FAILED');
+    if (JSON.stringify(visibleToAgent.data).includes(`smoke_test_${plan.runId}_assigned@example.invalid`) || JSON.stringify(visibleToAgent.data).includes(plan.assignedMarker)) throw new Error('AGENT_MASKING_FAILED');
+    if (visibleToAgent.data[0].contact_access_state !== 'locked') throw new Error('ASSIGNED_CONTACT_STATE_FAILED');
+
+    stage = 'deny_raw_player_select';
+    const rawSelect = await agentA.client.from('players').select('phone,email,messenger').eq('id', plan.assignedPlayerId);
+    if (!rawSelect.error) throw new Error('RAW_PLAYER_SELECT_NOT_DENIED');
+
+    stage = 'deny_graphql_raw_contacts';
+    const graphqlResponse = await fetch(`${config.projectUrl}/graphql/v1`, {
+      method: 'POST',
+      headers: { apikey: config.publishableKey, authorization: `Bearer ${agentA.accessToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ query: 'query RawContacts($id: String!) { playersCollection(filter: { id: { eq: $id } }) { edges { node { phone email messenger } } } }', variables: { id: plan.assignedPlayerId } })
+    });
+    const graphqlBody = await graphqlResponse.text();
+    if (!graphqlResponse.ok || graphqlBody.includes(`smoke_test_${plan.runId}`) || graphqlBody.includes(plan.assignedMarker)) throw new Error('GRAPHQL_RAW_CONTACT_CHECK_FAILED');
+    const graphqlJson = JSON.parse(graphqlBody);
+    if (!Array.isArray(graphqlJson.errors) || graphqlJson.errors.length === 0) throw new Error('GRAPHQL_RAW_CONTACT_NOT_DENIED');
 
     stage = 'change_player_status_atomic';
-    await agentData.changePlayerStatus(plan.assignedPlayerId, 'in_work', plan.historyId);
+    const statusResult = await agentData.changePlayerStatus(plan.assignedPlayerId, 'in_work', plan.historyId);
+    if (JSON.stringify(statusResult).includes(`smoke_test_${plan.runId}`)) throw new Error('RPC_CONTACT_LEAK');
+    const inWorkMasked = await agentA.client.from('players_secure').select('email_display,messenger_display,contact_access_state').eq('id', plan.assignedPlayerId).single();
+    if (inWorkMasked.error || inWorkMasked.data.contact_access_state !== 'eligible' || JSON.stringify(inWorkMasked.data).includes(`smoke_test_${plan.runId}`)) throw new Error('IN_WORK_MASKING_FAILED');
     stage = 'verify_status_history';
     const history = await admin.client.from('player_status_history').select('id,player_id,from_status,to_status').eq('player_id', plan.assignedPlayerId);
     if (history.error) throw history.error;
@@ -163,11 +183,17 @@ async function runSmoke(config) {
     }, 'NOT_OWNER');
 
     stage = 'verify_admin_visibility';
-    const adminPlayers = await admin.client.from('players').select('id,status,agent_id,follow_up_at').in('id', [plan.assignedPlayerId, plan.otherPlayerId]);
+    const adminPlayers = await admin.client.from('players_secure').select('id,status,agent_id,follow_up_at,email_display,messenger_display').in('id', [plan.assignedPlayerId, plan.otherPlayerId]);
     if (adminPlayers.error) throw adminPlayers.error;
     if (adminPlayers.data.length !== 2 || new Set(adminPlayers.data.map(row => row.id)).size !== 2) throw new Error('ADMIN_VISIBILITY_OR_DUPLICATE_ASSERTION_FAILED');
     const assigned = adminPlayers.data.find(row => row.id === plan.assignedPlayerId);
     if (!assigned || assigned.status !== 'in_work' || assigned.agent_id !== agentA.id || new Date(assigned.follow_up_at).toISOString() !== plan.followUpAt) throw new Error('ASSIGNED_PLAYER_ASSERTION_FAILED');
+    if (JSON.stringify(adminPlayers.data).includes(`smoke_test_${plan.runId}`)) throw new Error('ADMIN_MASKING_FAILED');
+
+    stage = 'verify_duplicate_contract';
+    const duplicateResult = await admin.client.rpc('check_player_duplicates_atomic', { p_players: [{ id: 'candidate', email: `smoke_test_${plan.runId}_assigned@example.invalid` }] });
+    if (duplicateResult.error || !duplicateResult.data[0]?.duplicate || JSON.stringify(duplicateResult.data).includes(`smoke_test_${plan.runId}`)) throw new Error('DUPLICATE_CONTRACT_FAILED');
+    await expectRpcFailure(agentA.client, 'check_player_duplicates_atomic', { p_players: [{ id: 'candidate', email: `smoke_test_${plan.runId}_assigned@example.invalid` }] }, 'ADMIN_REQUIRED');
     stage = 'verify_comment';
     const comments = await admin.client.from('player_comments').select('id,player_id,text').eq('player_id', plan.assignedPlayerId);
     if (comments.error) throw comments.error;

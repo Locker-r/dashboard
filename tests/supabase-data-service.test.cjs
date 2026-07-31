@@ -43,20 +43,22 @@ test('maps profiles to the Dashboard user model', async () => {
 
 test('maps players with comments and status history', async () => {
   const fixture = clientWith({
-    players: { data: [{ id: 'player-1', phone: '', email: '', messenger: '', status: 'in_work', agent_id: 'profile-1', imported_at: 'i', updated_at: 'u', follow_up_at: 'f' }], error: null },
+    players_secure: { data: [{ id: 'player-1', phone_display: '+***00', email_display: 'a***@example.invalid', messenger_display: '@a***', status: 'in_work', agent_id: 'profile-1', imported_at: 'i', updated_at: 'u', follow_up_at: 'f', has_phone: true, has_email: true, has_messenger: true, contact_access_state: 'eligible' }], error: null },
     player_comments: { data: [{ id: 'comment-1', player_id: 'player-1', text: 'Synthetic', created_at: 'c', author_id: 'profile-1', author_name: 'Agent', author_role: 'agent' }], error: null },
     player_status_history: { data: [{ id: 'history-1', player_id: 'player-1', from_status: 'assigned', to_status: 'in_work', changed_at: 'h', user_id: 'profile-1', user_name: 'Agent', user_role: 'agent' }], error: null }
   });
   const players = await new data.SupabaseDataService(fixture.client).loadPlayers();
   assert.equal(players.length, 1);
   assert.equal(players[0].agentId, 'profile-1');
+  assert.equal(players[0].email, 'a***@example.invalid');
+  assert.equal(players[0].contactAccessState, 'eligible');
   assert.equal(players[0].comments[0].authorId, 'profile-1');
   assert.equal(players[0].statusHistory[0].fromStatus, 'assigned');
 });
 
 test('normalizes nullable fields and ignores orphan activity rows', async () => {
   const fixture = clientWith({
-    players: { data: [{ id: 'player-1', phone: null, email: null, messenger: null, status: null, agent_id: null, imported_at: null, updated_at: null, follow_up_at: null }, null], error: null },
+    players_secure: { data: [{ id: 'player-1', phone_display: null, email_display: null, messenger_display: null, status: null, agent_id: null, imported_at: null, updated_at: null, follow_up_at: null }, null], error: null },
     player_comments: { data: [{ id: 'orphan', player_id: null }], error: null },
     player_status_history: { data: null, error: null }
   });

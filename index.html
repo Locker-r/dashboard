@@ -1024,18 +1024,18 @@ async function readMigrationMap(){
   return parsed;
 }
 
-async function loadMigrationReferences(){
+async function loadMigrationReferences(candidatePlayers){
   const client = authService && authService.client;
   if(!client) throw new Error('client_missing');
   const queries = await Promise.all([
     client.from('profiles').select('id,username'),
-    client.from('players').select('id,phone,email,messenger'),
     client.from('player_comments').select('id'),
-    client.from('player_status_history').select('id')
+    client.from('player_status_history').select('id'),
+    dataService.checkPlayerDuplicates(candidatePlayers)
   ]);
   const failed = queries.find(result=>result.error);
   if(failed) throw failed.error;
-  return { profiles:queries[0].data||[], remotePlayers:queries[1].data||[], remoteComments:queries[2].data||[], remoteHistory:queries[3].data||[] };
+  return { profiles:queries[0].data||[], remoteComments:queries[1].data||[], remoteHistory:queries[2].data||[], remoteDuplicateChecks:queries[3]||[] };
 }
 
 function renderMigrationSummary(result){
@@ -1054,7 +1054,7 @@ document.getElementById('migrationDryRunBtn').addEventListener('click', async ()
   if(!currentUser || currentUser.role !== 'admin') return;
   const button = document.getElementById('migrationDryRunBtn'); button.disabled=true;
   try{
-    const references = await loadMigrationReferences();
+    const references = await loadMigrationReferences(players);
     const result = window.ReactivationMigrationPreflight.dryRun({ players, users, userMapping:await readMigrationMap(), ...references });
     renderMigrationSummary(result);
   }catch(error){

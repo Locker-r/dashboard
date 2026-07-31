@@ -52,14 +52,18 @@
   function mapPlayer(row, comments, history) {
     return {
       id: row.id,
-      phone: stringOrEmpty(row.phone),
-      email: stringOrEmpty(row.email),
-      messenger: stringOrEmpty(row.messenger),
+      phone: stringOrEmpty(row.phone_display),
+      email: stringOrEmpty(row.email_display),
+      messenger: stringOrEmpty(row.messenger_display),
       status: row.status || 'new',
       agentId: row.agent_id || null,
       importedAt: row.imported_at || null,
       updatedAt: row.updated_at || null,
       followUpAt: row.follow_up_at || null,
+      hasPhone: Boolean(row.has_phone),
+      hasEmail: Boolean(row.has_email),
+      hasMessenger: Boolean(row.has_messenger),
+      contactAccessState: row.contact_access_state || 'locked',
       comments: list(comments).map(mapComment),
       statusHistory: list(history).map(mapHistory)
     };
@@ -91,7 +95,7 @@
 
     async loadPlayers() {
       const [players, comments, history] = await Promise.all([
-        unwrap(this.client.from('players').select('id,phone,email,messenger,status,agent_id,imported_at,updated_at,follow_up_at')),
+        unwrap(this.client.from('players_secure').select('id,status,agent_id,imported_at,updated_at,follow_up_at,phone_display,email_display,messenger_display,has_phone,has_email,has_messenger,contact_access_state')),
         unwrap(this.client.from('player_comments').select('id,player_id,text,created_at,author_id,author_name,author_role').order('created_at', { ascending: false })),
         unwrap(this.client.from('player_status_history').select('id,player_id,from_status,to_status,changed_at,user_id,user_name,user_role').order('changed_at', { ascending: false }))
       ]);
@@ -145,6 +149,12 @@
       return callRpc(this.client, 'set_player_follow_up_atomic', {
         p_player_id: playerId, p_follow_up_at: followUpAt || null
       });
+    }
+
+    async checkPlayerDuplicates(items) {
+      return callRpc(this.client, 'check_player_duplicates_atomic', { p_players: list(items).map(player => ({
+        id: player.id, phone: stringOrEmpty(player.phone), email: stringOrEmpty(player.email), messenger: stringOrEmpty(player.messenger || player.contact)
+      })) });
     }
 
     async getCurrentUser() {

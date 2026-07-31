@@ -132,16 +132,18 @@
     const source = input || {}, players = list(source.players), users = list(source.users);
     const map = mappingState(users, source.profiles, source.userMapping || {});
     const remotePlayers = list(source.remotePlayers), remoteIds = new Set(remotePlayers.map(row => text(row && row.id)));
+    const remoteDuplicateChecks = new Map(list(source.remoteDuplicateChecks).map(row => [Number(row && row.row_index), row]));
     const remoteContacts = new Map();
     remotePlayers.forEach(row => contactKeys(row).forEach(key => { if (!remoteContacts.has(key)) remoteContacts.set(key, new Set()); remoteContacts.get(key).add(text(row.id)); }));
     const localContacts = new Map(), localIds = new Set(), knownLocalUsers = new Set(users.map(user => text(user && user.id)));
     const results = [], issueCounts = {}, blockedReferences = new Set();
     function issue(code) { issueCounts[code] = (issueCounts[code] || 0) + 1; }
-    players.forEach(player => {
+    players.forEach((player, rowIndex) => {
       const transformed = transformPlayer(player, map.confirmed);
       const id = transformed.row.id, keys = contactKeys(player);
-      const exactIdDuplicate = remoteIds.has(id);
-      const contactDuplicate = keys.some(key => remoteContacts.has(key) && [...remoteContacts.get(key)].some(otherId => otherId !== id));
+      const serverDuplicate = remoteDuplicateChecks.get(rowIndex), matchedFields = list(serverDuplicate && serverDuplicate.matched_fields);
+      const exactIdDuplicate = serverDuplicate ? Boolean(serverDuplicate.duplicate && matchedFields.includes('id')) : remoteIds.has(id);
+      const contactDuplicate = serverDuplicate ? Boolean(serverDuplicate.duplicate && matchedFields.some(field => field !== 'id')) : keys.some(key => remoteContacts.has(key) && [...remoteContacts.get(key)].some(otherId => otherId !== id));
       const duplicateInsideLocal = localIds.has(id) || keys.some(key => localContacts.has(key));
       localIds.add(id); keys.forEach(key => localContacts.set(key, id));
       transformed.errors.forEach(issue);

@@ -18,6 +18,7 @@
     async changePlayerStatus(_playerId, _nextStatus, _historyId, _options) { throw new Error('changePlayerStatus() is not implemented'); }
     async addPlayerComment(_playerId, _commentId, _text) { throw new Error('addPlayerComment() is not implemented'); }
     async setPlayerFollowUp(_playerId, _followUpAt) { throw new Error('setPlayerFollowUp() is not implemented'); }
+    async checkPlayerDuplicates(_players) { throw new Error('checkPlayerDuplicates() is not implemented'); }
     async clearSession() { throw new Error('clearSession() is not implemented'); }
   }
 
