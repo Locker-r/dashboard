@@ -34,7 +34,7 @@ jobs:
           git diff --check "$BASE_SHA" "$GITHUB_SHA"
 
   windows-powershell:
-    name: Atomic SQL PowerShell check
+    name: SQL and server PowerShell checks
     runs-on: windows-latest
     timeout-minutes: 5
     steps:
@@ -45,3 +45,6 @@ jobs:
       - name: Check runtime smoke harness structure
         shell: powershell
         run: .\scripts\check-runtime-smoke-harness.ps1
+      - name: Check team management server foundation
+        shell: powershell
+        run: .\scripts\check-team-management.ps1
