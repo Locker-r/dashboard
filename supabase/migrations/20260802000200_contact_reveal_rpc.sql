@@ -92,6 +92,15 @@ begin
     return next; return;
   end if;
 
+  -- Everything below may insert a canonical event. The per-actor advisory lock serializes one actor against
+  -- itself, but NOT two different actors sharing a request_id: the loser's canonical lookup can run before
+  -- the winner commits, so its insert then trips contact_reveal_canonical_request_idx. Catching
+  -- unique_violation here keeps the loser auditable and on-contract instead of surfacing a raw 23505 with no
+  -- event. The subtransaction rollback discards only the failed insert; the conflict event appended in the
+  -- handler commits with the outer transaction, so the same-transaction audit guarantee is preserved and the
+  -- index remains the sole authority on canonical uniqueness.
+  begin
+
   -- Agent only. Admins hold no reveal path in PR B.
   if v_actor.role <> 'agent' then
     insert into public.contact_reveal_events
@@ -198,6 +207,18 @@ begin
   phone := null; email := null; messenger := null; revealed_at := null;
   request_id := p_request_id; access_event_id := v_event_id;
   return next; return;
+
+  exception when unique_violation then
+    -- Another actor won the canonical row for this request_id while we were deciding.
+    insert into public.contact_reveal_events
+      (request_id, actor_id, player_id, event_type, reason_code)
+      values (p_request_id, v_actor.id, v_player_key, 'request_id_conflict', 'request_id_conflict')
+      returning id into v_event_id;
+    player_id := p_player_id; outcome := 'request_id_conflict';
+    phone := null; email := null; messenger := null; revealed_at := null;
+    request_id := p_request_id; access_event_id := v_event_id;
+    return next; return;
+  end;
 end $$;
 
 -- Retention. The audit delete trigger refuses every caller except the table owner, which is reached only

@@ -61,6 +61,19 @@ test('reveal returns for controlled outcomes and never raises them', () => {
   assert.deepEqual([...new Set(messages)].sort(), ['CONTACT_REVEAL_LIMITS_MISSING', 'INVALID_REQUEST_ID']);
   assert.doesNotMatch(fn, /message = 'REVEAL_DENIED'/);
 });
+test('a lost canonical-insert race still audits and returns the contract outcome', () => {
+  const fn = rpcSql.slice(rpcSql.indexOf('create or replace function public.reveal_player_contacts'), rpcSql.indexOf('create or replace function public.purge_contact_reveal_events'));
+  // The per-actor advisory lock does not serialize two different actors sharing a request_id, so the
+  // partial unique index can fire. Without this handler the loser aborts with a raw 23505 and no event.
+  assert.match(fn, /exception when unique_violation then/);
+  const handler = fn.slice(fn.indexOf('exception when unique_violation then'));
+  assert.match(handler, /event_type[\s\S]*'request_id_conflict'|'request_id_conflict', 'request_id_conflict'/);
+  assert.match(handler, /outcome := 'request_id_conflict'/);
+  assert.match(handler, /phone := null; email := null; messenger := null; revealed_at := null;/);
+  assert.match(handler, /access_event_id := v_event_id/);
+  // The handler must not swallow anything else.
+  assert.doesNotMatch(fn, /exception when others/i);
+});
 test('response contract is exactly the approved eight columns', () => {
   const signature = rpcSql.slice(rpcSql.indexOf('returns table('), rpcSql.indexOf(')\nlanguage plpgsql security definer'));
   for (const column of ['player_id text','outcome text','phone text','email text','messenger text','revealed_at timestamptz','request_id uuid','access_event_id uuid']) {

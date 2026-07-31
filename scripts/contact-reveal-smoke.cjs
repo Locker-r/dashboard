@@ -152,9 +152,21 @@ async function main() {
     const afterRace = first(await reveal(agentA, playerId, randomId()));
     check('reveal denied once no longer in_work', afterRace && afterRace.outcome === 'denied', JSON.stringify(afterRace && afterRace.outcome));
 
-    console.log('\n[9] purge is service-role only');
+    console.log('\n[9] retention purge');
     const purge = await admin.client.rpc('purge_contact_reveal_events', { p_before: '2020-01-01T00:00:00Z' });
     check('admin cannot purge audit', Boolean(purge.error));
+    // Positive path: service_role reaches the definer function, whose owner identity satisfies the delete
+    // trigger. A far-past cutoff proves the mechanism works without destroying any evidence.
+    const serviceKey = process.env.SMOKE_TEST_LOCAL_SERVICE_KEY;
+    if (!serviceKey) throw new Error('SMOKE_TEST_LOCAL_SERVICE_KEY is required to verify the purge path');
+    const service = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+    const purgeOk = await service.rpc('purge_contact_reveal_events', { p_before: '2020-01-01T00:00:00Z' });
+    check('service_role can purge', !purgeOk.error && Number.isInteger(purgeOk.data), purgeOk.error ? purgeOk.error.message : `returned ${JSON.stringify(purgeOk.data)}`);
+    check('far-past cutoff removed nothing', purgeOk.data === 0, `deleted ${purgeOk.data}`);
+    const purgeRecent = await service.rpc('purge_contact_reveal_events', { p_before: new Date().toISOString() });
+    check('purge rejects a too-recent cutoff', Boolean(purgeRecent.error) && /PURGE_CUTOFF_TOO_RECENT/.test(purgeRecent.error.message), purgeRecent.error ? purgeRecent.error.message : 'no error');
+    const stillThere = await admin.client.from('contact_reveal_events').select('id', { count: 'exact', head: true });
+    check('audit history intact after purge probes', !stillThere.error);
   } finally {
     await admin.client.rpc('set_contact_reveal_limits', { p_per_minute: 15, p_per_hour: 150 });
     const cleanup = await admin.client.rpc('cleanup_smoke_test_run_atomic', { p_run_id: plan.runId, p_confirmation: plan.cleanupConfirmation });
