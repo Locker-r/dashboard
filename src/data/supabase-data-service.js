@@ -49,12 +49,18 @@
     };
   }
 
+  // Contacts arrive already masked from public.players_secure. Raw phone/email/messenger are never
+  // selected and are never placed on the player object, so no browser collection can hold them.
   function mapPlayer(row, comments, history) {
     return {
       id: row.id,
-      phone: stringOrEmpty(row.phone),
-      email: stringOrEmpty(row.email),
-      messenger: stringOrEmpty(row.messenger),
+      phoneDisplay: stringOrEmpty(row.phone_display),
+      emailDisplay: stringOrEmpty(row.email_display),
+      messengerDisplay: stringOrEmpty(row.messenger_display),
+      hasPhone: row.has_phone === true,
+      hasEmail: row.has_email === true,
+      hasMessenger: row.has_messenger === true,
+      contactAccessState: row.contact_access_state === 'eligible' ? 'eligible' : 'locked',
       status: row.status || 'new',
       agentId: row.agent_id || null,
       importedAt: row.imported_at || null,
@@ -91,7 +97,7 @@
 
     async loadPlayers() {
       const [players, comments, history] = await Promise.all([
-        unwrap(this.client.from('players').select('id,phone,email,messenger,status,agent_id,imported_at,updated_at,follow_up_at')),
+        unwrap(this.client.from('players_secure').select('id,status,agent_id,imported_at,updated_at,follow_up_at,phone_display,email_display,messenger_display,has_phone,has_email,has_messenger,contact_access_state')),
         unwrap(this.client.from('player_comments').select('id,player_id,text,created_at,author_id,author_name,author_role').order('created_at', { ascending: false })),
         unwrap(this.client.from('player_status_history').select('id,player_id,from_status,to_status,changed_at,user_id,user_name,user_role').order('changed_at', { ascending: false }))
       ]);
@@ -139,6 +145,16 @@
       return callRpc(this.client, 'add_player_comment_atomic', {
         p_player_id: playerId, p_comment_id: commentId, p_text: text
       });
+    }
+
+    // Import duplicate detection runs inside PostgreSQL and returns only match metadata.
+    async checkPlayerDuplicates(candidates) {
+      return callRpc(this.client, 'check_player_duplicates', { p_candidates: list(candidates).map(item => ({
+        id: item && item.id != null ? String(item.id) : null,
+        phone: stringOrEmpty(item && item.phone),
+        email: stringOrEmpty(item && item.email),
+        messenger: stringOrEmpty(item && item.messenger)
+      })) });
     }
 
     async setPlayerFollowUp(playerId, followUpAt) {

@@ -823,6 +823,14 @@ function userById(id){ return users.find(u=>u.id===id); }
 function userDisplayName(id){ const u=userById(id); return u ? u.name : '—'; }
 
 /* ==================== Masking ==================== */
+/* Supabase mode receives contacts already masked by public.players_secure and never holds a raw value.
+   The raw fallback exists only for the offline localStorage prototype, which keeps its own data locally. */
+function contactText(player, field){
+  if(!player) return '';
+  const display = player[field + 'Display'];
+  if(display !== undefined && display !== null) return String(display);
+  return String(player[field] || '');
+}
 function maskPhone(phone){
   if(!phone) return phone;
   const compact = phone.replace(/\s+/g,'');
@@ -1029,7 +1037,7 @@ async function loadMigrationReferences(){
   if(!client) throw new Error('client_missing');
   const queries = await Promise.all([
     client.from('profiles').select('id,username'),
-    client.from('players').select('id,phone,email,messenger'),
+    client.from('players_secure').select('id'),
     client.from('player_comments').select('id'),
     client.from('player_status_history').select('id')
   ]);
@@ -1055,7 +1063,8 @@ document.getElementById('migrationDryRunBtn').addEventListener('click', async ()
   const button = document.getElementById('migrationDryRunBtn'); button.disabled=true;
   try{
     const references = await loadMigrationReferences();
-    const result = window.ReactivationMigrationPreflight.dryRun({ players, users, userMapping:await readMigrationMap(), ...references });
+    const remoteDuplicates = await dataService.checkPlayerDuplicates(players);
+    const result = window.ReactivationMigrationPreflight.dryRun({ players, users, userMapping:await readMigrationMap(), ...references, remoteDuplicates });
     renderMigrationSummary(result);
   }catch(error){
     document.getElementById('migrationDryRunReport').textContent='Dry run failed. No data was changed.';
@@ -1348,7 +1357,7 @@ function filteredWorklistPlayers(){
     if(fAgent && p.agentId !== fAgent) return false;
     if(fStatus && p.status !== fStatus) return false;
     if(!window.ReactivationDomain.matchesFollowUpFilter(p.followUpAt, fFollowUp, now)) return false;
-    if(search && !`${p.phone} ${p.email} ${p.messenger}`.toLowerCase().includes(search)) return false;
+    if(search && !`${contactText(p,'phone')} ${contactText(p,'email')} ${contactText(p,'messenger')}`.toLowerCase().includes(search)) return false;
     return true;
   }).sort((a,b)=> (b.updatedAt||b.importedAt||0) - (a.updatedAt||a.importedAt||0));
 }
@@ -1369,16 +1378,16 @@ function renderWorklist(){
     <thead><tr><th>${t('th_contact')}</th><th>${t('th_email')}</th><th>${t('th_messenger')}</th>${isAdmin ? `<th>${t('th_agent')}</th>` : ''}<th>${t('th_status')}</th><th>${t('th_follow_up')}</th><th>${t('th_action')}</th></tr></thead>
     <tbody>${list.map(p=>{
       const isMine = !isAdmin && p.agentId===currentUser.id;
-      const locked = isMine && p.status==='assigned';
+      const locked = p.contactAccessState ? p.contactAccessState !== 'eligible' : (isMine && p.status==='assigned');
       const followUp = followUpPresentation(p.followUpAt);
       const phoneCell = locked
-        ? `<span class="locked mono" title="${escapeHtml(t('locked_hint'))}"><span class="lock-ico">🔒</span>${escapeHtml(maskPhone(p.phone)||'—')}</span>`
-        : `<span class="mono">${escapeHtml(p.phone||'—')}</span>`;
+        ? `<span class="locked mono" title="${escapeHtml(t('locked_hint'))}"><span class="lock-ico">🔒</span>${escapeHtml(contactText(p,'phone')||'—')}</span>`
+        : `<span class="mono">${escapeHtml(contactText(p,'phone')||'—')}</span>`;
       return `
       <tr>
         <td>${phoneCell}</td>
-        <td class="mono">${escapeHtml(p.email||'—')}</td>
-        <td class="mono">${escapeHtml(p.messenger||'—')}</td>
+        <td class="mono">${escapeHtml(contactText(p,'email')||'—')}</td>
+        <td class="mono">${escapeHtml(contactText(p,'messenger')||'—')}</td>
         ${isAdmin ? `<td>${escapeHtml(userDisplayName(p.agentId))}</td>` : ''}
         <td><span class="badge ${escapeHtml(STATUS_CLASS[p.status]||'b-new')}"><span class="dot"></span>${escapeHtml(t('status_'+p.status))}</span></td>
         <td><span class="follow-up ${followUp.className}">${escapeHtml(followUp.label)}</span></td>
@@ -1429,8 +1438,7 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
   const isAdmin = currentUser.role === 'admin';
   const scope = filteredWorklistPlayers();
   scope.forEach(p=>{
-    const locked = !isAdmin && p.status==='assigned';
-    rows.push([locked ? maskPhone(p.phone) : (p.phone||''), p.email||'', p.messenger||'', userDisplayName(p.agentId), t('status_'+p.status)]);
+    rows.push([contactText(p,'phone'), contactText(p,'email'), contactText(p,'messenger'), userDisplayName(p.agentId), t('status_'+p.status)]);
   });
   const safeCsvValue = value=>{
     let text = String(value);
@@ -1480,11 +1488,11 @@ function renderManualResults(){
   const box = document.getElementById('manualResults');
   delete box.dataset.selectedId;
   if(!q){ box.innerHTML=''; return; }
-  const matches = players.filter(p=> (p.phone||'').toLowerCase().includes(q) || (p.email||'').toLowerCase().includes(q)).slice(0,8);
+  const matches = players.filter(p=> contactText(p,'phone').toLowerCase().includes(q) || contactText(p,'email').toLowerCase().includes(q)).slice(0,8);
   if(matches.length===0){ box.innerHTML = `<span class="sub" style="margin:0;">${t('manual_none_found')}</span>`; return; }
   box.innerHTML = matches.map(p=>`
     <div class="user-row">
-      <span class="mono">${escapeHtml(p.phone||p.email)} · <span class="badge ${escapeHtml(STATUS_CLASS[p.status]||'b-new')}"><span class="dot"></span>${escapeHtml(t('status_'+p.status))}</span> · ${escapeHtml(userDisplayName(p.agentId))}</span>
+      <span class="mono">${escapeHtml(contactText(p,'phone')||contactText(p,'email'))} · <span class="badge ${escapeHtml(STATUS_CLASS[p.status]||'b-new')}"><span class="dot"></span>${escapeHtml(t('status_'+p.status))}</span> · ${escapeHtml(userDisplayName(p.agentId))}</span>
       <button class="btn btn-ghost btn-sm pick" data-id="${escapeHtml(p.id)}">${t('manual_pick_btn')}</button>
     </div>`).join('');
   box.querySelectorAll('.pick').forEach(btn=>{
