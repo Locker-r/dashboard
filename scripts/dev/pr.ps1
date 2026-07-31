@@ -4,6 +4,7 @@ $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 $root=Get-GitRoot;$branch=Get-CurrentBranch
 if($branch-in@('main','master')){Write-Error 'PR workflow is forbidden on main/master.';exit 2}
+if($Execute-and$branch-eq'HEAD'){Write-Error 'PR execution requires a named feature branch; detached HEAD is supported only in dry-run mode.';exit 2}
 $conflicts=@(& git diff --name-only --diff-filter=U);if($conflicts.Count){Write-Error 'Merge conflicts must be resolved first.';exit 1}
 if($Execute-and(-not$Paths-or$Paths.Count-eq 0)){Write-Error '-Paths is required with -Execute.';exit 2}
 if($BodyFile){$bodyPath=if([IO.Path]::IsPathRooted($BodyFile)){$BodyFile}else{Join-Path $root $BodyFile};if(-not(Test-Path -LiteralPath $bodyPath -PathType Leaf)){Write-Error 'BodyFile does not exist.';exit 2}}
