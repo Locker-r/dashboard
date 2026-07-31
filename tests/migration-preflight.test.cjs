@@ -47,7 +47,13 @@ test('classifies exact id, remote contact, local contact duplicates and clean re
   const base = id => ({ ...player, id, agentId: null, comments: [], statusHistory: [] });
   const result = migration.dryRun({
     players: [base('already'), { ...base('contact'), phone: '222' }, { ...base('local-copy'), phone: '222' }, { ...base('clean'), phone: '333', email: '', messenger: '' }],
-    remotePlayers: [{ id: 'already', phone: '999' }, { id: 'remote-other', phone: '222' }]
+    // Stored contacts are no longer readable in the browser; remote contact matches arrive as
+    // metadata from public.check_player_duplicates, keyed by the submitted row index.
+    remotePlayers: [{ id: 'already' }, { id: 'remote-other' }],
+    remoteDuplicates: [
+      { row_index: 1, duplicate: true, matched_player_id: 'remote-other', matched_fields: ['phone'] },
+      { row_index: 2, duplicate: true, matched_player_id: 'remote-other', matched_fields: ['phone'] }
+    ]
   });
   assert.equal(result.summary.exact_id_duplicate, 1);
   assert.equal(result.summary.contact_duplicate, 2);

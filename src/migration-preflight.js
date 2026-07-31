@@ -132,16 +132,24 @@
     const source = input || {}, players = list(source.players), users = list(source.users);
     const map = mappingState(users, source.profiles, source.userMapping || {});
     const remotePlayers = list(source.remotePlayers), remoteIds = new Set(remotePlayers.map(row => text(row && row.id)));
-    const remoteContacts = new Map();
-    remotePlayers.forEach(row => contactKeys(row).forEach(key => { if (!remoteContacts.has(key)) remoteContacts.set(key, new Set()); remoteContacts.get(key).add(text(row.id)); }));
+    // Contact duplicates against stored players are resolved by public.check_player_duplicates, because raw
+    // stored contacts are no longer readable in the browser. Local-to-local duplicates stay client side: those
+    // values come from the file being imported, not from the database.
+    const remoteContactDuplicates = new Map();
+    list(source.remoteDuplicates).forEach(row => {
+      if (!row || row.duplicate !== true) return;
+      const index = Number(row.row_index);
+      if (Number.isInteger(index) && index >= 0) remoteContactDuplicates.set(index, text(row.matched_player_id));
+    });
     const localContacts = new Map(), localIds = new Set(), knownLocalUsers = new Set(users.map(user => text(user && user.id)));
     const results = [], issueCounts = {}, blockedReferences = new Set();
     function issue(code) { issueCounts[code] = (issueCounts[code] || 0) + 1; }
-    players.forEach(player => {
+    players.forEach((player, playerIndex) => {
       const transformed = transformPlayer(player, map.confirmed);
       const id = transformed.row.id, keys = contactKeys(player);
       const exactIdDuplicate = remoteIds.has(id);
-      const contactDuplicate = keys.some(key => remoteContacts.has(key) && [...remoteContacts.get(key)].some(otherId => otherId !== id));
+      const matchedRemoteId = remoteContactDuplicates.get(playerIndex);
+      const contactDuplicate = matchedRemoteId !== undefined && matchedRemoteId !== id;
       const duplicateInsideLocal = localIds.has(id) || keys.some(key => localContacts.has(key));
       localIds.add(id); keys.forEach(key => localContacts.set(key, id));
       transformed.errors.forEach(issue);
