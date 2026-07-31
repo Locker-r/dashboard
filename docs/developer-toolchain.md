@@ -40,7 +40,16 @@ pwsh -File scripts/dev/preflight.ps1 -ReportPath artifacts/preflight.json -Json
 
 `-StartSupabase` may start local containers but never resets the database. `-IncludeRuntime` delegates to smoke.
 
-Because preflight never resets the database, it cannot satisfy the reset-dependent runtime wrappers. The delegated runtime-smoke stage is therefore advisory in preflight: its full output, including the reason the wrappers did not run, is still printed, but it does not fail preflight. Runtime smoke remains a required, hard failure in `smoke.ps1` itself, where the reset opt-in is made explicitly. Use the destructive-local command below when genuine runtime verification is needed; a green `preflight:runtime` means the non-destructive gates passed, not that runtime smoke ran.
+Because preflight never resets the database, it cannot satisfy the reset-dependent runtime wrappers. With `-IncludeRuntime`, preflight therefore does not execute runtime smoke at all: it reports the stage as `Skipped` and prints an explicit closing notice.
+
+```
+Runtime smoke: SKIPPED (database reset required).
+Runtime verification has NOT been executed.
+To run runtime verification execute:
+  powershell -File scripts/dev/smoke.ps1 -AllowDatabaseReset
+```
+
+A green `preflight:runtime` therefore means exactly three things: the non-destructive gates passed, runtime smoke was **not** executed, and runtime verification still requires the explicit opt-in below. Runtime smoke remains a required, hard failure inside `smoke.ps1` itself, where that opt-in is made.
 
 ## Runtime smoke
 

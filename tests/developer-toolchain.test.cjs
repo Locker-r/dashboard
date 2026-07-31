@@ -46,10 +46,18 @@ test('smoke renders the execution plan stage in non-JSON mode',()=>{
   assert.match(r.stdout,/== Execution plan ==/);
   assert.doesNotMatch(`${r.stdout}\n${r.stderr}`,/is not recognized as the name of a cmdlet/i);
 });
-test('preflight never opts into database reset and keeps delegated runtime smoke advisory',()=>{
+test('preflight never executes runtime smoke and never resets the database',()=>{
   const s=read('preflight.ps1');
-  assert.doesNotMatch(s,/AllowDatabaseReset/);
-  assert.match(s,/if\(\$IncludeRuntime\)\{[\s\S]*?scripts\/dev\/smoke\.ps1'\)\s*\$false\s+600/);
+  assert.doesNotMatch(s,/'-File','scripts\/dev\/smoke\.ps1'/);
+  assert.match(s,/New-CheckResult 'Runtime smoke' 'Skipped' \$false/);
+});
+test('preflight states unambiguously that runtime verification did not execute',()=>{
+  const s=read('preflight.ps1');
+  assert.match(s,/SKIPPED \(database reset required\)/);
+  assert.match(s,/Runtime verification has NOT been executed/);
+  assert.match(s,/smoke\.ps1 -AllowDatabaseReset/);
+  const banner=s.slice(s.indexOf('READY FOR DEVELOPMENT'));
+  assert.match(banner,/if\(\$IncludeRuntime\)\{[\s\S]*Runtime verification has NOT been executed[\s\S]*-AllowDatabaseReset/);
 });
 test('review creates markdown and detects sensitive diff categories',()=>{const report=`artifacts/review-test-${process.pid}.md`;const r=run('review.ps1',['-ReportPath',report]);assert.equal(r.status,0,r.stderr);const content=fs.readFileSync(path.join(root,report),'utf8');assert.match(content,/# Review report/);assert.match(content,/## Recommendation/);const s=read('review.ps1');assert.match(s,/SECURITY DEFINER/);assert.match(s,/ROW LEVEL SECURITY/);assert.match(s,/supabase\/migrations/);});
 test('pr is dry-run first and does not alter Git',()=>withTempRepo(repo=>{
