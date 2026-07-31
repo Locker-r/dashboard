@@ -22,3 +22,5 @@ The dashboard is a static application, so it reads Supabase settings from a loca
 Supabase storage setup is documented in `docs/supabase-storage-foundation.md`. The optional atomic write RPC migration and its manual verification workflow are documented in `docs/supabase-atomic-writes.md`; repository scripts never apply SQL to a remote project.
 
 The isolated local/staging Auth, RPC, and RLS smoke-test harness is documented in `docs/runtime-smoke-tests.md`. It is intentionally excluded from credential-free CI runtime execution.
+
+Safe local preflight, runtime smoke orchestration, branch review, and dry-run-first PR automation are documented in [`docs/developer-toolchain.md`](docs/developer-toolchain.md).
