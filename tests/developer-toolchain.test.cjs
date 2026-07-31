@@ -40,6 +40,17 @@ test('common returns structured results, redacts secrets, and computes exit code
 });
 test('smoke plan refuses reset-dependent runtime without opt-in',()=>{const r=run('smoke.ps1',['-Json']);assert.equal(r.status,1);const v=JSON.parse(r.stdout);assert.equal(v.Passed,false);assert.ok(v.Plan.some(x=>x.Classification==='destructive-local'));assert.ok(v.Results.some(x=>x.Name==='Base runtime smoke'&&x.Status==='Failed'));});
 test('preflight source implements JSON reports and required failure propagation',()=>{const s=read('preflight.ps1');assert.match(s,/ConvertTo-Json/);assert.match(s,/Write-ToolchainReport/);assert.match(s,/Get-ToolchainExitCode/);assert.match(s,/Supabase status/);});
+test('smoke renders the execution plan stage in non-JSON mode',()=>{
+  const r=run('smoke.ps1');
+  assert.equal(r.status,1);
+  assert.match(r.stdout,/== Execution plan ==/);
+  assert.doesNotMatch(`${r.stdout}\n${r.stderr}`,/is not recognized as the name of a cmdlet/i);
+});
+test('preflight never opts into database reset and keeps delegated runtime smoke advisory',()=>{
+  const s=read('preflight.ps1');
+  assert.doesNotMatch(s,/AllowDatabaseReset/);
+  assert.match(s,/if\(\$IncludeRuntime\)\{[\s\S]*?scripts\/dev\/smoke\.ps1'\)\s*\$false\s+600/);
+});
 test('review creates markdown and detects sensitive diff categories',()=>{const report=`artifacts/review-test-${process.pid}.md`;const r=run('review.ps1',['-ReportPath',report]);assert.equal(r.status,0,r.stderr);const content=fs.readFileSync(path.join(root,report),'utf8');assert.match(content,/# Review report/);assert.match(content,/## Recommendation/);const s=read('review.ps1');assert.match(s,/SECURITY DEFINER/);assert.match(s,/ROW LEVEL SECURITY/);assert.match(s,/supabase\/migrations/);});
 test('pr is dry-run first and does not alter Git',()=>withTempRepo(repo=>{
   git(repo,['checkout','-b','feature/test-pr-dry-run']);const beforeStatus=git(repo,['status','--porcelain']);const beforeHead=git(repo,['rev-parse','HEAD']);

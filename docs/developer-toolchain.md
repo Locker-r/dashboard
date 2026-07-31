@@ -40,6 +40,8 @@ pwsh -File scripts/dev/preflight.ps1 -ReportPath artifacts/preflight.json -Json
 
 `-StartSupabase` may start local containers but never resets the database. `-IncludeRuntime` delegates to smoke.
 
+Because preflight never resets the database, it cannot satisfy the reset-dependent runtime wrappers. The delegated runtime-smoke stage is therefore advisory in preflight: its full output, including the reason the wrappers did not run, is still printed, but it does not fail preflight. Runtime smoke remains a required, hard failure in `smoke.ps1` itself, where the reset opt-in is made explicitly. Use the destructive-local command below when genuine runtime verification is needed; a green `preflight:runtime` means the non-destructive gates passed, not that runtime smoke ran.
+
 ## Runtime smoke
 
 Default smoke prints a plan and refuses reset-dependent wrappers. An explicit destructive-local run is:
