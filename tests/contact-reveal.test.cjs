@@ -74,12 +74,78 @@ test('a lost canonical-insert race still audits and returns the contract outcome
   // The handler must not swallow anything else.
   assert.doesNotMatch(fn, /exception when others/i);
 });
-test('response contract is exactly the approved eight columns', () => {
-  const signature = rpcSql.slice(rpcSql.indexOf('returns table('), rpcSql.indexOf(')\nlanguage plpgsql security definer'));
-  for (const column of ['player_id text','outcome text','phone text','email text','messenger text','revealed_at timestamptz','request_id uuid','access_event_id uuid']) {
-    assert.match(signature, new RegExp(column.replace(/[[\]]/g, '\\$&')));
+// The public response contract is the RETURNS TABLE declaration and nothing else. Identifiers such as
+// reason_code, channels, player_status, per_minute and per_hour are legitimate inside the function body and
+// must never influence this check. An earlier version sliced from 'returns table(' to a literal
+// ')\nlanguage plpgsql security definer'; that marker is line-ending dependent, so on a CRLF checkout it
+// returned -1 and slice(start, -1) silently captured the whole file, making the body fail the assertion.
+// Parse the declaration structurally instead: scan balanced parentheses and split on depth-zero commas.
+function parseReturnsTable(sql, functionName) {
+  const fnAt = sql.indexOf(`create or replace function public.${functionName}`);
+  if (fnAt === -1) throw new Error(`function ${functionName} not found`);
+  const declAt = sql.toLowerCase().indexOf('returns table', fnAt);
+  if (declAt === -1) throw new Error(`RETURNS TABLE not found for ${functionName}`);
+  const open = sql.indexOf('(', declAt);
+  if (open === -1) throw new Error('malformed RETURNS TABLE');
+  let depth = 0, close = -1;
+  for (let i = open; i < sql.length; i += 1) {
+    if (sql[i] === '(') depth += 1;
+    else if (sql[i] === ')') { depth -= 1; if (depth === 0) { close = i; break; } }
   }
-  assert.doesNotMatch(signature, /reason_code|player_status|agent_id|per_minute|per_hour|channels/);
+  if (close === -1) throw new Error('unbalanced RETURNS TABLE parentheses');
+  const columns = [];
+  let buffer = ''; depth = 0;
+  for (const character of sql.slice(open + 1, close)) {
+    if (character === '(') depth += 1;
+    if (character === ')') depth -= 1;
+    if (character === ',' && depth === 0) { columns.push(buffer); buffer = ''; continue; }
+    buffer += character;
+  }
+  if (buffer.trim()) columns.push(buffer);
+  // Whitespace-normalised, so CR, LF and indentation cannot affect the result.
+  return columns.map(column => column.trim().split(/\s+/)[0]);
+}
+
+const APPROVED_RESPONSE = ['player_id','outcome','phone','email','messenger','revealed_at','request_id','access_event_id'];
+
+test('response contract is exactly the approved eight columns, in order', () => {
+  const columns = parseReturnsTable(rpcSql, 'reveal_player_contacts');
+  // deepEqual on an ordered array asserts names, order, count and absence of extras in one comparison.
+  assert.deepEqual(columns, APPROVED_RESPONSE);
+  assert.equal(columns.length, 8);
+});
+
+test('the contract parser rejects any expansion, reordering or leakage of the response', () => {
+  const body = `
+language plpgsql security definer
+set search_path = pg_catalog, public
+as $$
+begin
+  insert into public.contact_reveal_events(reason_code, channels, player_status, player_agent_id)
+    values ('granted', '{}', 'in_work', null);
+  select per_minute, per_hour from public.contact_reveal_limits;
+end $$;`;
+  const fixture = declaration => `create or replace function public.reveal_player_contacts(p_player_id text, p_request_id uuid)\r\nreturns table(${declaration})\r\n${body}`;
+  const approved = 'player_id text, outcome text, phone text, email text, messenger text, revealed_at timestamptz, request_id uuid, access_event_id uuid';
+
+  // A body full of internal identifiers must not affect the parsed contract, on CRLF input.
+  assert.deepEqual(parseReturnsTable(fixture(approved), 'reveal_player_contacts'), APPROVED_RESPONSE);
+
+  // Leaking an internal column into the response must fail.
+  assert.notDeepEqual(parseReturnsTable(fixture(`${approved}, reason_code public.contact_reveal_reason`), 'reveal_player_contacts'), APPROVED_RESPONSE);
+
+  // A ninth column must fail even when it looks harmless.
+  assert.notDeepEqual(parseReturnsTable(fixture(`${approved}, extra text`), 'reveal_player_contacts'), APPROVED_RESPONSE);
+
+  // Reordering must fail even though the set of names is unchanged.
+  const swapped = 'outcome text, player_id text, phone text, email text, messenger text, revealed_at timestamptz, request_id uuid, access_event_id uuid';
+  const reordered = parseReturnsTable(fixture(swapped), 'reveal_player_contacts');
+  assert.equal(reordered.length, 8);
+  assert.deepEqual([...reordered].sort(), [...APPROVED_RESPONSE].sort(), 'same names');
+  assert.notDeepEqual(reordered, APPROVED_RESPONSE, 'but order must still fail');
+
+  // Dropping a column must fail.
+  assert.notDeepEqual(parseReturnsTable(fixture(approved.replace(', access_event_id uuid', '')), 'reveal_player_contacts'), APPROVED_RESPONSE);
 });
 test('every non-revealed outcome nulls all contact fields', () => {
   const fn = rpcSql.slice(rpcSql.indexOf('create or replace function public.reveal_player_contacts'), rpcSql.indexOf('create or replace function public.purge_contact_reveal_events'));
