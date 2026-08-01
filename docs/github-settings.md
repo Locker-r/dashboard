@@ -37,14 +37,24 @@ Status check names must match the workflow job names exactly. If a job is
 renamed in `.github/workflows/quality-gates.yml`, the ruleset silently stops
 requiring it — update both together.
 
-> **Making this repository private breaks `Dependency review`.**
-> `actions/dependency-review-action` needs the dependency graph, which private
-> repositories only expose with GitHub Advanced Security. If repository
-> visibility changes, the `dependency-review` job starts failing and, as a
-> required check, blocks every merge. Remove it from the ruleset and from
-> `quality-gates.yml` in the same change. The `npm audit` gate is unaffected.
+> **`Dependency review` depends on the setting in section 2.**
+> `actions/dependency-review-action` fails with *"Dependency review is not
+> supported on this repository"* unless the **Dependency graph** is enabled.
+> Apply section 2 before adding this check to the ruleset, or it blocks every
+> merge. Verified on pull request #17, where the job failed for exactly this
+> reason while the graph was still disabled.
+>
+> The same coupling applies to visibility: private repositories expose the
+> dependency graph only with GitHub Advanced Security. If this repository is
+> ever made private without it, remove `dependency-review` from the ruleset and
+> from `quality-gates.yml` in the same change. The `npm audit` gate is
+> unaffected in both cases.
 
-## 2. Dependabot alerts — DISABLED
+## 2. Dependency graph and Dependabot alerts — DISABLED
+
+**Apply this section first.** The `Dependency review` check in
+`.github/workflows/quality-gates.yml` cannot pass until the dependency graph is
+enabled.
 
 `GET /repos/Locker-r/dashboard/vulnerability-alerts` returns
 `404 Vulnerability alerts are disabled`, and `dependabot_security_updates` is
@@ -54,6 +64,7 @@ vulnerabilities.
 
 Settings → Code security:
 
+- **Dependency graph**: enable — required by the `Dependency review` check
 - **Dependabot alerts**: enable
 - **Dependabot security updates**: enable
 
