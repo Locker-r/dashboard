@@ -8,6 +8,8 @@ const { spawnSync } = require('node:child_process');
 const root = path.join(__dirname, '..');
 const script = path.join(root, 'scripts', 'check-migration-governance.cjs');
 const read = (...parts) => fs.readFileSync(path.join(root, ...parts), 'utf8');
+const releaseWorkflow = read('.github', 'workflows', 'release.yml');
+const normalizedWorkflow = releaseWorkflow.replace(/\r\n/g, '\n');
 
 // Called with no target the script scans this repository and additionally
 // verifies exemption hygiene; with a target it scans a fixture directory.
@@ -26,6 +28,16 @@ function withFixture(callback) {
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
+}
+
+function assertReleaseWorkflowStructure(workflow) {
+  assert.match(workflow, /tags: \['v\*'\]/);
+  assert.match(workflow, /^permissions:\n\s+contents: read/m, 'default permissions must be read-only');
+  assert.match(workflow, /git merge-base --is-ancestor "\$GITHUB_SHA" origin\/main/);
+  assert.match(workflow, /npm run check:migrations/);
+  assert.match(workflow, /actions\/checkout@[0-9a-f]{40}/, 'privileged workflow must pin actions by SHA');
+  assert.match(workflow, /actions\/setup-node@[0-9a-f]{40}/, 'privileged workflow must pin actions by SHA');
+  assert.doesNotMatch(workflow, /secrets\./, 'the release must need no secret beyond the workflow token');
 }
 
 const VALID_SQL = 'begin;\ncreate table if not exists public.example(id uuid primary key);\ncommit;\n';
@@ -104,14 +116,16 @@ test('the rollback exemption list is a ratchet that only shrinks', () => {
 });
 
 test('the release workflow only publishes reviewed, gated tags', () => {
-  const workflow = read('.github', 'workflows', 'release.yml');
-  assert.match(workflow, /tags: \['v\*'\]/);
-  assert.match(workflow, /^permissions:\n\s+contents: read/m, 'default permissions must be read-only');
-  assert.match(workflow, /git merge-base --is-ancestor "\$GITHUB_SHA" origin\/main/);
-  assert.match(workflow, /npm run check:migrations/);
-  assert.match(workflow, /actions\/checkout@[0-9a-f]{40}/, 'privileged workflow must pin actions by SHA');
-  assert.match(workflow, /actions\/setup-node@[0-9a-f]{40}/, 'privileged workflow must pin actions by SHA');
-  assert.doesNotMatch(workflow, /secrets\./, 'the release must need no secret beyond the workflow token');
+  assertReleaseWorkflowStructure(normalizedWorkflow);
+});
+
+test('release workflow assertions pass with LF and CRLF text', () => {
+  const lfWorkflow = normalizedWorkflow;
+  const crlfWorkflow = lfWorkflow.replace(/\n/g, '\r\n');
+
+  for (const workflow of [lfWorkflow, crlfWorkflow]) {
+    assertReleaseWorkflowStructure(workflow.replace(/\r\n/g, '\n'));
+  }
 });
 
 test('quality gates enforce dependency and migration governance', () => {
