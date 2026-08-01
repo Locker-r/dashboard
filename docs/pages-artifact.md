@@ -150,6 +150,8 @@ the staged directory and independently proves:
 
 - the exact 17-file and four-directory sets;
 - regular files only, with no symlink, junction, hard link, or special file;
+- every approved source ancestor is an ordinary canonical directory, with no
+  symlink, junction, or redirected reparse traversal;
 - every resolved entry remains inside the artifact root;
 - all text is canonical UTF-8/LF;
 - copied files exactly match canonicalized approved sources;
@@ -192,10 +194,12 @@ If validation fails, the temporary directory is removed and the previous
 output remains byte-for-byte unchanged. A cleanup warning after the validated
 new output is committed does not invalidate that output. A stale build lock
 is never guessed to be safe or deleted automatically. If filesystem errors
-also prevent automatic restoration, the builder preserves every recovery path
-that still exists (output, staging, or backup) and the build lock, reports the
-exact applicable recovery paths including the lock, and performs no further
-deletion so an operator can recover the previous artifact.
+also prevent automatic restoration, or if another process recreates the final
+output path after backup, the builder preserves every recovery path that still
+exists (foreign output, staging, or prior-output backup) and the build lock.
+It reports the exact applicable recovery paths including the lock and performs
+no further deletion. The foreign output is never accepted as the build result,
+and the prior valid artifact is never silently abandoned in its backup path.
 
 ## Exclusion proof and non-goals
 

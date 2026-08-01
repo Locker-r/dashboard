@@ -160,6 +160,65 @@ function injectedBuildRename(callNumbers) {
   };
 }
 
+function replaceDirectoryWithLink(sourceRoot, relativePath, targetName, linkType) {
+  const approved = path.join(sourceRoot, ...relativePath.split('/'));
+  const target = path.join(sourceRoot, targetName);
+  fs.renameSync(approved, target);
+  fs.symlinkSync(target, approved, linkType);
+  return { approved, target };
+}
+
+function assertProbeResolvesInsideSource(sourceRoot, probe) {
+  const resolved = fs.realpathSync(probe);
+  const relative = path.relative(sourceRoot, resolved);
+  assert.equal(relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative), false);
+  assert.match(fs.readFileSync(probe, 'utf8'), /globalThis|fixture/i);
+}
+
+async function exerciseLinkedSourceAncestors(t, linkType) {
+  await t.test('linked src ancestor', () => withFixture(fixture => {
+    const linked = replaceDirectoryWithLink(fixture.sourceRoot, 'src', 'unapproved-src', linkType);
+    const probe = path.join(linked.approved, 'auth.js');
+    assertProbeResolvesInsideSource(fixture.sourceRoot, probe);
+    const before = snapshotFiles(linked.target);
+
+    expectArtifactError(() => builder.buildPagesArtifact(validBuildOptions(fixture)), 'SOURCE_ANCESTOR_UNSAFE');
+
+    assert.deepEqual(snapshotFiles(linked.target), before);
+    assert.equal(fs.existsSync(fixture.outputDirectory), false);
+  }));
+
+  await t.test('linked src/data ancestor', () => withFixture(fixture => {
+    const linked = replaceDirectoryWithLink(fixture.sourceRoot, 'src/data', 'unapproved-data', linkType);
+    const probe = path.join(linked.approved, 'data-service.js');
+    assertProbeResolvesInsideSource(fixture.sourceRoot, probe);
+    const before = snapshotFiles(linked.target);
+
+    expectArtifactError(() => builder.buildPagesArtifact(validBuildOptions(fixture)), 'SOURCE_ANCESTOR_UNSAFE');
+
+    assert.deepEqual(snapshotFiles(linked.target), before);
+    assert.equal(fs.existsSync(fixture.outputDirectory), false);
+  }));
+
+  await t.test('nested linked source parents', () => withFixture(fixture => {
+    const sourceDirectory = path.join(fixture.sourceRoot, 'src');
+    const redirectedSource = path.join(fixture.sourceRoot, 'unapproved-src');
+    const redirectedData = path.join(fixture.sourceRoot, 'unapproved-data');
+    fs.renameSync(sourceDirectory, redirectedSource);
+    fs.renameSync(path.join(redirectedSource, 'data'), redirectedData);
+    fs.symlinkSync(redirectedData, path.join(redirectedSource, 'data'), linkType);
+    fs.symlinkSync(redirectedSource, sourceDirectory, linkType);
+    const probe = path.join(sourceDirectory, 'data', 'data-service.js');
+    assertProbeResolvesInsideSource(fixture.sourceRoot, probe);
+    const before = fs.readFileSync(probe);
+
+    expectArtifactError(() => builder.buildPagesArtifact(validBuildOptions(fixture)), 'SOURCE_ANCESTOR_UNSAFE');
+
+    assert.deepEqual(fs.readFileSync(probe), before);
+    assert.equal(fs.existsSync(fixture.outputDirectory), false);
+  }));
+}
+
 test('the fixed contract contains exactly the approved 17 files and four directories', () => {
   assert.deepEqual(builder.ARTIFACT_FILES, [
     '.nojekyll',
@@ -514,6 +573,69 @@ test('transactional replacement contains every promotion and rollback failure', 
     assert.deepEqual(fs.readdirSync(fixture.outputParent).sort(), ['pages-site', 'pages-site.tmp-injected']);
   }));
 
+  await t.test('recreated foreign output preserves every recovery path', () => withFixture(fixture => {
+    const staging = prepare(fixture);
+    let renameCalls = 0;
+    let recoveryError;
+    assert.throws(() => builder.transactionalReplaceDirectory(staging, fixture.outputDirectory, {
+      renameSync: (from, to) => {
+        renameCalls += 1;
+        if (renameCalls === 2) {
+          fs.mkdirSync(fixture.outputDirectory);
+          fs.writeFileSync(path.join(fixture.outputDirectory, 'foreign.txt'), 'foreign');
+          const error = new Error('injected promotion collision');
+          error.code = 'EACCES';
+          throw error;
+        }
+        fs.renameSync(from, to);
+      },
+      validateExisting: ownership
+    }), error => {
+      recoveryError = error;
+      return error.code === 'OUTPUT_TRANSACTION_RECOVERY_FAILED' && error.preserveTransaction === true;
+    });
+
+    const backup = fs.readdirSync(fixture.outputParent).find(name => name.startsWith('pages-site.backup-'));
+    assert.ok(backup);
+    assert.equal(fs.readFileSync(path.join(fixture.outputDirectory, 'foreign.txt'), 'utf8'), 'foreign');
+    assert.equal(fs.readFileSync(path.join(fixture.outputParent, backup, 'old.txt'), 'utf8'), 'old');
+    assert.equal(fs.readFileSync(path.join(staging, 'new.txt'), 'utf8'), 'new');
+    assert.match(recoveryError.message, /unexpectedly recreated/);
+    assert.match(recoveryError.message, /output=.*pages-site; staging=.*pages-site\.tmp-injected; backup=.*pages-site\.backup-/);
+  }));
+
+  await t.test('pre-promotion recreation is detected before a second rename', () => withFixture(fixture => {
+    const staging = prepare(fixture);
+    let renameCalls = 0;
+    let promotedValidationCalls = 0;
+    let recoveryError;
+    assert.throws(() => builder.transactionalReplaceDirectory(staging, fixture.outputDirectory, {
+      renameSync: (from, to) => {
+        renameCalls += 1;
+        fs.renameSync(from, to);
+        if (renameCalls === 1) {
+          fs.mkdirSync(fixture.outputDirectory);
+          fs.writeFileSync(path.join(fixture.outputDirectory, 'foreign.txt'), 'foreign');
+        }
+      },
+      validateExisting: ownership,
+      validatePromoted: () => { promotedValidationCalls += 1; }
+    }), error => {
+      recoveryError = error;
+      return error.code === 'OUTPUT_TRANSACTION_RECOVERY_FAILED' && error.preserveTransaction === true;
+    });
+
+    const backup = fs.readdirSync(fixture.outputParent).find(name => name.startsWith('pages-site.backup-'));
+    assert.equal(renameCalls, 1);
+    assert.equal(promotedValidationCalls, 0);
+    assert.ok(backup);
+    assert.equal(fs.readFileSync(path.join(fixture.outputDirectory, 'foreign.txt'), 'utf8'), 'foreign');
+    assert.equal(fs.readFileSync(path.join(fixture.outputParent, backup, 'old.txt'), 'utf8'), 'old');
+    assert.equal(fs.readFileSync(path.join(staging, 'new.txt'), 'utf8'), 'new');
+    assert.match(recoveryError.message, /unexpectedly recreated/);
+    assert.match(recoveryError.message, /lock=.*\.pages-site\.build\.lock/);
+  }));
+
   await t.test('promotion plus restoration failure preserves old backup and new staging', () => withFixture(fixture => {
     const staging = prepare(fixture);
     let recoveryError;
@@ -661,6 +783,42 @@ test('the complete builder cleans staging after recoverable promotion failure an
     assert.ok(entries.some(name => name.startsWith('pages-site.tmp-')));
     assert.ok(entries.some(name => name.startsWith('pages-site.backup-')));
     assert.equal(entries.includes('pages-site'), false);
+  }));
+
+  await t.test('recreated output is never accepted and the valid backup is never hidden silently', () => withFixture(fixture => {
+    builder.buildPagesArtifact(validBuildOptions(fixture));
+    const before = snapshotFiles(fixture.outputDirectory);
+    let renameCalls = 0;
+    let recoveryError;
+    assert.throws(() => builder.buildPagesArtifact(validBuildOptions(fixture, {
+      renameSync: (from, to) => {
+        renameCalls += 1;
+        fs.renameSync(from, to);
+        if (renameCalls === 1) {
+          fs.mkdirSync(fixture.outputDirectory);
+          fs.writeFileSync(path.join(fixture.outputDirectory, 'foreign.txt'), 'foreign');
+        }
+      }
+    })), error => {
+      recoveryError = error;
+      return error.code === 'OUTPUT_TRANSACTION_RECOVERY_FAILED' && error.preserveTransaction === true;
+    });
+
+    const entries = fs.readdirSync(fixture.outputParent).sort();
+    const backup = entries.find(name => name.startsWith('pages-site.backup-'));
+    const staging = entries.find(name => name.startsWith('pages-site.tmp-'));
+    assert.ok(backup);
+    assert.ok(staging);
+    assert.equal(renameCalls, 1);
+    assert.ok(entries.includes('.pages-site.build.lock'));
+    assert.deepEqual(snapshotFiles(path.join(fixture.outputParent, backup)), before);
+    assert.deepEqual(snapshotFiles(fixture.outputDirectory), {
+      directories: [],
+      files: { 'foreign.txt': Buffer.from('foreign').toString('base64') }
+    });
+    assert.equal(fs.existsSync(path.join(fixture.outputParent, staging, builder.MANIFEST_PATH)), true);
+    assert.match(recoveryError.message, /unexpectedly recreated/);
+    assert.match(recoveryError.message, /lock=.*\.pages-site\.build\.lock/);
   }));
 });
 
@@ -812,6 +970,30 @@ test('every approved source is required and exact path casing is enforced', asyn
       assert.equal(fs.existsSync(fixture.outputDirectory), false);
     }));
   }
+});
+
+test('ordinary approved source ancestors remain valid', () => {
+  withFixture(fixture => {
+    for (const relativePath of ['src', 'src/data', 'vendor']) {
+      const info = fs.lstatSync(path.join(fixture.sourceRoot, ...relativePath.split('/')));
+      assert.equal(info.isDirectory(), true);
+      assert.equal(info.isSymbolicLink(), false);
+    }
+    const result = builder.buildPagesArtifact(validBuildOptions(fixture));
+    assert.equal(result.fileCount, 17);
+    assert.equal(builder.validatePagesArtifact({
+      ...validBuildOptions(fixture),
+      artifactDirectory: fixture.outputDirectory
+    }).manifestDigest, result.manifestDigest);
+  });
+});
+
+test('POSIX source symlink ancestors fail closed', { skip: process.platform === 'win32' }, async t => {
+  await exerciseLinkedSourceAncestors(t, 'dir');
+});
+
+test('Windows source junction ancestors fail closed', { skip: process.platform !== 'win32' }, async t => {
+  await exerciseLinkedSourceAncestors(t, 'junction');
 });
 
 test('index transformation rejects every ambiguous configuration block', async t => {
@@ -1152,6 +1334,185 @@ test('unexpected local and external HTML references fail exact validation', asyn
       );
     }));
   }
+});
+
+test('entity and CSS escape mutations cannot hide browser resource behavior', async t => {
+  const cases = [
+    {
+      name: 'numeric entity encoded meta refresh',
+      insertion: '<meta http-equiv="re&#x66;resh" content="0;url=https&#x3a;//evil.test/">\n',
+      code: 'HTML_META_REFRESH_INVALID',
+      absentPatterns: [/\brefresh\b/i, /https:\/\//i]
+    },
+    {
+      name: 'named entity encoded meta refresh',
+      insertion: '<meta http-equiv="re&#102;resh" content="0;url=https&colon;//evil.test/">\n',
+      code: 'HTML_META_REFRESH_INVALID',
+      absentPatterns: [/\brefresh\b/i, /https:\/\//i]
+    },
+    {
+      name: 'entity encoded external reference outside refresh',
+      insertion: '<meta name="description" content="https&#x3a;//evil.test/">\n',
+      code: 'HTML_EXTERNAL_REFERENCES_INVALID',
+      absentPatterns: [/https:\/\//i]
+    },
+    {
+      name: 'entity encoded inline CSS URL',
+      insertion: '<div style="background:u&#x72;l(&#47;&#47;evil.test/pixel)"></div>\n',
+      code: 'HTML_STYLE_REFERENCE_INVALID',
+      absentPatterns: [/url\s*\(/i]
+    },
+    {
+      name: 'CSS escaped URL function',
+      insertion: String.raw`<style>body{background:\75rl(//evil.test/pixel)}</style>` + '\n',
+      code: 'HTML_STYLE_REFERENCE_INVALID',
+      absentPatterns: [/url\s*\(/i]
+    },
+    {
+      name: 'CSS escaped import rule',
+      insertion: String.raw`<style>@\69mport "//evil.test/style.css";</style>` + '\n',
+      code: 'HTML_STYLE_REFERENCE_INVALID',
+      absentPatterns: [/@import\b/i]
+    },
+    {
+      name: 'fully escaped CSS URL token',
+      insertion: String.raw`<style>body{background:\75\72\6c\28 //evil.test/pixel)}</style>` + '\n',
+      code: 'HTML_STYLE_REFERENCE_INVALID',
+      absentPatterns: [/url\s*\(/i]
+    },
+    {
+      name: 'false style end tag cannot truncate CSS inspection',
+      insertion: String.raw`<style>/*</stylex>*/body{background:\75rl(//evil.test/pixel)}</style>` + '\n',
+      code: 'HTML_STYLE_REFERENCE_INVALID',
+      absentPatterns: [/url\s*\(/i]
+    },
+    {
+      name: 'escaped external image-set string',
+      insertion: String.raw`<style>body{background-image:image-set("https\3a //evil.test/pixel" 1x)}</style>` + '\n',
+      code: 'HTML_STYLE_REFERENCE_INVALID',
+      absentPatterns: [/url\s*\(/i, /@import\b/i, /https:\/\//i]
+    },
+    {
+      name: 'escaped external image function string',
+      insertion: String.raw`<style>body{background-image:image("https\3a //evil.test/pixel")}</style>` + '\n',
+      code: 'HTML_STYLE_REFERENCE_INVALID',
+      absentPatterns: [/url\s*\(/i, /@import\b/i, /https:\/\//i]
+    },
+    {
+      name: 'escaped external src function string',
+      insertion: String.raw`<style>@font-face{src:src("https\3a //evil.test/font")}</style>` + '\n',
+      code: 'HTML_STYLE_REFERENCE_INVALID',
+      absentPatterns: [/url\s*\(/i, /@import\b/i, /https:\/\//i]
+    },
+    {
+      name: 'foreign-content style entity decoding',
+      insertion: '<svg><style>svg{background:u&#x72;l(&#47;&#47;evil.test/pixel)}</style></svg>\n',
+      code: 'HTML_RESOURCE_TAG_INVALID',
+      absentPatterns: [/url\s*\(/i, /https:\/\//i]
+    },
+    {
+      name: 'foreign-content script entity decoding',
+      insertion: '<svg><script>fetch("https&#x3a;//evil.test/pixel")</script></svg>\n',
+      code: 'HTML_RESOURCE_TAG_INVALID',
+      absentPatterns: [/https:\/\//i]
+    },
+    {
+      name: 'MathML foreign-content entry',
+      insertion: '<math><mtext>https&#x3a;//evil.test/pixel</mtext></math>\n',
+      code: 'HTML_RESOURCE_TAG_INVALID',
+      absentPatterns: [/https:\/\//i]
+    }
+  ];
+
+  for (const { name, insertion, code, absentPatterns } of cases) {
+    await t.test(name, () => withFixture(fixture => {
+      for (const pattern of absentPatterns) assert.doesNotMatch(insertion, pattern);
+      const options = validBuildOptions(fixture);
+      builder.buildPagesArtifact(options);
+      const existing = snapshotFiles(fixture.outputDirectory);
+      fs.appendFileSync(path.join(fixture.sourceRoot, 'index.html'), insertion, 'utf8');
+
+      expectArtifactError(() => builder.buildPagesArtifact(options), code);
+      assert.deepEqual(snapshotFiles(fixture.outputDirectory), existing);
+
+      fs.appendFileSync(path.join(fixture.outputDirectory, 'index.html'), insertion, 'utf8');
+      rewriteManifest(fixture);
+      expectArtifactError(
+        () => builder.validatePagesArtifact({ ...options, artifactDirectory: fixture.outputDirectory }),
+        code
+      );
+    }));
+  }
+});
+
+test('entity-encoded modern resource attributes cannot hide additional browser requests', async t => {
+  const mutations = [
+    {
+      name: 'responsive preload source set',
+      mutate: html => html.replace(
+        '<link rel="preconnect" href="https://fonts.googleapis.com">',
+        '<link rel="preload" as="image" href="https://fonts.googleapis.com" imagesrcset="&#47;&#47;evil.test/pixel 1x">'
+      )
+    },
+    {
+      name: 'script attribution source',
+      mutate: html => html.replace(
+        '<script src="./src/auth.js"></script>',
+        '<script src="./src/auth.js" attributionsrc="&#47;&#47;evil.test/register"></script>'
+      )
+    }
+  ];
+
+  for (const { name, mutate } of mutations) {
+    await t.test(name, () => withFixture(fixture => {
+      const options = validBuildOptions(fixture);
+      builder.buildPagesArtifact(options);
+      const existing = snapshotFiles(fixture.outputDirectory);
+      const sourcePath = path.join(fixture.sourceRoot, 'index.html');
+      const artifactPath = path.join(fixture.outputDirectory, 'index.html');
+      const mutatedSource = mutate(fs.readFileSync(sourcePath, 'utf8'));
+      const mutatedArtifact = mutate(fs.readFileSync(artifactPath, 'utf8'));
+      assert.notEqual(mutatedSource, fs.readFileSync(sourcePath, 'utf8'));
+      assert.doesNotMatch(mutatedSource, /https:\/\/evil\.test/i);
+      fs.writeFileSync(sourcePath, mutatedSource, 'utf8');
+
+      expectArtifactError(() => builder.buildPagesArtifact(options), 'HTML_RESOURCE_REFERENCE_INVALID');
+      assert.deepEqual(snapshotFiles(fixture.outputDirectory), existing);
+
+      fs.writeFileSync(artifactPath, mutatedArtifact, 'utf8');
+      rewriteManifest(fixture);
+      expectArtifactError(
+        () => builder.validatePagesArtifact({ ...options, artifactDirectory: fixture.outputDirectory }),
+        'HTML_RESOURCE_REFERENCE_INVALID'
+      );
+    }));
+  }
+});
+
+test('malformed encoded browser syntax fails closed while benign encodings remain valid', async t => {
+  const malformed = [
+    ['out-of-range numeric entity', '<meta name="description" content="&#x110000;">\n', 'HTML_ENTITY_INVALID'],
+    ['unterminated numeric entity', '<meta name="description" content="&#x3a">\n', 'HTML_ENTITY_INVALID'],
+    ['unknown named entity', '<meta name="description" content="&notARealEntity;">\n', 'HTML_ENTITY_INVALID'],
+    ['unterminated CSS escape', String.raw`<style>body{color:red\</style>` + '\n', 'HTML_STYLE_ESCAPE_INVALID']
+  ];
+  for (const [name, insertion, code] of malformed) {
+    await t.test(name, () => withFixture(fixture => {
+      fs.appendFileSync(path.join(fixture.sourceRoot, 'index.html'), insertion, 'utf8');
+      expectArtifactError(() => builder.buildPagesArtifact(validBuildOptions(fixture)), code);
+      assert.equal(fs.existsSync(fixture.outputDirectory), false);
+    }));
+  }
+
+  await t.test('benign HTML entities and CSS escapes', () => withFixture(fixture => {
+    fs.appendFileSync(
+      path.join(fixture.sourceRoot, 'index.html'),
+      '<div title="A &amp; B" style="color:\\72 ed"></div>\n',
+      'utf8'
+    );
+    const result = builder.buildPagesArtifact(validBuildOptions(fixture));
+    assert.equal(result.fileCount, 17);
+  }));
 });
 
 test('builder requires a pages-site output name and never leaves partial output on input failure', () => {

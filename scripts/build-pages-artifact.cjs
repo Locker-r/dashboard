@@ -52,11 +52,11 @@ const EXPECTED_EXTERNAL_LINKS = Object.freeze([
 ].sort());
 const FORBIDDEN_RESOURCE_TAGS = Object.freeze([
   'audio', 'base', 'embed', 'frame', 'iframe', 'img', 'object', 'portal',
-  'source', 'track', 'video'
+  'source', 'svg', 'math', 'track', 'video'
 ]);
 const URL_ATTRIBUTE_NAMES = Object.freeze([
-  'action', 'background', 'cite', 'data', 'formaction', 'href', 'manifest',
-  'poster', 'src', 'srcset', 'xlink:href'
+  'action', 'attributionsrc', 'background', 'cite', 'data', 'formaction', 'href',
+  'imagesrcset', 'manifest', 'poster', 'src', 'srcset', 'xlink:href'
 ]);
 
 const CONFIG_ENV = Object.freeze({
@@ -122,11 +122,40 @@ function samePath(left, right) {
   return normalize(left) === normalize(right);
 }
 
+function assertSafeSourceAncestors(sourceRoot, relativePath) {
+  const components = relativePath.split('/');
+  let ancestor = sourceRoot;
+
+  for (const component of components.slice(0, -1)) {
+    ancestor = path.join(ancestor, component);
+    let info;
+    try {
+      info = fs.lstatSync(ancestor);
+    } catch {
+      fail('SOURCE_MISSING', `Approved source ancestor is missing: ${relativePath}.`);
+    }
+    if (info.isSymbolicLink() || !info.isDirectory()) {
+      fail('SOURCE_ANCESTOR_UNSAFE', `Approved source traverses a linked or invalid directory: ${relativePath}.`);
+    }
+
+    let resolved;
+    try {
+      resolved = fs.realpathSync(ancestor);
+    } catch {
+      fail('SOURCE_ANCESTOR_UNSAFE', `Approved source ancestor cannot be resolved safely: ${relativePath}.`);
+    }
+    if (!samePath(ancestor, resolved) || !isInside(sourceRoot, resolved)) {
+      fail('SOURCE_ANCESTOR_UNSAFE', `Approved source traverses a linked or redirected directory: ${relativePath}.`);
+    }
+  }
+}
+
 function assertRegularSource(sourceRoot, relativePath) {
   const candidate = path.resolve(sourceRoot, ...relativePath.split('/'));
   if (!isInside(sourceRoot, candidate) || samePath(sourceRoot, candidate)) {
     fail('SOURCE_PATH_ESCAPE', `Approved source path escapes the source root: ${relativePath}.`);
   }
+  assertSafeSourceAncestors(sourceRoot, relativePath);
 
   let info;
   try {
@@ -142,7 +171,7 @@ function assertRegularSource(sourceRoot, relativePath) {
   }
 
   const resolved = fs.realpathSync(candidate);
-  if (!isInside(sourceRoot, resolved)) {
+  if (!samePath(candidate, resolved) || !isInside(sourceRoot, resolved)) {
     fail('SOURCE_PATH_ESCAPE', `Approved source resolves outside the source root: ${relativePath}.`);
   }
   return candidate;
@@ -414,6 +443,120 @@ function validateRuntimeConfigExecution(source, expected) {
   }
 }
 
+const HTML_NAMED_REFERENCES = Object.freeze({
+  AMP: '&',
+  amp: '&',
+  apos: "'",
+  bsol: '\\',
+  colon: ':',
+  GT: '>',
+  gt: '>',
+  LT: '<',
+  lt: '<',
+  QUOT: '"',
+  quot: '"',
+  sol: '/'
+});
+
+function decodedScalar(codePoint, code) {
+  if (
+    !Number.isSafeInteger(codePoint) ||
+    codePoint <= 0x1f ||
+    codePoint === 0x7f ||
+    codePoint > 0x10ffff ||
+    (codePoint >= 0xd800 && codePoint <= 0xdfff)
+  ) {
+    fail(code, 'Encoded browser syntax contains an invalid Unicode scalar value.');
+  }
+  return String.fromCodePoint(codePoint);
+}
+
+function decodeHtmlCharacterReferences(value) {
+  let result = '';
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] !== '&') {
+      result += value[index];
+      continue;
+    }
+
+    if (value[index + 1] === '#') {
+      let cursor = index + 2;
+      let radix = 10;
+      if (value[cursor] === 'x' || value[cursor] === 'X') {
+        radix = 16;
+        cursor += 1;
+      }
+      const start = cursor;
+      const digitPattern = radix === 16 ? /[0-9a-f]/i : /[0-9]/;
+      while (cursor < value.length && digitPattern.test(value[cursor])) cursor += 1;
+      if (cursor === start || value[cursor] !== ';') {
+        fail('HTML_ENTITY_INVALID', 'HTML numeric character references must be valid and semicolon-terminated.');
+      }
+      result += decodedScalar(Number.parseInt(value.slice(start, cursor), radix), 'HTML_ENTITY_INVALID');
+      index = cursor;
+      continue;
+    }
+
+    let cursor = index + 1;
+    while (cursor < value.length && /[a-z0-9]/i.test(value[cursor])) cursor += 1;
+    const name = value.slice(index + 1, cursor);
+    const hasSemicolon = value[cursor] === ';';
+    const isLegacyUnterminated = !hasSemicolon &&
+      Object.hasOwn(HTML_NAMED_REFERENCES, name) &&
+      !/[a-z0-9=]/i.test(value[cursor] || '');
+
+    if (hasSemicolon || isLegacyUnterminated) {
+      if (!Object.hasOwn(HTML_NAMED_REFERENCES, name)) {
+        fail('HTML_ENTITY_INVALID', `HTML contains an unsupported named character reference: ${name}.`);
+      }
+      result += HTML_NAMED_REFERENCES[name];
+      index = hasSemicolon ? cursor : cursor - 1;
+      continue;
+    }
+
+    result += '&';
+  }
+  return result;
+}
+
+function decodeCssEscapesForInspection(value) {
+  let result = '';
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] !== '\\') {
+      result += value[index];
+      continue;
+    }
+    if (index + 1 >= value.length || /[\r\n\f]/.test(value[index + 1])) {
+      fail('HTML_STYLE_ESCAPE_INVALID', 'HTML contains an invalid or unterminated CSS escape.');
+    }
+
+    let cursor = index + 1;
+    if (/[0-9a-f]/i.test(value[cursor])) {
+      const start = cursor;
+      while (cursor < value.length && cursor - start < 6 && /[0-9a-f]/i.test(value[cursor])) cursor += 1;
+      result += decodedScalar(Number.parseInt(value.slice(start, cursor), 16), 'HTML_STYLE_ESCAPE_INVALID');
+      if (/[ \t\r\n\f]/.test(value[cursor] || '')) cursor += 1;
+      index = cursor - 1;
+    } else {
+      result += value[cursor];
+      index = cursor;
+    }
+  }
+  return result;
+}
+
+function assertNoCssResourceReferences(value, message, rejectExternalLocators = false) {
+  const decoded = decodeCssEscapesForInspection(value);
+  const resourceFunction = /(?:^|[^a-z0-9_-])(?:url|image|src|(?:-webkit-)?image-set)\s*\(/i;
+  if (
+    resourceFunction.test(decoded) ||
+    /@import\b/i.test(decoded) ||
+    (rejectExternalLocators && /(?:https?:)?\/\//i.test(decoded))
+  ) {
+    fail('HTML_STYLE_REFERENCE_INVALID', message);
+  }
+}
+
 function extractOpeningTags(html) {
   const tags = [];
   for (let start = 0; start < html.length; start += 1) {
@@ -439,18 +582,35 @@ function extractOpeningTags(html) {
   return tags;
 }
 
+function findStyleClosingTag(html, contentStart) {
+  const lowerHtml = html.toLowerCase();
+  let offset = contentStart;
+  while ((offset = lowerHtml.indexOf('</style', offset)) !== -1) {
+    const delimiter = html[offset + '</style'.length] || '';
+    if (/^[\t\n\f\r />]$/.test(delimiter)) return offset;
+    offset += '</style'.length;
+  }
+  return -1;
+}
+
 function inspectHtmlAttributes(html) {
   const references = [];
   for (const openingTag of extractOpeningTags(html)) {
     const { tagName, tag } = openingTag;
+    const decodedTag = decodeHtmlCharacterReferences(tag);
     if (FORBIDDEN_RESOURCE_TAGS.includes(tagName)) {
       fail('HTML_RESOURCE_TAG_INVALID', `HTML contains a forbidden resource tag: ${tagName}.`);
     }
-    if (tagName === 'meta' && /\bhttp-equiv\s*=\s*["']?refresh\b/i.test(tag)) {
+    if (tagName === 'meta' && /\bhttp-equiv\s*=\s*["']?refresh\b/i.test(decodedTag)) {
       fail('HTML_META_REFRESH_INVALID', 'HTML may not contain a meta refresh.');
     }
-    if (/url\s*\(|@import\b/i.test(tag)) {
-      fail('HTML_STYLE_REFERENCE_INVALID', 'HTML tag styles may not contain resource references.');
+    assertNoCssResourceReferences(decodedTag, 'HTML tag styles may not contain resource references.');
+    for (const styleAttribute of tag.matchAll(/\bstyle\s*=\s*(["'])([^"']*)\1/gi)) {
+      assertNoCssResourceReferences(
+        decodeHtmlCharacterReferences(styleAttribute[2]),
+        'HTML tag styles may not contain resource references.',
+        true
+      );
     }
 
     for (const attributeName of URL_ATTRIBUTE_NAMES) {
@@ -471,16 +631,18 @@ function inspectHtmlAttributes(html) {
       ) {
         fail('HTML_RESOURCE_REFERENCE_INVALID', `HTML contains an unapproved ${attributeName} resource reference.`);
       }
-      references.push(Object.freeze({ tagName, attributeName, value: quoted[0][2] }));
+      references.push(Object.freeze({
+        tagName,
+        attributeName,
+        value: decodeHtmlCharacterReferences(quoted[0][2])
+      }));
     }
 
     if (tagName === 'style') {
-      const closingOffset = html.toLowerCase().indexOf('</style', openingTag.end + 1);
+      const closingOffset = findStyleClosingTag(html, openingTag.end + 1);
       if (closingOffset === -1) fail('HTML_TAG_INVALID', 'HTML contains an unterminated style element.');
       const styleContent = html.slice(openingTag.end + 1, closingOffset);
-      if (/url\s*\(|@import\b/i.test(styleContent)) {
-        fail('HTML_STYLE_REFERENCE_INVALID', 'HTML styles may not contain resource references.');
-      }
+      assertNoCssResourceReferences(styleContent, 'HTML styles may not contain resource references.', true);
     }
   }
   return references;
@@ -503,7 +665,17 @@ function validateHtmlReferences(html) {
     'HTML link reference set'
   );
 
-  const literalHttpsReferences = [...html.matchAll(/https:\/\/[^\s"'`<>\\)\]}]+/gi)]
+  const openingTags = extractOpeningTags(html);
+  let projection = '';
+  let projectionOffset = 0;
+  for (const openingTag of openingTags) {
+    if (openingTag.start < projectionOffset) continue;
+    projection += html.slice(projectionOffset, openingTag.start);
+    projection += decodeHtmlCharacterReferences(openingTag.tag);
+    projectionOffset = openingTag.end + 1;
+  }
+  projection += html.slice(projectionOffset);
+  const literalHttpsReferences = [...projection.matchAll(/https:\/\/[^\s"'`<>\\)\]}]+/gi)]
     .map(match => match[0])
     .sort();
   assertExactList(
@@ -754,6 +926,16 @@ function createTransactionRecoveryError(message, paths) {
   return error;
 }
 
+function pathEntryExists(target) {
+  try {
+    fs.lstatSync(target);
+    return true;
+  } catch (error) {
+    if (error && error.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
 function transactionalReplaceDirectory(stagingDirectory, outputDirectory, options = {}) {
   const renameSync = options.renameSync || fs.renameSync;
   const removeDirectory = options.removeDirectory || removeOwnedDirectory;
@@ -774,10 +956,44 @@ function transactionalReplaceDirectory(stagingDirectory, outputDirectory, option
     renameSync(outputDirectory, backupDirectory);
   }
 
+  if (hadExistingOutput) {
+    let outputOccupied;
+    try {
+      outputOccupied = pathEntryExists(outputDirectory);
+    } catch {
+      throw createTransactionRecoveryError(
+        'The output path could not be inspected safely after the previous artifact was backed up.',
+        { outputDirectory, stagingDirectory, backupDirectory }
+      );
+    }
+    if (outputOccupied) {
+      throw createTransactionRecoveryError(
+        'The output path was unexpectedly recreated after the previous artifact was backed up.',
+        { outputDirectory, stagingDirectory, backupDirectory }
+      );
+    }
+  }
+
   try {
     renameSync(stagingDirectory, outputDirectory);
   } catch (error) {
-    if (hadExistingOutput && fs.existsSync(backupDirectory) && !fs.existsSync(outputDirectory)) {
+    if (hadExistingOutput) {
+      let outputOccupied;
+      try {
+        outputOccupied = pathEntryExists(outputDirectory);
+      } catch {
+        throw createTransactionRecoveryError(
+          'Artifact promotion failed and the output path could not be inspected safely.',
+          { outputDirectory, stagingDirectory, backupDirectory }
+        );
+      }
+      if (outputOccupied) {
+        if (error && error.preserveTransaction) throw error;
+        throw createTransactionRecoveryError(
+          'Artifact promotion failed after the output path was unexpectedly recreated; foreign output was left untouched.',
+          { outputDirectory, stagingDirectory, backupDirectory }
+        );
+      }
       try {
         renameSync(backupDirectory, outputDirectory);
       } catch {
