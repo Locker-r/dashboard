@@ -25,10 +25,16 @@
     const publishableKey = config.publishableKey.trim();
     let parsed;
     try { parsed = new URL(projectUrl); } catch (error) { throw new AuthServiceError('config_invalid', error); }
-    const isProjectRoot = parsed.protocol === 'https:' &&
+    const isHostedProjectRoot = parsed.protocol === 'https:' &&
       /^[a-z0-9]+\.supabase\.co$/i.test(parsed.hostname) &&
       (parsed.pathname === '' || parsed.pathname === '/') && !parsed.search && !parsed.hash;
-    if (!isProjectRoot) throw new AuthServiceError('config_invalid');
+    const localProjectOrigin = 'http://127.0.0.1:54321';
+    const isLocalProjectRoot = parsed.protocol === 'http:' &&
+      parsed.hostname === '127.0.0.1' && parsed.port === '54321' &&
+      !parsed.username && !parsed.password &&
+      (projectUrl === localProjectOrigin || projectUrl === `${localProjectOrigin}/`) &&
+      (parsed.pathname === '' || parsed.pathname === '/') && !parsed.search && !parsed.hash;
+    if (!isHostedProjectRoot && !isLocalProjectRoot) throw new AuthServiceError('config_invalid');
     return { projectUrl: parsed.origin, publishableKey };
   }
 

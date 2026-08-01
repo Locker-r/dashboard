@@ -74,14 +74,24 @@ test('rejects a profile whose id does not match auth.users.id', async () => {
     error => error.code === 'profile_load_error');
 });
 
-test('normalizes a trailing slash but rejects REST endpoints and non-Supabase project URLs', () => {
+test('normalizes hosted and exact local project roots without broadening production URLs', () => {
   assert.deepEqual(auth.normalizeConfig({
     projectUrl: ' https://example.supabase.co/ ', publishableKey: ' publishable '
   }), { projectUrl: 'https://example.supabase.co', publishableKey: 'publishable' });
+  assert.deepEqual(auth.normalizeConfig({
+    projectUrl: ' http://127.0.0.1:54321/ ', publishableKey: ' local-publishable '
+  }), { projectUrl: 'http://127.0.0.1:54321', publishableKey: 'local-publishable' });
   for (const projectUrl of [
     'https://example.supabase.co/rest/v1/',
     'https://example.supabase.co/auth/v1',
-    'https://wrong.example.com'
+    'https://wrong.example.com',
+    'http://example.supabase.co',
+    'http://localhost:54321',
+    'http://127.0.0.1:54322',
+    'http://127.1:54321',
+    'http://2130706433:54321',
+    'http://user@127.0.0.1:54321',
+    'http://127.0.0.1:54321/rest/v1'
   ]) {
     assert.throws(() => auth.normalizeConfig({ projectUrl, publishableKey: 'publishable' }),
       error => error.code === 'config_invalid');

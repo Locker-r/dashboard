@@ -17,6 +17,14 @@ The dashboard is a static application, so it reads Supabase settings from a loca
 3. Set `publishableKey` to the Supabase Publishable key. Never use a secret or `service_role` key.
 4. Run `npm install` and `npm run build:vendor` after cloning or updating dependencies.
 
+For the repository's local Supabase stack, use the API URL and public key
+reported by `npx supabase status`. The local URL must be exactly
+`http://127.0.0.1:54321` (an optional trailing slash is normalized). Arbitrary
+HTTP origins, `localhost`, and other ports remain invalid, and hosted projects
+still require an HTTPS `*.supabase.co` root URL. If the ignored local config
+was previously pointed at a hosted project, replace both values before loading
+the Dashboard locally.
+
 `config/supabase-config.local.js` and `node_modules` are ignored by Git. The generated `vendor/supabase.js` bundle is served locally, so the dashboard does not depend on a CDN.
 
 Supabase storage setup is documented in `docs/supabase-storage-foundation.md`. The optional atomic write RPC migration and its manual verification workflow are documented in `docs/supabase-atomic-writes.md`; repository scripts never apply SQL to a remote project.
