@@ -83,6 +83,24 @@
     return result.data;
   }
 
+  // Maps ONLY the eight approved columns of reveal_player_contacts. Nothing else is read -- not reason_code,
+  // not channels, not player_status -- so a future widening of the RPC cannot start flowing into the browser
+  // unnoticed. `outcome` is preserved verbatim: a transport success is not a reveal, and the caller decides.
+  // Deliberately kept out of the mapPlayer..unwrap region: that span is the contact-boundary test's proof
+  // that no raw contact is ever mapped onto a player object, and this is the one mapper that carries them.
+  function mapReveal(row) {
+    return {
+      playerId: stringOrEmpty(row.player_id),
+      outcome: stringOrEmpty(row.outcome),
+      phone: stringOrEmpty(row.phone),
+      email: stringOrEmpty(row.email),
+      messenger: stringOrEmpty(row.messenger),
+      revealedAt: row.revealed_at || null,
+      requestId: stringOrEmpty(row.request_id),
+      accessEventId: stringOrEmpty(row.access_event_id)
+    };
+  }
+
   class SupabaseDataService extends DataService {
     constructor(client) {
       super();
@@ -163,6 +181,19 @@
       });
     }
 
+    // The audited reveal. Errors propagate untouched (they carry no contact value); every controlled
+    // business outcome arrives as a normal row and is classified by the caller, never here.
+    async revealPlayerContacts(playerId, requestId) {
+      const data = await callRpc(this.client, 'reveal_player_contacts', {
+        p_player_id: playerId, p_request_id: requestId
+      });
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row || typeof row !== 'object' || !row.outcome) {
+        throw Object.assign(new Error('REVEAL_CONTRACT_VIOLATION'), { code: 'REVEAL_CONTRACT_VIOLATION' });
+      }
+      return mapReveal(row);
+    }
+
     async getCurrentUser() {
       const sessionResult = await this.client.auth.getSession();
       if (sessionResult.error) throw sessionResult.error;
@@ -179,5 +210,5 @@
     }
   }
 
-  return { SupabaseDataService, mapProfile, mapComment, mapHistory, mapPlayer, callRpc };
+  return { SupabaseDataService, mapProfile, mapComment, mapHistory, mapPlayer, mapReveal, callRpc };
 });

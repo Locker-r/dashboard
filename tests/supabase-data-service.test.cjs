@@ -106,6 +106,66 @@ test('propagates RPC errors without a direct-write fallback', async () => {
   await assert.rejects(()=>new data.SupabaseDataService(fixture.client).setPlayerFollowUp('p1',null),error=>error===expected);
 });
 
+test('reveal sends exactly the two approved parameters and maps exactly the eight approved columns', async () => {
+  const fixture = clientWith({});
+  fixture.client.rpc = async (name, parameters) => {
+    fixture.calls.rpcs.push({ name, parameters });
+    return { data: [{
+      player_id: 'player-1', outcome: 'revealed', phone: '+59178889991', email: 'lead@example.invalid',
+      messenger: '@leadhandle', revealed_at: '2026-08-01T10:00:00Z',
+      request_id: '11111111-2222-4333-8444-555555555555', access_event_id: 'event-1',
+      // Internal audit columns that are NOT part of the contract. If the RPC ever widened, they must not
+      // start flowing into the browser just because they appeared in the response.
+      reason_code: 'granted', channels: ['phone'], player_status: 'in_work', player_agent_id: 'agent-1'
+    }], error: null };
+  };
+  const result = await new data.SupabaseDataService(fixture.client)
+    .revealPlayerContacts('player-1', '11111111-2222-4333-8444-555555555555');
+  assert.deepEqual(fixture.calls.rpcs, [{ name: 'reveal_player_contacts', parameters: {
+    p_player_id: 'player-1', p_request_id: '11111111-2222-4333-8444-555555555555'
+  } }]);
+  assert.deepEqual(Object.keys(result).sort(),
+    ['accessEventId', 'email', 'messenger', 'outcome', 'phone', 'playerId', 'requestId', 'revealedAt'].sort());
+  assert.deepEqual(result, {
+    playerId: 'player-1', outcome: 'revealed', phone: '+59178889991', email: 'lead@example.invalid',
+    messenger: '@leadhandle', revealedAt: '2026-08-01T10:00:00Z',
+    requestId: '11111111-2222-4333-8444-555555555555', accessEventId: 'event-1'
+  });
+});
+
+test('reveal preserves a non-revealed outcome verbatim instead of treating HTTP success as success', async () => {
+  const fixture = clientWith({});
+  for (const outcome of ['denied', 'rate_limited', 'request_id_conflict']) {
+    fixture.client.rpc = async () => ({ data: [{
+      player_id: 'player-1', outcome, phone: null, email: null, messenger: null,
+      revealed_at: null, request_id: 'r-1', access_event_id: 'event-1'
+    }], error: null });
+    const result = await new data.SupabaseDataService(fixture.client).revealPlayerContacts('player-1', 'r-1');
+    assert.equal(result.outcome, outcome);
+    assert.deepEqual([result.phone, result.email, result.messenger, result.revealedAt], ['', '', '', null]);
+  }
+});
+
+test('an empty or malformed reveal response throws REVEAL_CONTRACT_VIOLATION', async () => {
+  const fixture = clientWith({});
+  for (const payload of [[], null, [null], [{}], [{ phone: '+59178889991' }], 'revealed']) {
+    fixture.client.rpc = async () => ({ data: payload, error: null });
+    await assert.rejects(
+      () => new data.SupabaseDataService(fixture.client).revealPlayerContacts('player-1', 'r-1'),
+      error => error.code === 'REVEAL_CONTRACT_VIOLATION',
+      JSON.stringify(payload));
+  }
+});
+
+test('reveal propagates the raw RPC error, which carries no contact value', async () => {
+  const fixture = clientWith({});
+  const expected = Object.assign(new Error('INVALID_REQUEST_ID'), { code: '22023' });
+  fixture.client.rpc = async () => ({ data: null, error: expected });
+  await assert.rejects(
+    () => new data.SupabaseDataService(fixture.client).revealPlayerContacts('player-1', null),
+    error => error === expected);
+});
+
 test('clearSession delegates to Supabase Auth signOut and propagates its error', async () => {
   let fixture = clientWith({});
   await new data.SupabaseDataService(fixture.client).clearSession();

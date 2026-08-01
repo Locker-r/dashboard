@@ -19,6 +19,9 @@
     async addPlayerComment(_playerId, _commentId, _text) { throw new Error('addPlayerComment() is not implemented'); }
     async setPlayerFollowUp(_playerId, _followUpAt) { throw new Error('setPlayerFollowUp() is not implemented'); }
     async checkPlayerDuplicates(_candidates) { throw new Error('checkPlayerDuplicates() is not implemented'); }
+    // The single legal egress for a raw contact. Backends without an audited reveal path -- the offline
+    // localStorage prototype among them -- inherit this throw and must never implement one.
+    async revealPlayerContacts(_playerId, _requestId) { throw new Error('revealPlayerContacts() is not implemented'); }
     async clearSession() { throw new Error('clearSession() is not implemented'); }
   }
 

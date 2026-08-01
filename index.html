@@ -158,6 +158,10 @@
   .mono{font-family:var(--font-mono);font-size:12.5px;}
   .locked{color:var(--text-dim);}
   .lock-ico{opacity:.6;margin-right:3px;}
+  .revealed{color:var(--text);font-weight:600;}
+  .reveal-meta{display:block;font-size:10.5px;color:var(--text-dim);font-weight:400;margin-top:2px;}
+  .reveal-copy{background:none;border:none;cursor:pointer;padding:0 0 0 4px;opacity:.55;font-size:11px;}
+  .reveal-copy:hover{opacity:1;}
   .badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:11.5px;font-weight:600;white-space:nowrap;}
   .badge .dot{width:6px;height:6px;border-radius:50%;}
   .b-new{background:var(--slate-soft);color:#5B6472;} .b-new .dot{background:#8B95A5;}
@@ -458,6 +462,7 @@
 <script src="./src/data/local-storage-data-service.js"></script>
 <script src="./src/data/supabase-data-service.js"></script>
 <script src="./src/data/data-service-factory.js"></script>
+<script src="./src/contact-reveal.js"></script>
 <script>
 /* ==================== i18n ==================== */
 const I18N = {
@@ -498,6 +503,13 @@ ru:{
   act_take:'Взять в работу', act_success:'Успех', act_no_answer:'Не отвечает', act_failed:'Не удалось', act_return:'Вернуть в работу', act_retry:'Повторить попытку',
   empty_worklist_title:'Ничего не найдено', empty_worklist_sub:'Измените фильтры или импортируйте новых игроков',
   locked_hint:'Полный номер откроется после того, как вы возьмёте контакт в работу',
+  locked_hint_admin:'Полные контакты доступны только назначенному агенту, взявшему контакт в работу',
+  reveal_btn:'Показать контакты', reveal_hide_btn:'Скрыть', reveal_loading:'Открываем…', reveal_retry_btn:'Повторить', reveal_copy_btn:'Копировать',
+  reveal_shown:'Контакты открыты. Доступ записан в журнал.', reveal_denied:'Доступ к контактам отклонён',
+  reveal_rate_limited:'Слишком много запросов на открытие контактов. Подождите минуту.',
+  reveal_conflict:'Идентификатор запроса уже использован. Нажмите ещё раз.',
+  reveal_error:'Не удалось получить контакты. Повторите попытку.',
+  reveal_expired:'Контакты снова скрыты', reveal_expires_in:'скроется через', reveal_revealed_at:'открыто', reveal_cooldown:'Подождите',
   distribute_title:'Распределение', distribute_sub:'Раздайте нераспределённых игроков агентам по Эквадору',
   distribute_unassigned_label:'Нераспределено сейчас', distribute_agents_sub:'Выберите агентов, между которыми поровну (round-robin) распределятся новые контакты',
   distribute_btn:'Распределить между выбранными', distribute_note:'Уже назначенные контакты не затрагиваются',
@@ -570,6 +582,13 @@ en:{
   act_take:'Take in progress', act_success:'Success', act_no_answer:'No answer', act_failed:'Could not reach', act_return:'Reopen', act_retry:'Retry contact',
   empty_worklist_title:'Nothing found', empty_worklist_sub:'Adjust filters or import new players',
   locked_hint:'The full number appears once you take this contact in progress',
+  locked_hint_admin:'Full contacts are available only to the assigned agent who took this contact in progress',
+  reveal_btn:'Show contacts', reveal_hide_btn:'Hide', reveal_loading:'Revealing…', reveal_retry_btn:'Retry', reveal_copy_btn:'Copy',
+  reveal_shown:'Contacts revealed. The access is recorded in the audit log.', reveal_denied:'Contact access denied',
+  reveal_rate_limited:'Too many reveal requests. Wait about a minute.',
+  reveal_conflict:'That request identifier was already used. Press again.',
+  reveal_error:'Could not fetch the contacts. Try again.',
+  reveal_expired:'Contacts are hidden again', reveal_expires_in:'hides in', reveal_revealed_at:'revealed', reveal_cooldown:'Wait',
   distribute_title:'Distribution', distribute_sub:'Split unassigned players between agents in Ecuador',
   distribute_unassigned_label:'Unassigned right now', distribute_agents_sub:'Pick the agents to split new contacts between, evenly (round-robin)',
   distribute_btn:'Distribute among selected', distribute_note:'Already-assigned contacts are left untouched',
@@ -642,6 +661,13 @@ es:{
   act_take:'Tomar en gestión', act_success:'Éxito', act_no_answer:'No contesta', act_failed:'No se pudo contactar', act_return:'Reabrir', act_retry:'Reintentar contacto',
   empty_worklist_title:'No se encontró nada', empty_worklist_sub:'Ajusta los filtros o importa nuevos jugadores',
   locked_hint:'El número completo aparece cuando tomes este contacto en gestión',
+  locked_hint_admin:'Los contactos completos solo están disponibles para el agente asignado que tomó el contacto en gestión',
+  reveal_btn:'Mostrar contactos', reveal_hide_btn:'Ocultar', reveal_loading:'Mostrando…', reveal_retry_btn:'Reintentar', reveal_copy_btn:'Copiar',
+  reveal_shown:'Contactos mostrados. El acceso queda registrado en la bitácora.', reveal_denied:'Acceso a los contactos denegado',
+  reveal_rate_limited:'Demasiadas solicitudes de contactos. Espera aproximadamente un minuto.',
+  reveal_conflict:'Ese identificador de solicitud ya se usó. Púlsalo de nuevo.',
+  reveal_error:'No se pudieron obtener los contactos. Inténtalo de nuevo.',
+  reveal_expired:'Los contactos se ocultaron de nuevo', reveal_expires_in:'se oculta en', reveal_revealed_at:'mostrado', reveal_cooldown:'Espera',
   distribute_title:'Distribución', distribute_sub:'Reparte los jugadores sin asignar entre los agentes en Ecuador',
   distribute_unassigned_label:'Sin asignar ahora', distribute_agents_sub:'Elige los agentes entre los que se repartirán los nuevos contactos, en partes iguales (round-robin)',
   distribute_btn:'Distribuir entre los seleccionados', distribute_note:'Los contactos ya asignados no se modifican',
@@ -759,6 +785,9 @@ async function loadData(){
     dataService.loadPlayers(),
     dataService.loadUsers()
   ]);
+  /* A revealed contact must never outlive the grounds on which it was disclosed: reassignment, a status
+     change out of in_work, deletion or losing the active-agent role all drop the entry here. */
+  revealStore.revalidate(players, currentUser);
 }
 
 async function saveDataNow(){
@@ -840,6 +869,167 @@ function maskPhone(phone){
   return start + ' ' + '•'.repeat(Math.max(3, compact.length - start.length - 2)) + ' ' + end;
 }
 
+/* ==================== Audited contact reveal ==================== */
+/* Raw revealed contacts live in revealStore and in the DOM node rendering it. They are never assigned onto a
+   player object, because players[] is what gets persisted, exported, searched and fed to analytics -- one
+   assignment would leak a raw value into all four at once. Search, CSV export and analytics keep reading the
+   masked contactText() path and never consult this store. */
+const revealApi = window.ReactivationContactReveal;
+const revealStore = new revealApi.ContactRevealStore({ ttlMs: revealApi.REVEAL_TTL_MS });
+const revealLedger = new revealApi.RevealRequestLedger({ randomSource: crypto });
+const revealCooldown = new revealApi.RevealCooldown({ durationMs: revealApi.RATE_LIMIT_COOLDOWN_MS });
+let revealPruneTimer = null;
+let revealCooldownWasActive = false;
+
+function canRevealPlayer(player){
+  return revealApi.canRequestContactReveal(currentUser, player, dataMode);
+}
+
+/* One interval for the whole page. start() is idempotent, so re-render, re-login and re-initialization
+   cannot accumulate timers, and the tick stops itself once there is nothing left to watch. Lazy expiry in
+   revealStore.get() stays authoritative if the browser throttles this timer in a background tab. */
+function revealTimer(){
+  if(!revealPruneTimer){
+    revealPruneTimer = new revealApi.PruneTimer({
+      intervalMs: revealApi.PRUNE_INTERVAL_MS,
+      setInterval:(fn,ms)=>window.setInterval(fn,ms),
+      clearInterval:(handle)=>window.clearInterval(handle),
+      onTick: onRevealPruneTick
+    });
+  }
+  return revealPruneTimer;
+}
+function startRevealTimer(){ revealTimer().start(); }
+function stopRevealTimer(){ if(revealPruneTimer) revealPruneTimer.stop(); }
+
+function onRevealPruneTick(){
+  /* A tick that outlives the session has nothing to render into. */
+  if(!currentUser){ clearRevealedContacts(); return; }
+  const dropped = revealStore.prune();
+  const cooldownActive = revealCooldown.isActive();
+  const cooldownLapsed = revealCooldownWasActive && !cooldownActive;
+  revealCooldownWasActive = cooldownActive;
+  if(dropped.length) showToast(t('reveal_expired'));
+  if(dropped.length || cooldownLapsed) renderWorklist();
+  else updateRevealCountdowns();
+  if(revealStore.size()===0 && !cooldownActive) stopRevealTimer();
+}
+
+function revealMetaText(entry){
+  const remaining = Math.max(0, entry.expiresAt - Date.now());
+  const minutes = Math.floor(remaining/60000);
+  const seconds = Math.floor((remaining%60000)/1000);
+  const at = new Date(entry.revealedAt).toLocaleTimeString(currentLang, {hour:'2-digit', minute:'2-digit'});
+  return `${t('reveal_revealed_at')} ${at} · ${t('reveal_expires_in')} ${minutes}:${String(seconds).padStart(2,'0')}`;
+}
+
+/* Targeted text update instead of a table rebuild: re-rendering every 15s would destroy expanded detail
+   rows and any comment the agent is typing.
+
+   It is also the backstop that keeps lazy expiry honest. get() drops an expired entry the moment anything
+   reads it, so a read that happens outside a render leaves prune() with nothing to report and no re-render
+   is triggered -- the row would keep displaying raw contacts long after the store forgot them. A countdown
+   node whose entry is gone is exactly that condition, so repair the table instead of leaving it stale. */
+function updateRevealCountdowns(){
+  const nodes = [...document.querySelectorAll('[data-reveal-countdown]')];
+  const stale = nodes.some(node => !revealStore.get(node.dataset.revealCountdown));
+  if(stale){ showToast(t('reveal_expired')); renderWorklist(); return; }
+  nodes.forEach(node=>{
+    const entry = revealStore.get(node.dataset.revealCountdown);
+    if(entry) node.textContent = revealMetaText(entry);
+  });
+}
+
+function clearRevealedContacts(){
+  revealStore.clearAll();
+  revealLedger.clearAll();
+  revealCooldown.clear();
+  revealCooldownWasActive = false;
+  stopRevealTimer();
+  /* The store is not the only place a revealed value lives -- the rendered row does too. Logout only hides
+     the app shell, so without this the raw markup stays in the document until the next login re-renders it. */
+  const wrap = document.getElementById('worklistTableWrap');
+  if(wrap) wrap.innerHTML = '';
+}
+
+async function requestContactReveal(playerId){
+  const player = players.find(item=>item.id===playerId);
+  if(!canRevealPlayer(player)) return false;
+  if(revealCooldown.isActive()){ showToast(t('reveal_rate_limited')); return false; }
+
+  const attempt = revealLedger.begin(playerId);
+  if(!attempt.started) return false; /* already in flight: issue no RPC, consume no rate budget */
+  renderWorklist();
+
+  let row = null;
+  try{
+    row = await dataService.revealPlayerContacts(playerId, attempt.requestId);
+  }catch(error){
+    if(error && error.code === revealApi.CONTRACT_VIOLATION){
+      /* The server answered, just not on contract. The decision may already be canonical, so the id is spent. */
+      revealLedger.resolve(playerId);
+    }else{
+      /* Transport failure: keep the id so an explicit retry replays the same canonical decision instead of
+         appending a second audit event. */
+      revealLedger.fail(playerId);
+    }
+    showToast(t('reveal_error'));
+    renderWorklist();
+    return false;
+  }
+
+  /* A transport success is not a reveal. Every controlled outcome arrives as a normal row. */
+  const outcome = revealApi.classifyRevealOutcome(row);
+  revealLedger.resolve(playerId);
+
+  if(outcome === revealApi.REVEAL_OUTCOMES.REVEALED){
+    const revealedAt = Date.parse(row.revealedAt);
+    revealStore.put(playerId, {
+      phone: row.phone, email: row.email, messenger: row.messenger,
+      revealedAt: Number.isFinite(revealedAt) ? revealedAt : Date.now(),
+      accessEventId: row.accessEventId
+    });
+    startRevealTimer();
+    renderWorklist();
+    showToast(t('reveal_shown'));
+    return true;
+  }
+  if(outcome === revealApi.REVEAL_OUTCOMES.DENIED){
+    /* reason_code is deliberately outside the response contract, so the reason is never inferred. A denial
+       almost always means this row is stale, so the masked data is refreshed. */
+    showToast(t('reveal_denied'));
+    /* A denial means the grounds for this player are gone, so drop any earlier disclosure now rather than
+       depending on a refresh that may itself fail. */
+    revealStore.forget(playerId);
+    try{ await loadData(); }catch(_error){}
+    revealStore.revalidate(players, currentUser);
+    render();
+    return false;
+  }
+  if(outcome === revealApi.REVEAL_OUTCOMES.RATE_LIMITED){
+    revealCooldown.start();
+    revealCooldownWasActive = true;
+    startRevealTimer();
+    showToast(t('reveal_rate_limited'));
+    renderWorklist();
+    return false;
+  }
+  if(outcome === revealApi.REVEAL_OUTCOMES.CONFLICT){
+    /* No automatic retry: it would append a second audit event for a collision the user never caused. */
+    showToast(t('reveal_conflict'));
+    renderWorklist();
+    return false;
+  }
+  showToast(t('reveal_error'));
+  renderWorklist();
+  return false;
+}
+
+function hideRevealedContacts(playerId){
+  revealStore.forget(playerId);
+  renderWorklist();
+}
+
 /* ==================== Auth screen wiring ==================== */
 const authError = document.getElementById('authError');
 const authHint = document.getElementById('authHint');
@@ -848,6 +1038,9 @@ function showAuthHint(msg){ authError.classList.remove('show'); authHint.textCon
 function clearAuthMsgs(){ authError.classList.remove('show'); authHint.classList.remove('show'); }
 
 function showLogin(){
+  /* Session loss, authentication failure and teardown all funnel through here. Clearing drops the transient
+     copy; it cannot un-see what a human already read on screen. */
+  clearRevealedContacts();
   clearAuthMsgs();
   document.getElementById('authLoading').style.display = 'none';
   document.getElementById('loginForm').style.display = '';
@@ -907,6 +1100,8 @@ async function logout(){
     showLogin();
   }catch(error){
     showToast(authErrorMessage(error));
+  }finally{
+    clearRevealedContacts();
   }
 }
 
@@ -1132,7 +1327,13 @@ function populateAnalyticsFilters(){
   agentSelect.value = [...agentSelect.options].some(option=>option.value===previousAgent) ? previousAgent : '';
 }
 
-function analyticsContactLabel(player){ return (player && (player.phone || player.email || player.messenger || player.id)) || '—'; }
+/* Masked only. Since the secure projection landed, player.phone/email/messenger no longer exist in Supabase
+   mode, so this silently degraded to bare player ids. It reads the masked display path and never the
+   reveal store: analytics is not a contact-disclosure surface. */
+function analyticsContactLabel(player){
+  if(!player) return '—';
+  return contactText(player,'phone') || contactText(player,'email') || contactText(player,'messenger') || player.id || '—';
+}
 
 function renderAnalyticsDetail(result){
   const target = document.getElementById('analyticsDetail');
@@ -1240,8 +1441,12 @@ async function requestPlayerStatusTransition(playerId, nextStatus){
   });
   if(!prepared.allowed) return false;
   if(dataMode==='supabase'){
-    try { await dataService.changePlayerStatus(playerId,nextStatus,prepared.historyEntry.id,transitionOptions); await loadData(); }
+    try { await dataService.changePlayerStatus(playerId,nextStatus,prepared.historyEntry.id,transitionOptions); }
     catch(_error){ showToast(t('toast_save_error')); return false; }
+    /* Confirmed transition out of in_work: drop the revealed copy immediately rather than waiting for the
+       reload to revalidate it. */
+    if(nextStatus!=='in_work') revealStore.forget(playerId);
+    await loadData();
   }else{
   player.statusHistory = [prepared.historyEntry, ...window.ReactivationDomain.normalizeStatusHistory(player)];
   player.status = nextStatus;
@@ -1362,6 +1567,36 @@ function filteredWorklistPlayers(){
   }).sort((a,b)=> (b.updatedAt||b.importedAt||0) - (a.updatedAt||a.importedAt||0));
 }
 
+function lockedHintText(){
+  return currentUser && currentUser.role==='admin' ? t('locked_hint_admin') : t('locked_hint');
+}
+
+/* The copy button carries the player id and the channel name, never the value: a raw contact is written into
+   exactly one text node and is read back out of the store at click time. */
+function contactCell(player, field, revealed, locked){
+  if(revealed){
+    const value = revealed[field] || '';
+    if(!value) return `<span class="mono">—</span>`;
+    return `<span class="mono revealed">${escapeHtml(value)}<button class="reveal-copy" data-copy-id="${escapeHtml(player.id)}" data-copy-field="${escapeHtml(field)}" title="${escapeHtml(t('reveal_copy_btn'))}" aria-label="${escapeHtml(t('reveal_copy_btn'))}">⧉</button></span>`;
+  }
+  const masked = escapeHtml(contactText(player, field)||'—');
+  if(locked) return `<span class="locked mono" title="${escapeHtml(lockedHintText())}"><span class="lock-ico">🔒</span>${masked}</span>`;
+  return `<span class="mono">${masked}</span>`;
+}
+
+function revealControl(player, revealed){
+  if(!canRevealPlayer(player)) return '';
+  const safeId = escapeHtml(player.id);
+  if(revealed){
+    return `<button class="btn btn-ghost btn-sm reveal-hide" data-id="${safeId}">${t('reveal_hide_btn')}</button>`
+      + ` <span class="reveal-meta" data-reveal-countdown="${safeId}">${escapeHtml(revealMetaText(revealed))}</span>`;
+  }
+  if(revealLedger.isInFlight(player.id)) return `<button class="btn btn-ghost btn-sm" disabled>${t('reveal_loading')}</button>`;
+  if(revealCooldown.isActive()) return `<button class="btn btn-ghost btn-sm" disabled>${t('reveal_cooldown')} ${Math.ceil(revealCooldown.remainingMs()/1000)}s</button>`;
+  const label = revealLedger.retryableId(player.id) ? t('reveal_retry_btn') : t('reveal_btn');
+  return `<button class="btn btn-teal btn-sm reveal-show" data-id="${safeId}">${label}</button>`;
+}
+
 function renderWorklist(){
   renderFilterAgentOptions();
   const isAdmin = currentUser.role === 'admin';
@@ -1378,20 +1613,23 @@ function renderWorklist(){
     <thead><tr><th>${t('th_contact')}</th><th>${t('th_email')}</th><th>${t('th_messenger')}</th>${isAdmin ? `<th>${t('th_agent')}</th>` : ''}<th>${t('th_status')}</th><th>${t('th_follow_up')}</th><th>${t('th_action')}</th></tr></thead>
     <tbody>${list.map(p=>{
       const isMine = !isAdmin && p.agentId===currentUser.id;
-      const locked = p.contactAccessState ? p.contactAccessState !== 'eligible' : (isMine && p.status==='assigned');
+      const revealed = revealStore.get(p.id);
+      /* A value is presented as unlockable only when THIS viewer can actually reveal it. contact_access_state
+         is computed per row, not per viewer, so an admin used to see the unlocked presentation on an in_work
+         row they can never reveal. */
+      const locked = dataMode==='supabase'
+        ? (!revealed && !canRevealPlayer(p))
+        : (isMine && p.status==='assigned');
       const followUp = followUpPresentation(p.followUpAt);
-      const phoneCell = locked
-        ? `<span class="locked mono" title="${escapeHtml(t('locked_hint'))}"><span class="lock-ico">🔒</span>${escapeHtml(contactText(p,'phone')||'—')}</span>`
-        : `<span class="mono">${escapeHtml(contactText(p,'phone')||'—')}</span>`;
       return `
       <tr>
-        <td>${phoneCell}</td>
-        <td class="mono">${escapeHtml(contactText(p,'email')||'—')}</td>
-        <td class="mono">${escapeHtml(contactText(p,'messenger')||'—')}</td>
+        <td>${contactCell(p,'phone',revealed,locked)}</td>
+        <td>${contactCell(p,'email',revealed,false)}</td>
+        <td>${contactCell(p,'messenger',revealed,false)}</td>
         ${isAdmin ? `<td>${escapeHtml(userDisplayName(p.agentId))}</td>` : ''}
         <td><span class="badge ${escapeHtml(STATUS_CLASS[p.status]||'b-new')}"><span class="dot"></span>${escapeHtml(t('status_'+p.status))}</span></td>
         <td><span class="follow-up ${followUp.className}">${escapeHtml(followUp.label)}</span></td>
-        <td>${nextActionButtons(p)} <button class="btn btn-ghost btn-sm show-details" data-id="${escapeHtml(p.id)}">${t('details_btn')}</button></td>
+        <td>${nextActionButtons(p)} ${revealControl(p,revealed)} <button class="btn btn-ghost btn-sm show-details" data-id="${escapeHtml(p.id)}">${t('details_btn')}</button></td>
       </tr>
       <tr class="player-details-row" style="display:none;"><td colspan="${isAdmin ? 7 : 6}" class="player-detail-cell">${renderPlayerDetails(p)}</td></tr>`;
     }).join('')}</tbody></table>`;
@@ -1399,6 +1637,20 @@ function renderWorklist(){
   wrap.querySelectorAll('.act').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       requestPlayerStatusTransition(btn.dataset.id, btn.dataset.status);
+    });
+  });
+  wrap.querySelectorAll('.reveal-show').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ requestContactReveal(btn.dataset.id); });
+  });
+  wrap.querySelectorAll('.reveal-hide').forEach(btn=>{
+    btn.addEventListener('click', ()=>hideRevealedContacts(btn.dataset.id));
+  });
+  wrap.querySelectorAll('.reveal-copy').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const entry = revealStore.get(btn.dataset.copyId);
+      if(!entry){ showToast(t('reveal_expired')); renderWorklist(); return; }
+      const value = entry[btn.dataset.copyField];
+      if(value) copyToClipboard(value);
     });
   });
   wrap.querySelectorAll('.show-details').forEach(btn=>{

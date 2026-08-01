@@ -4,7 +4,27 @@ Audit snapshot: 2026-07-31, commit `89acc74ed11386fa5e663e3e23157934ddd6175c` (`
 
 ## P0: contact disclosure must be enforced at the DB/API boundary
 
-Status: Open.
+Status: Closed 2026-08-01, verified at the head of `feat/contact-reveal-frontend` (PR C).
+
+Closure evidence. PR A (`f0e70bd`) moved every contact behind `public.players_secure` and revoked the raw
+columns; PR B (`92431fd`) added `reveal_player_contacts` as the single audited egress; PR C connects the
+browser to it. All three runtime suites were executed against a local Supabase on 2026-08-01 and passed:
+`scripts/secure-contact-boundary-smoke.cjs` (37 checks), `scripts/contact-reveal-smoke.cjs` (45 checks) and
+`scripts/contact-reveal-ui-smoke.cjs` (50 checks). The frontend suite proves that raw values enter only the
+transient store, that `JSON.stringify(players[])` contains no contact value, that CSV export, worklist search
+and analytics labels stay masked while a reveal is live, and that an admin is refused without any RPC being
+sent. A manual browser pass over `index.html` additionally confirmed no raw contact in `localStorage`,
+`sessionStorage`, IndexedDB, DOM attributes or console output, before or after logout.
+
+Two caveats are recorded rather than implied away. The browser pass had to stub the data-service transport,
+because `normalizeConfig` in `src/supabase-auth-service.js` accepts only an `https://<ref>.supabase.co`
+project root and refuses a loopback URL; the live RPC path is covered by the automated suites instead. And
+the local database's migration ledger listed `20260802000100`/`20260802000200` as applied while the objects
+were absent (consistent with PR B's rollback scripts having been run locally); the two migrations were
+re-applied by hand before verification. Neither affects shipped code, but the ledger drift is worth a look
+before the next environment is provisioned.
+
+Superseded record of the original gap:
 
 Approved business rule: an assigned agent receives the full `phone`, `email`, and `messenger` values only after the lead enters `in_work`. Before `in_work`, every contact channel must be protected at the database/API boundary. UI masking is presentation only and is not a security control.
 
