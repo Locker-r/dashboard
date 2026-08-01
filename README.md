@@ -24,3 +24,5 @@ Supabase storage setup is documented in `docs/supabase-storage-foundation.md`. T
 The isolated local/staging Auth, RPC, and RLS smoke-test harness is documented in `docs/runtime-smoke-tests.md`. It is intentionally excluded from credential-free CI runtime execution.
 
 Safe local preflight, runtime smoke orchestration, branch review, and dry-run-first PR automation are documented in [`docs/developer-toolchain.md`](docs/developer-toolchain.md).
+
+The branching model, review flow, merge policy, versioning, changelog process, and rollback expectations are documented in [`docs/release-governance.md`](docs/release-governance.md). Read it before your first pull request. The one-time repository settings an administrator must apply are listed in [`docs/github-settings.md`](docs/github-settings.md).

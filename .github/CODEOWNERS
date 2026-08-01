@@ -1,0 +1,20 @@
+# Ownership routing. Advisory only.
+#
+# Branch protection does NOT require code-owner approval: with a single
+# maintainer, GitHub cannot count the author's own review, so requiring it
+# would deadlock every pull request. This file therefore documents ownership
+# and requests review automatically once a second maintainer exists.
+#
+# Promote to enforcing (Require review from Code Owners) only after a second
+# person with write access joins. See docs/release-governance.md.
+
+*                       @Locker-r
+
+# Highest blast radius: schema, RLS policies, SECURITY DEFINER functions.
+/supabase/              @Locker-r
+
+# Governance and CI configuration protects every other rule in this repository.
+/.github/               @Locker-r
+
+# The single audited egress for player contact data.
+/src/contact-reveal.js  @Locker-r

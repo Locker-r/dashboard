@@ -25,6 +25,10 @@ jobs:
       - run: npm test
       - run: npm run check:js
       - run: npm run check:secrets
+      - run: npm run check:migrations
+      - name: Audit production dependencies
+        # Development tooling must not gate a release; runtime dependencies must.
+        run: npm audit --omit=dev --audit-level=high
       - name: Check changed-line whitespace
         shell: bash
         env:
@@ -32,6 +36,18 @@ jobs:
         run: |
           if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then BASE_SHA="HEAD^"; fi
           git diff --check "$BASE_SHA" "$GITHUB_SHA"
+
+  dependency-review:
+    name: Dependency review
+    # Pull requests only: the action compares a head against a base ref.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
 
   windows-powershell:
     name: SQL and server PowerShell checks
