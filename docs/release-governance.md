@@ -93,6 +93,11 @@ git tag -a v1.1.0 -m "v1.1.0" && git push origin v1.1.0
    re-runs the Ubuntu gates, extracts the changelog section, and publishes a
    GitHub release.
 
+The release workflow re-runs the Ubuntu gates only. The Windows structural
+checks (`SQL and server PowerShell checks`) are not repeated at tag time: they
+already ran on the same commit as a required check before it reached `main`.
+A tag that is not an ancestor of `main` is rejected, so that guarantee holds.
+
 ### What a tag means
 
 A tag means: reviewed, gated, and reproducible. **It does not mean deployed.**

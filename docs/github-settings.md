@@ -37,6 +37,13 @@ Status check names must match the workflow job names exactly. If a job is
 renamed in `.github/workflows/quality-gates.yml`, the ruleset silently stops
 requiring it — update both together.
 
+> **Making this repository private breaks `Dependency review`.**
+> `actions/dependency-review-action` needs the dependency graph, which private
+> repositories only expose with GitHub Advanced Security. If repository
+> visibility changes, the `dependency-review` job starts failing and, as a
+> required check, blocks every merge. Remove it from the ruleset and from
+> `quality-gates.yml` in the same change. The `npm audit` gate is unaffected.
+
 ## 2. Dependabot alerts — DISABLED
 
 `GET /repos/Locker-r/dashboard/vulnerability-alerts` returns
