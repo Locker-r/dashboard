@@ -6,11 +6,15 @@
     "build:vendor": "node scripts/build-vendor.cjs",
     "check:js": "node scripts/check-javascript.cjs",
     "check:secrets": "node scripts/check-tracked-secrets.cjs",
+    "check:migrations": "node scripts/check-migration-governance.cjs",
     "preflight": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/preflight.ps1",
     "preflight:runtime": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/preflight.ps1 -StartSupabase -IncludeRuntime",
     "smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/smoke.ps1",
     "review": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/review.ps1",
     "test": "node --test tests/*.test.cjs"
+  },
+  "engines": {
+    "node": ">=22"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.53.0"
