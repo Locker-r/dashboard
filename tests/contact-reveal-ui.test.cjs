@@ -536,6 +536,284 @@ test('the lock icon reflects what this viewer can actually unlock', () => {
   assert.match(sliceFunction(page, 'function lockedHintText('), /locked_hint_admin/);
 });
 
+/* ==================== logout during an in-flight reveal (behavioural) ==================== */
+
+/* These tests execute the SHIPPED bodies of requestContactReveal() and renderWorklist(), lifted out of
+   index.html, rather than a re-statement of them. The page's logic lives in an inline <script> that cannot
+   be required, so the sources are compiled into a `with (ctx)` scope: every free identifier -- currentUser
+   above all -- resolves against the harness context on each access, which is exactly what is needed to flip
+   the session to null while the reveal is suspended at its await.
+
+   Compiled non-strict so `with` is available. The function declarations are hoisted out of the with-block
+   to the factory's scope, so the returned references are the real ones and not harness stubs. */
+function compileRevealFlow(ctx, transform) {
+  const apply = transform || (source => source);
+  // Captured inside the with-block: a function declared in a block is not reliably visible after it. The
+  // capture names are absent from ctx, so `with` resolves them to the outer vars rather than to the context.
+  const factory = new Function('ctx', `
+    var __flowRequest, __flowRender;
+    with (ctx) {
+      ${apply(sliceFunction(page, 'async function requestContactReveal('))}
+      ${apply(sliceFunction(page, 'function renderWorklist('))}
+      __flowRequest = requestContactReveal;
+      __flowRender = renderWorklist;
+    }
+    return { requestContactReveal: __flowRequest, renderWorklist: __flowRender };
+  `);
+  return factory(ctx);
+}
+
+// Deletes exactly the session re-checks, so the same harness can run the shipped code with and without
+// them. Without this the logout tests would prove nothing: an assertion that passes against the unguarded
+// code is not a regression test.
+const SESSION_GUARD = /^[^\S\n]*if\(!currentUser\) return( false)?;[^\S\n]*$\n?/gm;
+function stripSessionGuards(source) {
+  return source.replace(SESSION_GUARD, '');
+}
+
+/* Minimal document. renderWorklist writes the table into #worklistTableWrap, so that node's innerHTML is a
+   direct, unmediated record of whether the DOM was touched -- no spy sitting between the code and the proof.
+   The real renderWorklist is reached directly from requestContactReveal (a function declared inside the
+   with-block shadows the context object), which is exactly the call path being tested. */
+function fakeDocument() {
+  const nodes = new Map();
+  return {
+    getElementById(id) {
+      if (!nodes.has(id)) nodes.set(id, { id, textContent: '', style: {}, innerHTML: '', querySelectorAll: () => [] });
+      return nodes.get(id);
+    }
+  };
+}
+
+function revealHarness(options, transform) {
+  const config = options || {};
+  const calls = { renderWorklistPastGuard: 0, render: 0, timerStarts: 0, loadData: 0, revalidate: 0, toasts: [] };
+  const store = new reveal.ContactRevealStore({});
+  const ledger = new reveal.RevealRequestLedger({ newId: () => 'request-1' });
+  const realRevalidate = store.revalidate.bind(store);
+  store.revalidate = (...args) => { calls.revalidate += 1; return realRevalidate(...args); };
+  const document = fakeDocument();
+
+  const ctx = {
+    currentUser: agent(),
+    players: [player()],
+    dataMode: 'supabase',
+    document,
+    revealApi: reveal,
+    revealStore: store,
+    revealLedger: ledger,
+    revealCooldown: new reveal.RevealCooldown({}),
+    canRevealPlayer: target => reveal.canRequestContactReveal(ctx.currentUser, target, ctx.dataMode),
+    showToast: message => calls.toasts.push(message),
+    t: key => key,
+    startRevealTimer: () => { calls.timerStarts += 1; },
+    render: () => { calls.render += 1; },
+    loadData: async () => { calls.loadData += 1; if (config.onLoadData) await config.onLoadData(ctx); },
+    // First statement after the guard: counting it records that the guard let the call through.
+    renderFilterAgentOptions: () => { calls.renderWorklistPastGuard += 1; },
+    // Empty list keeps renderWorklist on its early-return branch, so no row helper is needed to prove the
+    // one thing that matters here: whether it wrote to the DOM at all.
+    filteredWorklistPlayers: () => [],
+    dataService: { revealPlayerContacts: config.revealPlayerContacts }
+  };
+
+  const flow = compileRevealFlow(ctx, transform);
+  return { ctx, calls, store, ledger, flow, worklist: () => document.getElementById('worklistTableWrap').innerHTML };
+}
+
+function revealThenLogout(harness) {
+  return async (playerId, requestId) => {
+    simulateLogout(harness);
+    return { playerId, outcome: 'revealed', phone: RAW.phone, email: RAW.email, messenger: RAW.messenger,
+      revealedAt: new Date().toISOString(), requestId, accessEventId: 'event-1' };
+  };
+}
+
+// Exactly what logout() -> clearRevealedContacts() does before the in-flight RPC comes back, including
+// blanking the table. Any markup found there afterwards was written by the post-logout continuation.
+function simulateLogout(harness) {
+  harness.ctx.currentUser = null;
+  harness.store.clearAll();
+  harness.ledger.clearAll();
+  harness.ctx.document.getElementById('worklistTableWrap').innerHTML = '';
+}
+
+async function withoutUnhandledRejections(body) {
+  const seen = [];
+  const listener = reason => seen.push(reason);
+  process.on('unhandledRejection', listener);
+  try {
+    await body();
+    // Let any rejection that was never awaited surface before the assertion.
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+  } finally {
+    process.off('unhandledRejection', listener);
+  }
+  return seen;
+}
+
+test('the compiled harness runs the shipped bodies, not a re-statement', () => {
+  const harness = revealHarness({ revealPlayerContacts: async () => ({}) });
+  assert.equal(harness.flow.requestContactReveal.constructor.name, 'AsyncFunction');
+  assert.equal(typeof harness.flow.renderWorklist, 'function');
+  // With a live session the guard lets the call through and the real body writes the empty-state markup.
+  harness.flow.renderWorklist();
+  assert.equal(harness.calls.renderWorklistPastGuard, 1);
+  assert.match(harness.worklist(), /empty_worklist_title/);
+});
+
+test('renderWorklist returns immediately when the session is gone, touching nothing', () => {
+  const harness = revealHarness({ revealPlayerContacts: async () => ({}) });
+  harness.ctx.currentUser = null;
+  assert.equal(harness.flow.renderWorklist(), undefined);
+  assert.equal(harness.calls.renderWorklistPastGuard, 0);
+  assert.equal(harness.worklist(), '', 'no DOM write may happen without a session');
+});
+
+test('logout during an in-flight reveal never repopulates the store', async () => {
+  const harness = revealHarness({
+    revealPlayerContacts: async (playerId, requestId) => {
+      simulateLogout(harness); // the sign-out completes while the RPC is suspended
+      return { playerId, outcome: 'revealed', phone: RAW.phone, email: RAW.email, messenger: RAW.messenger,
+        revealedAt: new Date().toISOString(), requestId, accessEventId: 'event-1' };
+    }
+  });
+  const result = await harness.flow.requestContactReveal('player-1');
+  assert.equal(result, false);
+  assert.equal(harness.store.size(), 0, 'a revealed row must not resurrect a store logout just cleared');
+  assert.equal(harness.store.get('player-1'), null);
+  assert.equal(harness.ledger.size(), 0, 'the ledger must stay as logout left it');
+});
+
+test('logout during an in-flight reveal never updates the DOM', async () => {
+  const harness = revealHarness({
+    revealPlayerContacts: async (playerId, requestId) => {
+      simulateLogout(harness);
+      return { playerId, outcome: 'revealed', phone: RAW.phone, email: RAW.email, messenger: RAW.messenger,
+        revealedAt: new Date().toISOString(), requestId, accessEventId: 'event-1' };
+    }
+  });
+  await harness.flow.requestContactReveal('player-1');
+  // The in-flight render happened while the session was alive; nothing after the await may touch the DOM.
+  assert.equal(harness.calls.renderWorklistPastGuard, 1, 'only the pre-await render may proceed');
+  assert.equal(harness.worklist(), '', 'the post-logout continuation must not rewrite the table');
+  assert.equal(harness.calls.render, 0);
+  assert.deepEqual(harness.calls.toasts, [], 'exit is silent: no toast into a logged-out page');
+});
+
+test('logout during an in-flight reveal never starts the timer again', async () => {
+  const harness = revealHarness({
+    revealPlayerContacts: async (playerId, requestId) => {
+      simulateLogout(harness);
+      return { playerId, outcome: 'revealed', phone: RAW.phone, email: RAW.email, messenger: RAW.messenger,
+        revealedAt: new Date().toISOString(), requestId, accessEventId: 'event-1' };
+    }
+  });
+  await harness.flow.requestContactReveal('player-1');
+  assert.equal(harness.calls.timerStarts, 0, 'teardown stopped the timer; the continuation must not re-arm it');
+});
+
+test('logout during an in-flight reveal produces no unhandled rejection', async () => {
+  const rejections = await withoutUnhandledRejections(async () => {
+    const harness = revealHarness({
+      revealPlayerContacts: async (playerId, requestId) => {
+        simulateLogout(harness);
+        return { playerId, outcome: 'revealed', phone: RAW.phone, email: RAW.email, messenger: RAW.messenger,
+          revealedAt: new Date().toISOString(), requestId, accessEventId: 'event-1' };
+      }
+    });
+    // Fired the way the click handler fires it: no catch attached.
+    harness.flow.requestContactReveal('player-1');
+    await new Promise(resolve => setImmediate(resolve));
+  });
+  assert.deepEqual(rejections, [], 'the un-awaited call must settle, not reject');
+});
+
+test('logout during an in-flight reveal is silent on the transport-failure path too', async () => {
+  const rejections = await withoutUnhandledRejections(async () => {
+    const harness = revealHarness({
+      revealPlayerContacts: async () => {
+        simulateLogout(harness);
+        throw Object.assign(new Error('Network request failed'), { code: 'TRANSPORT' });
+      }
+    });
+    const result = await harness.flow.requestContactReveal('player-1');
+    assert.equal(result, false);
+    assert.equal(harness.store.size(), 0);
+    assert.equal(harness.ledger.size(), 0, 'no retry id may be recorded against a dead session');
+    assert.equal(harness.worklist(), '', 'the failure path must not rewrite the table either');
+    assert.deepEqual(harness.calls.toasts, []);
+  });
+  assert.deepEqual(rejections, []);
+});
+
+test('logout while the denial refresh is awaiting skips revalidate and render', async () => {
+  const harness = revealHarness({
+    revealPlayerContacts: async (playerId, requestId) => ({ playerId, outcome: 'denied', phone: '', email: '',
+      messenger: '', revealedAt: null, requestId, accessEventId: 'event-1' }),
+    onLoadData: async ctx => { ctx.currentUser = null; } // session lost during the refresh
+  });
+  const result = await harness.flow.requestContactReveal('player-1');
+  assert.equal(result, false);
+  assert.equal(harness.calls.loadData, 1, 'the refresh itself still ran');
+  assert.equal(harness.calls.revalidate, 0, 'revalidate must not run against a null session');
+  assert.equal(harness.calls.render, 0);
+  assert.equal(harness.store.size(), 0);
+});
+
+test('the guards do not disable the feature: a surviving session still reveals, renders and arms the timer', async () => {
+  const harness = revealHarness({
+    revealPlayerContacts: async (playerId, requestId) => ({ playerId, outcome: 'revealed', phone: RAW.phone,
+      email: RAW.email, messenger: RAW.messenger, revealedAt: new Date().toISOString(), requestId,
+      accessEventId: 'event-1' })
+  });
+  const result = await harness.flow.requestContactReveal('player-1');
+  assert.equal(result, true);
+  assert.equal(harness.store.get('player-1').phone, RAW.phone);
+  assert.equal(harness.calls.timerStarts, 1);
+  assert.equal(harness.calls.renderWorklistPastGuard, 2, 'in-flight render plus the post-reveal render');
+  assert.match(harness.worklist(), /empty_worklist_title/, 'the table is rewritten when the session survives');
+  assert.deepEqual(harness.calls.toasts, ['reveal_shown']);
+});
+
+test('the guards are load-bearing: stripping them reproduces the original defect', async () => {
+  // Mutation check. The same harness, the same shipped source, with only the session re-checks deleted --
+  // the store is repopulated after logout, the timer is re-armed, and the continuation throws inside
+  // renderWorklist. If this test ever stops failing-without-guards, the tests above have stopped proving
+  // anything.
+  const guarded = revealHarness({ revealPlayerContacts: null });
+  guarded.ctx.dataService.revealPlayerContacts = revealThenLogout(guarded);
+  const unguarded = revealHarness({ revealPlayerContacts: null }, stripSessionGuards);
+  unguarded.ctx.dataService.revealPlayerContacts = revealThenLogout(unguarded);
+
+  assert.equal(await guarded.flow.requestContactReveal('player-1'), false);
+  assert.equal(guarded.store.size(), 0);
+  assert.equal(guarded.calls.timerStarts, 0);
+
+  await assert.rejects(
+    () => unguarded.flow.requestContactReveal('player-1'),
+    error => error instanceof TypeError,
+    'without the guard the continuation dereferences a null session');
+  assert.equal(unguarded.store.size(), 1, 'without the guard the store is repopulated after logout');
+  assert.equal(unguarded.store.get('player-1').phone, RAW.phone);
+  assert.equal(unguarded.calls.timerStarts, 1, 'without the guard the timer is re-armed after teardown');
+});
+
+test('the guard stripper removes the session re-checks and nothing else', () => {
+  const request = sliceFunction(page, 'async function requestContactReveal(');
+  const render = sliceFunction(page, 'function renderWorklist(');
+  assert.equal((request.match(SESSION_GUARD) || []).length, 3, 'three re-checks: catch, success, post-refresh');
+  assert.equal((render.match(SESSION_GUARD) || []).length, 1);
+  const stripped = stripSessionGuards(request);
+  assert.doesNotMatch(stripped, /if\(!currentUser\)/);
+  // Every other statement survives, so the mutant differs from the shipped code only by the guards.
+  for (const marker of ['revealStore.put(', 'revealLedger.resolve(', 'revealLedger.fail(', 'startRevealTimer()',
+    'revealStore.revalidate(players, currentUser)', 'classifyRevealOutcome(row)', 'revealCooldown.start()']) {
+    assert.ok(stripped.includes(marker), marker);
+  }
+});
+
 /* ==================== i18n parity ==================== */
 
 // Extracts the I18N object literal by brace balancing while skipping single-quoted strings, so an apostrophe

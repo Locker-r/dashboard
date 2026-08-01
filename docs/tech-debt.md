@@ -9,8 +9,8 @@ Status: Closed 2026-08-01, verified at the head of `feat/contact-reveal-frontend
 Closure evidence. PR A (`f0e70bd`) moved every contact behind `public.players_secure` and revoked the raw
 columns; PR B (`92431fd`) added `reveal_player_contacts` as the single audited egress; PR C connects the
 browser to it. All three runtime suites were executed against a local Supabase on 2026-08-01 and passed:
-`scripts/secure-contact-boundary-smoke.cjs` (37 checks), `scripts/contact-reveal-smoke.cjs` (45 checks) and
-`scripts/contact-reveal-ui-smoke.cjs` (50 checks). The frontend suite proves that raw values enter only the
+`scripts/secure-contact-boundary-smoke.cjs` (35 checks), `scripts/contact-reveal-smoke.cjs` (43 checks) and
+`scripts/contact-reveal-ui-smoke.cjs` (49 checks). The frontend suite proves that raw values enter only the
 transient store, that `JSON.stringify(players[])` contains no contact value, that CSV export, worklist search
 and analytics labels stay masked while a reveal is live, and that an admin is refused without any RPC being
 sent. A manual browser pass over `index.html` additionally confirmed no raw contact in `localStorage`,

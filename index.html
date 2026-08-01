@@ -965,6 +965,10 @@ async function requestContactReveal(playerId){
   try{
     row = await dataService.revealPlayerContacts(playerId, attempt.requestId);
   }catch(error){
+    /* Logout or session loss can complete while the RPC is in flight. Teardown has already dropped the
+       store, the ledger and the timer, so anything written past this point would resurrect state that
+       logout just cleared, and renderWorklist would run without a session. Exit silently. */
+    if(!currentUser) return false;
     if(error && error.code === revealApi.CONTRACT_VIOLATION){
       /* The server answered, just not on contract. The decision may already be canonical, so the id is spent. */
       revealLedger.resolve(playerId);
@@ -977,6 +981,8 @@ async function requestContactReveal(playerId){
     renderWorklist();
     return false;
   }
+  /* Same guard on the success path: the reveal must not repopulate a store that logout emptied. */
+  if(!currentUser) return false;
 
   /* A transport success is not a reveal. Every controlled outcome arrives as a normal row. */
   const outcome = revealApi.classifyRevealOutcome(row);
@@ -1002,6 +1008,7 @@ async function requestContactReveal(playerId){
        depending on a refresh that may itself fail. */
     revealStore.forget(playerId);
     try{ await loadData(); }catch(_error){}
+    if(!currentUser) return false;
     revealStore.revalidate(players, currentUser);
     render();
     return false;
@@ -1598,6 +1605,8 @@ function revealControl(player, revealed){
 }
 
 function renderWorklist(){
+  /* render() guards this; a direct call from an async continuation may not. */
+  if(!currentUser) return;
   renderFilterAgentOptions();
   const isAdmin = currentUser.role === 'admin';
   document.getElementById('worklistSub').textContent = isAdmin ? t('worklist_sub_admin') : t('worklist_sub_agent');
