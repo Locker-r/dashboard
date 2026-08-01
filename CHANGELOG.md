@@ -13,6 +13,10 @@ snapshot has been deployed: no production deployment pipeline exists yet.
 
 ### Added
 
+- Deterministic fixed-allowlist Pages artifact construction with generated
+  runtime configuration, an exact transformed entrypoint, minimal integrity
+  manifest, and LF/CRLF-safe regression coverage. Publishing and deployment
+  remain out of scope.
 - Release governance: `CODEOWNERS` ownership routing, tag-triggered release
   workflow, changelog process, and branching/review/merge documentation.
 - `npm run check:migrations`: static migration naming, ordering, transaction
