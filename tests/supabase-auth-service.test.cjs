@@ -81,6 +81,9 @@ test('normalizes hosted and exact local project roots without broadening product
   assert.deepEqual(auth.normalizeConfig({
     projectUrl: ' http://127.0.0.1:54321/ ', publishableKey: ' local-publishable '
   }), { projectUrl: 'http://127.0.0.1:54321', publishableKey: 'local-publishable' });
+  assert.deepEqual(auth.normalizeConfig({
+    projectUrl: 'http://127.0.0.1:54321', publishableKey: 'local-publishable'
+  }), { projectUrl: 'http://127.0.0.1:54321', publishableKey: 'local-publishable' });
   for (const projectUrl of [
     'https://example.supabase.co/rest/v1/',
     'https://example.supabase.co/auth/v1',
