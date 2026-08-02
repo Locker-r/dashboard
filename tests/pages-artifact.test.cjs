@@ -147,17 +147,55 @@ function essentialEnvironment(overrides = {}) {
   return { ...environment, ...overrides };
 }
 
-function injectedBuildRename(callNumbers) {
-  let calls = 0;
-  return (from, to) => {
-    calls += 1;
-    if (callNumbers.includes(calls)) {
-      const error = new Error(`injected build rename failure ${calls}`);
-      error.code = 'EACCES';
-      throw error;
+function directoryIdentity(target) {
+  const info = fs.lstatSync(target, { bigint: true });
+  return Object.freeze({ dev: info.dev, ino: info.ino, birthtimeNs: info.birthtimeNs });
+}
+
+function assertDirectoryIdentity(target, expected) {
+  assert.deepEqual(directoryIdentity(target), expected);
+}
+
+function identityIfPresent(target) {
+  try {
+    return directoryIdentity(target);
+  } catch (error) {
+    if (error && error.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+function createOperationLedger() {
+  const operations = [];
+  return Object.freeze({
+    operations,
+    renameSync(from, to) {
+      operations.push(Object.freeze({
+        kind: 'rename',
+        from,
+        to,
+        fromIdentity: identityIfPresent(from),
+        toIdentity: identityIfPresent(to)
+      }));
+      fs.renameSync(from, to);
+    },
+    removeDirectory(target) {
+      operations.push(Object.freeze({
+        kind: 'remove',
+        target,
+        targetIdentity: identityIfPresent(target)
+      }));
+      fs.rmSync(target, { recursive: true, force: true });
     }
-    fs.renameSync(from, to);
-  };
+  });
+}
+
+function assertLedgerNeverTouchedIdentity(ledger, identity) {
+  for (const operation of ledger.operations) {
+    for (const field of ['fromIdentity', 'toIdentity', 'targetIdentity']) {
+      if (operation[field]) assert.notDeepEqual(operation[field], identity);
+    }
+  }
 }
 
 function replaceDirectoryWithLink(sourceRoot, relativePath, targetName, linkType) {
@@ -525,7 +563,7 @@ test('artifact credential scanning covers every file and permits only the genera
   }));
 });
 
-test('transactional replacement contains every promotion and rollback failure', async t => {
+test('promotion uses exclusive final-path claiming and fail-closed recovery', async t => {
   function prepare(fixture, withExisting = true) {
     if (withExisting) {
       fs.mkdirSync(fixture.outputDirectory, { recursive: true });
@@ -562,60 +600,58 @@ test('transactional replacement contains every promotion and rollback failure', 
     assert.equal(fs.readFileSync(path.join(staging, 'new.txt'), 'utf8'), 'new');
   }));
 
-  await t.test('promotion failure restores old output and preserves staging', () => withFixture(fixture => {
+  await t.test('normal replacement validates and cleans only owned recovery directories', () => withFixture(fixture => {
     const staging = prepare(fixture);
-    assert.throws(() => builder.transactionalReplaceDirectory(staging, fixture.outputDirectory, {
-      renameSync: injectedRenameFailures([2]),
-      validateExisting: ownership
-    }), /injected rename failure 2/);
-    assert.equal(fs.readFileSync(path.join(fixture.outputDirectory, 'old.txt'), 'utf8'), 'old');
-    assert.equal(fs.readFileSync(path.join(staging, 'new.txt'), 'utf8'), 'new');
-    assert.deepEqual(fs.readdirSync(fixture.outputParent).sort(), ['pages-site', 'pages-site.tmp-injected']);
-  }));
-
-  await t.test('recreated foreign output preserves every recovery path', () => withFixture(fixture => {
-    const staging = prepare(fixture);
-    let renameCalls = 0;
-    let recoveryError;
-    assert.throws(() => builder.transactionalReplaceDirectory(staging, fixture.outputDirectory, {
-      renameSync: (from, to) => {
-        renameCalls += 1;
-        if (renameCalls === 2) {
-          fs.mkdirSync(fixture.outputDirectory);
-          fs.writeFileSync(path.join(fixture.outputDirectory, 'foreign.txt'), 'foreign');
-          const error = new Error('injected promotion collision');
-          error.code = 'EACCES';
-          throw error;
-        }
-        fs.renameSync(from, to);
+    const result = builder.transactionalReplaceDirectory(staging, fixture.outputDirectory, {
+      validateExisting: target => {
+        assert.deepEqual(fs.readdirSync(target), ['old.txt']);
       },
-      validateExisting: ownership
-    }), error => {
-      recoveryError = error;
-      return error.code === 'OUTPUT_TRANSACTION_RECOVERY_FAILED' && error.preserveTransaction === true;
+      validatePromoted: target => {
+        assert.deepEqual(fs.readdirSync(target), ['new.txt']);
+        assert.equal(fs.readFileSync(path.join(target, 'new.txt'), 'utf8'), 'new');
+        return Object.freeze({ validated: true });
+      }
     });
-
-    const backup = fs.readdirSync(fixture.outputParent).find(name => name.startsWith('pages-site.backup-'));
-    assert.ok(backup);
-    assert.equal(fs.readFileSync(path.join(fixture.outputDirectory, 'foreign.txt'), 'utf8'), 'foreign');
-    assert.equal(fs.readFileSync(path.join(fixture.outputParent, backup, 'old.txt'), 'utf8'), 'old');
-    assert.equal(fs.readFileSync(path.join(staging, 'new.txt'), 'utf8'), 'new');
-    assert.match(recoveryError.message, /unexpectedly recreated/);
-    assert.match(recoveryError.message, /output=.*pages-site; staging=.*pages-site\.tmp-injected; backup=.*pages-site\.backup-/);
+    assert.equal(result.validationResult.validated, true);
+    assert.equal(result.cleanupWarning, null);
+    assert.equal(fs.readFileSync(path.join(fixture.outputDirectory, 'new.txt'), 'utf8'), 'new');
+    assert.deepEqual(fs.readdirSync(fixture.outputParent).sort(), ['pages-site']);
   }));
 
-  await t.test('pre-promotion recreation is detected before a second rename', () => withFixture(fixture => {
+  await t.test('POSIX directory rename replaces an existing empty destination', t => withFixture(fixture => {
+    if (process.platform === 'win32') return t.skip('Windows directory rename does not have POSIX replacement semantics');
+    const source = path.join(fixture.outputParent, 'native-source');
+    const destination = path.join(fixture.outputParent, 'native-destination');
+    fs.mkdirSync(source);
+    fs.writeFileSync(path.join(source, 'source.txt'), 'source');
+    fs.mkdirSync(destination);
+    const sourceIdentity = directoryIdentity(source);
+    const destinationIdentity = directoryIdentity(destination);
+
+    fs.renameSync(source, destination);
+
+    assert.equal(fs.existsSync(source), false);
+    assertDirectoryIdentity(destination, sourceIdentity);
+    assert.notDeepEqual(directoryIdentity(destination), destinationIdentity);
+    assert.equal(fs.readFileSync(path.join(destination, 'source.txt'), 'utf8'), 'source');
+  }));
+
+  await t.test('an empty foreign output created after backup is never replaced on any platform', () => withFixture(fixture => {
     const staging = prepare(fixture);
-    let renameCalls = 0;
+    const stagingIdentity = directoryIdentity(staging);
+    const ledger = createOperationLedger();
     let promotedValidationCalls = 0;
     let recoveryError;
+    let recoveryPaths;
+    let foreignIdentity;
     assert.throws(() => builder.transactionalReplaceDirectory(staging, fixture.outputDirectory, {
-      renameSync: (from, to) => {
-        renameCalls += 1;
-        fs.renameSync(from, to);
-        if (renameCalls === 1) {
+      renameSync: ledger.renameSync,
+      removeDirectory: ledger.removeDirectory,
+      onTransactionPhase: (phase, paths) => {
+        if (phase === 'after-backup') {
+          recoveryPaths = paths;
           fs.mkdirSync(fixture.outputDirectory);
-          fs.writeFileSync(path.join(fixture.outputDirectory, 'foreign.txt'), 'foreign');
+          foreignIdentity = directoryIdentity(fixture.outputDirectory);
         }
       },
       validateExisting: ownership,
@@ -625,201 +661,533 @@ test('transactional replacement contains every promotion and rollback failure', 
       return error.code === 'OUTPUT_TRANSACTION_RECOVERY_FAILED' && error.preserveTransaction === true;
     });
 
-    const backup = fs.readdirSync(fixture.outputParent).find(name => name.startsWith('pages-site.backup-'));
-    assert.equal(renameCalls, 1);
+    assert.equal(recoveryError.cause && recoveryError.cause.code, 'EEXIST');
     assert.equal(promotedValidationCalls, 0);
-    assert.ok(backup);
-    assert.equal(fs.readFileSync(path.join(fixture.outputDirectory, 'foreign.txt'), 'utf8'), 'foreign');
-    assert.equal(fs.readFileSync(path.join(fixture.outputParent, backup, 'old.txt'), 'utf8'), 'old');
+    assert.deepEqual(snapshotFiles(fixture.outputDirectory), { directories: [], files: {} });
+    assertDirectoryIdentity(fixture.outputDirectory, foreignIdentity);
+    assert.equal(fs.readFileSync(path.join(recoveryPaths.backupDirectory, 'old.txt'), 'utf8'), 'old');
     assert.equal(fs.readFileSync(path.join(staging, 'new.txt'), 'utf8'), 'new');
-    assert.match(recoveryError.message, /unexpectedly recreated/);
-    assert.match(recoveryError.message, /lock=.*\.pages-site\.build\.lock/);
-  }));
-
-  await t.test('promotion plus restoration failure preserves old backup and new staging', () => withFixture(fixture => {
-    const staging = prepare(fixture);
-    let recoveryError;
-    assert.throws(() => builder.transactionalReplaceDirectory(staging, fixture.outputDirectory, {
-      renameSync: injectedRenameFailures([2, 3]),
-      validateExisting: ownership
-    }), error => {
-      recoveryError = error;
-      return error.code === 'OUTPUT_TRANSACTION_RECOVERY_FAILED' && error.preserveTransaction === true;
-    });
-    const backup = fs.readdirSync(fixture.outputParent).find(name => name.startsWith('pages-site.backup-'));
-    assert.ok(backup);
-    assert.equal(fs.existsSync(fixture.outputDirectory), false);
-    assert.equal(fs.readFileSync(path.join(fixture.outputParent, backup, 'old.txt'), 'utf8'), 'old');
-    assert.equal(fs.readFileSync(path.join(staging, 'new.txt'), 'utf8'), 'new');
+    assertDirectoryIdentity(staging, stagingIdentity);
+    assert.equal(ledger.operations.filter(operation => operation.kind === 'rename').length, 1);
+    assert.equal(ledger.operations.filter(operation => operation.kind === 'remove').length, 0);
+    assertLedgerNeverTouchedIdentity(ledger, foreignIdentity);
+    assert.match(recoveryError.message, /claimed exclusively/);
     assert.match(recoveryError.message, /output=.*pages-site; staging=.*pages-site\.tmp-injected; backup=.*pages-site\.backup-/);
     assert.match(recoveryError.message, /lock=.*\.pages-site\.build\.lock/);
   }));
 
-  await t.test('promoted validation failure restores old output', () => withFixture(fixture => {
+  await t.test('foreign substitution during failing validation is never moved, removed, or accepted', () => withFixture(fixture => {
     const staging = prepare(fixture);
+    const stagingIdentity = directoryIdentity(staging);
+    const ledger = createOperationLedger();
+    const validationFailure = new Error('injected promoted validation failure');
+    const heldCandidate = path.join(fixture.outputParent, 'held-materialized-candidate');
+    let foreignIdentity;
+    let backupDirectory;
+    let recoveryError;
     assert.throws(() => builder.transactionalReplaceDirectory(staging, fixture.outputDirectory, {
+      renameSync: ledger.renameSync,
+      removeDirectory: ledger.removeDirectory,
+      onTransactionPhase: (phase, paths) => {
+        if (phase === 'after-backup') backupDirectory = paths.backupDirectory;
+      },
       validateExisting: ownership,
-      validatePromoted: () => { throw new Error('injected promoted validation failure'); }
-    }), /injected promoted validation failure/);
-    assert.equal(fs.readFileSync(path.join(fixture.outputDirectory, 'old.txt'), 'utf8'), 'old');
+      validatePromoted: target => {
+        if (target !== fixture.outputDirectory) return Object.freeze({ validated: true });
+        fs.renameSync(target, heldCandidate);
+        fs.mkdirSync(target);
+        fs.writeFileSync(path.join(target, 'foreign.txt'), 'foreign');
+        foreignIdentity = directoryIdentity(target);
+        throw validationFailure;
+      }
+    }), error => {
+      recoveryError = error;
+      return error.code === 'OUTPUT_TRANSACTION_RECOVERY_FAILED' && error.preserveTransaction === true;
+    });
+
+    assert.equal(recoveryError.cause, validationFailure);
+    assertDirectoryIdentity(fixture.outputDirectory, foreignIdentity);
+    assert.deepEqual(snapshotFiles(fixture.outputDirectory), {
+      directories: [],
+      files: { 'foreign.txt': Buffer.from('foreign').toString('base64') }
+    });
+    assert.equal(fs.readFileSync(path.join(heldCandidate, 'new.txt'), 'utf8'), 'new');
+    assert.equal(fs.readFileSync(path.join(backupDirectory, 'old.txt'), 'utf8'), 'old');
     assert.equal(fs.readFileSync(path.join(staging, 'new.txt'), 'utf8'), 'new');
-    assert.deepEqual(fs.readdirSync(fixture.outputParent).sort(), ['pages-site', 'pages-site.tmp-injected']);
+    assertDirectoryIdentity(staging, stagingIdentity);
+    assert.equal(ledger.operations.filter(operation => operation.kind === 'rename').length, 1);
+    assert.equal(ledger.operations.filter(operation => operation.kind === 'remove').length, 0);
+    assertLedgerNeverTouchedIdentity(ledger, foreignIdentity);
   }));
 
-  await t.test('failed-artifact relocation failure preserves output and old backup', () => withFixture(fixture => {
+  await t.test('byte-identical foreign substitution after successful validation is rejected by identity', () => withFixture(fixture => {
     const staging = prepare(fixture);
-    expectArtifactError(() => builder.transactionalReplaceDirectory(staging, fixture.outputDirectory, {
-      renameSync: injectedRenameFailures([3]),
+    const stagingIdentity = directoryIdentity(staging);
+    const ledger = createOperationLedger();
+    const heldCandidate = path.join(fixture.outputParent, 'held-byte-identical-candidate');
+    let foreignIdentity;
+    let foreignSnapshot;
+    let backupDirectory;
+    let substituted = false;
+    let recoveryError;
+    assert.throws(() => builder.transactionalReplaceDirectory(staging, fixture.outputDirectory, {
+      renameSync: ledger.renameSync,
+      removeDirectory: ledger.removeDirectory,
+      onTransactionPhase: (phase, paths) => {
+        if (phase === 'after-backup') backupDirectory = paths.backupDirectory;
+      },
       validateExisting: ownership,
-      validatePromoted: () => { throw new Error('injected promoted validation failure'); }
+      validatePromoted: target => {
+        assert.equal(fs.readFileSync(path.join(target, 'new.txt'), 'utf8'), 'new');
+        if (target === fixture.outputDirectory && !substituted) {
+          substituted = true;
+          fs.renameSync(target, heldCandidate);
+          fs.mkdirSync(target);
+          fs.writeFileSync(path.join(target, 'new.txt'), 'new');
+          foreignIdentity = directoryIdentity(target);
+          foreignSnapshot = snapshotFiles(target);
+          assert.equal(fs.readFileSync(path.join(target, 'new.txt'), 'utf8'), 'new');
+          assert.deepEqual(foreignSnapshot, snapshotFiles(heldCandidate));
+        }
+        return Object.freeze({ validated: true });
+      }
+    }), error => {
+      recoveryError = error;
+      return error.code === 'OUTPUT_TRANSACTION_RECOVERY_FAILED' && error.preserveTransaction === true;
+    });
+
+    assert.equal(substituted, true);
+    assert.match(recoveryError.message, /substituted before commit/);
+    assertDirectoryIdentity(fixture.outputDirectory, foreignIdentity);
+    assert.deepEqual(snapshotFiles(fixture.outputDirectory), foreignSnapshot);
+    assert.deepEqual(snapshotFiles(heldCandidate), foreignSnapshot);
+    assert.equal(fs.readFileSync(path.join(backupDirectory, 'old.txt'), 'utf8'), 'old');
+    assert.equal(fs.readFileSync(path.join(staging, 'new.txt'), 'utf8'), 'new');
+    assertDirectoryIdentity(staging, stagingIdentity);
+    assert.equal(ledger.operations.filter(operation => operation.kind === 'rename').length, 1);
+    assert.equal(ledger.operations.filter(operation => operation.kind === 'remove').length, 0);
+    assertLedgerNeverTouchedIdentity(ledger, foreignIdentity);
+  }));
+
+  await t.test('in-place output mutation after validation fails the final exact validation before cleanup', () => withFixture(fixture => {
+    const staging = prepare(fixture);
+    let backupDirectory;
+    let validationCalls = 0;
+    let recoveryError;
+    assert.throws(() => builder.transactionalReplaceDirectory(staging, fixture.outputDirectory, {
+      validateExisting: ownership,
+      onTransactionPhase: (phase, paths) => {
+        if (phase === 'after-backup') backupDirectory = paths.backupDirectory;
+        if (phase === 'before-commit-cleanup') {
+          fs.writeFileSync(path.join(fixture.outputDirectory, 'new.txt'), 'foreign mutation');
+        }
+      },
+      validatePromoted: target => {
+        validationCalls += 1;
+        assert.equal(fs.readFileSync(path.join(target, 'new.txt'), 'utf8'), 'new');
+        return Object.freeze({ validated: true });
+      }
+    }), error => {
+      recoveryError = error;
+      return error.code === 'OUTPUT_TRANSACTION_RECOVERY_FAILED' && error.preserveTransaction === true;
+    });
+    assert.equal(validationCalls, 3);
+    assert.match(recoveryError.message, /final pre-cleanup validation/);
+    assert.equal(fs.readFileSync(path.join(fixture.outputDirectory, 'new.txt'), 'utf8'), 'foreign mutation');
+    assert.equal(fs.readFileSync(path.join(backupDirectory, 'old.txt'), 'utf8'), 'old');
+    assert.equal(fs.readFileSync(path.join(staging, 'new.txt'), 'utf8'), 'new');
+  }));
+
+  await t.test('a foreign staging addition is detected before recursive cleanup', () => withFixture(fixture => {
+    const staging = prepare(fixture);
+    const ledger = createOperationLedger();
+    let recoveryError;
+    assert.throws(() => builder.transactionalReplaceDirectory(staging, fixture.outputDirectory, {
+      renameSync: ledger.renameSync,
+      removeDirectory: ledger.removeDirectory,
+      validateExisting: target => {
+        assert.deepEqual(fs.readdirSync(target), ['old.txt']);
+      },
+      validatePromoted: target => {
+        assert.deepEqual(fs.readdirSync(target), ['new.txt']);
+        return Object.freeze({ validated: true });
+      },
+      onTransactionPhase: (phase, paths) => {
+        if (phase === 'before-commit-cleanup') {
+          fs.writeFileSync(path.join(staging, 'foreign-staging.txt'), 'foreign staging');
+        }
+      }
+    }), error => {
+      recoveryError = error;
+      return error.code === 'OUTPUT_TRANSACTION_RECOVERY_FAILED' && error.preserveTransaction === true;
+    });
+    assert.match(recoveryError.message, /staging artifact failed/i);
+    assert.equal(fs.readFileSync(path.join(staging, 'foreign-staging.txt'), 'utf8'), 'foreign staging');
+    assert.equal(ledger.operations.filter(operation => operation.kind === 'remove').length, 0);
+  }));
+
+  await t.test('a foreign backup addition independently fails ownership validation before cleanup', () => withFixture(fixture => {
+    const staging = prepare(fixture);
+    const ledger = createOperationLedger();
+    let backupDirectory;
+    let backupValidationCalls = 0;
+    let recoveryError;
+    assert.throws(() => builder.transactionalReplaceDirectory(staging, fixture.outputDirectory, {
+      renameSync: ledger.renameSync,
+      removeDirectory: ledger.removeDirectory,
+      validateExisting: target => {
+        backupValidationCalls += 1;
+        assert.deepEqual(fs.readdirSync(target), ['old.txt']);
+      },
+      validatePromoted: target => {
+        assert.deepEqual(fs.readdirSync(target), ['new.txt']);
+        return Object.freeze({ validated: true });
+      },
+      onTransactionPhase: (phase, paths) => {
+        if (phase === 'after-backup') backupDirectory = paths.backupDirectory;
+        if (phase === 'before-commit-cleanup') {
+          fs.writeFileSync(path.join(backupDirectory, 'foreign-backup.txt'), 'foreign backup');
+        }
+      }
+    }), error => {
+      recoveryError = error;
+      return error.code === 'OUTPUT_TRANSACTION_RECOVERY_FAILED' && error.preserveTransaction === true;
+    });
+    assert.equal(backupValidationCalls, 3);
+    assert.match(recoveryError.message, /prior-output backup failed/i);
+    assert.equal(fs.readFileSync(path.join(backupDirectory, 'foreign-backup.txt'), 'utf8'), 'foreign backup');
+    assert.equal(fs.readFileSync(path.join(staging, 'new.txt'), 'utf8'), 'new');
+    assert.equal(ledger.operations.filter(operation => operation.kind === 'remove').length, 0);
+  }));
+
+  await t.test('first publication also refuses a foreign output created before exclusive claim', () => withFixture(fixture => {
+    const staging = prepare(fixture, false);
+    let foreignIdentity;
+    expectArtifactError(() => builder.transactionalReplaceDirectory(staging, fixture.outputDirectory, {
+      onTransactionPhase: phase => {
+        if (phase === 'after-backup') {
+          fs.mkdirSync(fixture.outputDirectory);
+          foreignIdentity = directoryIdentity(fixture.outputDirectory);
+        }
+      }
     }), 'OUTPUT_TRANSACTION_RECOVERY_FAILED');
-    const backup = fs.readdirSync(fixture.outputParent).find(name => name.startsWith('pages-site.backup-'));
+    assertDirectoryIdentity(fixture.outputDirectory, foreignIdentity);
+    assert.deepEqual(fs.readdirSync(fixture.outputDirectory), []);
+    assert.equal(fs.readFileSync(path.join(staging, 'new.txt'), 'utf8'), 'new');
+  }));
+
+  await t.test('first-publication validation failure preserves claimed output and staging for recovery', () => withFixture(fixture => {
+    const staging = prepare(fixture, false);
+    let recoveryError;
+    assert.throws(() => builder.transactionalReplaceDirectory(staging, fixture.outputDirectory, {
+      validatePromoted: () => { throw new Error('injected promoted validation failure'); }
+    }), error => {
+      recoveryError = error;
+      return error.code === 'OUTPUT_TRANSACTION_RECOVERY_FAILED' && error.preserveTransaction === true;
+    });
+    assert.match(recoveryError.message, /no output or recovery path was moved or removed/);
     assert.equal(fs.readFileSync(path.join(fixture.outputDirectory, 'new.txt'), 'utf8'), 'new');
-    assert.equal(fs.readFileSync(path.join(fixture.outputParent, backup, 'old.txt'), 'utf8'), 'old');
+    assert.equal(fs.readFileSync(path.join(staging, 'new.txt'), 'utf8'), 'new');
   }));
 
-  await t.test('old-output restoration failure preserves staging and backup', () => withFixture(fixture => {
+  await t.test('substitution immediately after output claim is detected before any foreign write', () => withFixture(fixture => {
+    const staging = prepare(fixture, false);
+    const ledger = createOperationLedger();
+    const heldClaim = path.join(fixture.outputParent, 'held-empty-claim');
+    let foreignIdentity;
+    expectArtifactError(() => builder.transactionalReplaceDirectory(staging, fixture.outputDirectory, {
+      renameSync: ledger.renameSync,
+      removeDirectory: ledger.removeDirectory,
+      onTransactionPhase: phase => {
+        if (phase === 'after-output-claim') {
+          fs.renameSync(fixture.outputDirectory, heldClaim);
+          fs.mkdirSync(fixture.outputDirectory);
+          fs.writeFileSync(path.join(fixture.outputDirectory, 'foreign.txt'), 'foreign');
+          foreignIdentity = directoryIdentity(fixture.outputDirectory);
+        }
+      }
+    }), 'OUTPUT_TRANSACTION_RECOVERY_FAILED');
+    assertDirectoryIdentity(fixture.outputDirectory, foreignIdentity);
+    assert.deepEqual(fs.readdirSync(fixture.outputDirectory), ['foreign.txt']);
+    assert.equal(fs.readFileSync(path.join(fixture.outputDirectory, 'foreign.txt'), 'utf8'), 'foreign');
+    assert.deepEqual(fs.readdirSync(heldClaim), []);
+    assert.equal(fs.readFileSync(path.join(staging, 'new.txt'), 'utf8'), 'new');
+    assert.equal(ledger.operations.length, 0);
+  }));
+
+  await t.test('output mutation during staging cleanup is detected before the prior backup is removed', () => withFixture(fixture => {
     const staging = prepare(fixture);
-    expectArtifactError(() => builder.transactionalReplaceDirectory(staging, fixture.outputDirectory, {
-      renameSync: injectedRenameFailures([4]),
-      validateExisting: ownership,
-      validatePromoted: () => { throw new Error('injected promoted validation failure'); }
-    }), 'OUTPUT_TRANSACTION_RECOVERY_FAILED');
-    const backup = fs.readdirSync(fixture.outputParent).find(name => name.startsWith('pages-site.backup-'));
-    assert.equal(fs.existsSync(fixture.outputDirectory), false);
-    assert.equal(fs.readFileSync(path.join(staging, 'new.txt'), 'utf8'), 'new');
-    assert.equal(fs.readFileSync(path.join(fixture.outputParent, backup, 'old.txt'), 'utf8'), 'old');
-  }));
-
-  await t.test('first-publication promotion failure leaves staging recoverable', () => withFixture(fixture => {
-    const staging = prepare(fixture, false);
+    let backupDirectory;
+    let removeCalls = 0;
+    let recoveryError;
     assert.throws(() => builder.transactionalReplaceDirectory(staging, fixture.outputDirectory, {
-      renameSync: injectedRenameFailures([1])
-    }), /injected rename failure 1/);
-    assert.equal(fs.existsSync(fixture.outputDirectory), false);
-    assert.equal(fs.readFileSync(path.join(staging, 'new.txt'), 'utf8'), 'new');
-  }));
-
-  await t.test('first-publication validation failure removes the final pathname', () => withFixture(fixture => {
-    const staging = prepare(fixture, false);
-    assert.throws(() => builder.transactionalReplaceDirectory(staging, fixture.outputDirectory, {
-      validatePromoted: () => { throw new Error('injected promoted validation failure'); }
-    }), /injected promoted validation failure/);
-    assert.equal(fs.existsSync(fixture.outputDirectory), false);
-    assert.equal(fs.readFileSync(path.join(staging, 'new.txt'), 'utf8'), 'new');
-  }));
-
-  await t.test('first-publication failed-artifact relocation failure preserves the final output', () => withFixture(fixture => {
-    const staging = prepare(fixture, false);
-    expectArtifactError(() => builder.transactionalReplaceDirectory(staging, fixture.outputDirectory, {
-      renameSync: injectedRenameFailures([2]),
-      validatePromoted: () => { throw new Error('injected promoted validation failure'); }
-    }), 'OUTPUT_TRANSACTION_RECOVERY_FAILED');
-    assert.equal(fs.readFileSync(path.join(fixture.outputDirectory, 'new.txt'), 'utf8'), 'new');
+      validateExisting: target => {
+        assert.deepEqual(fs.readdirSync(target), ['old.txt']);
+      },
+      validatePromoted: target => {
+        assert.deepEqual(fs.readdirSync(target), ['new.txt']);
+        assert.equal(fs.readFileSync(path.join(target, 'new.txt'), 'utf8'), 'new');
+        return Object.freeze({ validated: true });
+      },
+      onTransactionPhase: (phase, paths) => {
+        if (phase === 'after-backup') backupDirectory = paths.backupDirectory;
+      },
+      removeDirectory: target => {
+        removeCalls += 1;
+        assert.equal(target, staging);
+        fs.rmSync(target, { recursive: true, force: true });
+        fs.writeFileSync(path.join(fixture.outputDirectory, 'new.txt'), 'mutated during cleanup');
+      }
+    }), error => {
+      recoveryError = error;
+      return error.code === 'OUTPUT_TRANSACTION_RECOVERY_FAILED' && error.preserveTransaction === true;
+    });
+    assert.equal(removeCalls, 1);
+    assert.match(recoveryError.message, /changed after staging cleanup/);
+    assert.equal(fs.readFileSync(path.join(fixture.outputDirectory, 'new.txt'), 'utf8'), 'mutated during cleanup');
+    assert.equal(fs.readFileSync(path.join(backupDirectory, 'old.txt'), 'utf8'), 'old');
     assert.equal(fs.existsSync(staging), false);
   }));
 
-  await t.test('prior-output cleanup failure is a nonfatal explicit warning', () => withFixture(fixture => {
+  await t.test('known cleanup I/O failures are nonfatal, explicit, and retain both recovery copies', () => withFixture(fixture => {
     const staging = prepare(fixture);
+    let cleanupCalls = 0;
     const result = builder.transactionalReplaceDirectory(staging, fixture.outputDirectory, {
       validateExisting: ownership,
       validatePromoted: () => Object.freeze({ validated: true }),
-      removeDirectory: () => { throw new Error('injected cleanup failure'); }
+      removeDirectory: () => {
+        cleanupCalls += 1;
+        throw new Error('injected cleanup failure');
+      }
     });
     assert.equal(result.validationResult.validated, true);
+    assert.equal(cleanupCalls, 2);
+    assert.match(result.cleanupWarning, /staging could not be removed/);
     assert.match(result.cleanupWarning, /prior output backup could not be removed/);
     assert.equal(fs.readFileSync(path.join(fixture.outputDirectory, 'new.txt'), 'utf8'), 'new');
+    assert.equal(fs.readFileSync(path.join(staging, 'new.txt'), 'utf8'), 'new');
     assert.ok(fs.readdirSync(fixture.outputParent).some(name => name.startsWith('pages-site.backup-')));
   }));
 });
 
-test('the complete builder cleans staging after recoverable promotion failure and preserves it after failed recovery', async t => {
-  await t.test('first-publication promotion failure cleans staging and lock', () => withFixture(fixture => {
-    assert.throws(() => builder.buildPagesArtifact(validBuildOptions(fixture, {
-      renameSync: injectedBuildRename([1])
-    })), /injected build rename failure 1/);
-    assert.equal(fs.existsSync(fixture.outputDirectory), false);
-    assert.deepEqual(fs.readdirSync(fixture.outputParent), []);
-  }));
+test('the complete builder preserves every recovery path and the original failure', async t => {
+  await t.test('cleanup failure never masks the primary backup-rename error', () => withFixture(fixture => {
+    builder.buildPagesArtifact(validBuildOptions(fixture));
+    const previousSnapshot = snapshotFiles(fixture.outputDirectory);
+    const primaryFailure = new Error('injected primary backup rename failure');
+    primaryFailure.code = 'EACCES';
+    const cleanupFailure = new Error('injected staging cleanup failure');
+    let cleanupCalls = 0;
+    let stagingDirectory;
+    let lockPath;
+    let lockIdentity;
+    let lockToken;
+    let caught;
 
-  await t.test('first-publication failed relocation preserves invalid output and lock', () => withFixture(fixture => {
-    let renameCalls = 0;
-    expectArtifactError(() => builder.buildPagesArtifact(validBuildOptions(fixture, {
-      renameSync: (from, to) => {
-        renameCalls += 1;
-        if (renameCalls === 2) {
-          const error = new Error('injected first-publication relocation failure');
-          error.code = 'EACCES';
-          throw error;
-        }
-        fs.renameSync(from, to);
-        if (renameCalls === 1) {
-          fs.appendFileSync(path.join(to, 'src', 'auth.js'), '\r\n// injected damage');
-        }
+    assert.throws(() => builder.buildPagesArtifact(validBuildOptions(fixture, {
+      renameSync: () => {
+        stagingDirectory = path.join(
+          fixture.outputParent,
+          fs.readdirSync(fixture.outputParent).find(name => name.startsWith('pages-site.tmp-'))
+        );
+        lockPath = path.join(fixture.outputParent, '.pages-site.build.lock');
+        lockIdentity = directoryIdentity(lockPath);
+        lockToken = fs.readFileSync(lockPath, 'utf8');
+        throw primaryFailure;
+      },
+      removeDirectory: target => {
+        cleanupCalls += 1;
+        assert.equal(target, stagingDirectory);
+        throw cleanupFailure;
       }
-    })), 'OUTPUT_TRANSACTION_RECOVERY_FAILED');
-    const entries = fs.readdirSync(fixture.outputParent).sort();
-    assert.deepEqual(entries, ['.pages-site.build.lock', 'pages-site']);
-    assert.equal(fs.existsSync(path.join(fixture.outputDirectory, 'src', 'auth.js')), true);
+    })), error => {
+      caught = error;
+      return error === primaryFailure;
+    });
+
+    assert.equal(caught, primaryFailure);
+    assert.equal(caught.code, 'EACCES');
+    assert.match(caught.message, /^injected primary backup rename failure/);
+    assert.equal(caught.cleanupFailure, cleanupFailure);
+    assert.equal(caught.preserveTransaction, true);
+    assert.match(caught.cleanupWarning, /staging=.*pages-site\.tmp-/);
+    assert.match(caught.cleanupWarning, /lock=.*\.pages-site\.build\.lock/);
+    assert.equal(cleanupCalls, 1);
+    assert.deepEqual(snapshotFiles(fixture.outputDirectory), previousSnapshot);
+    assert.equal(fs.existsSync(path.join(stagingDirectory, builder.MANIFEST_PATH)), true);
+    assertDirectoryIdentity(lockPath, lockIdentity);
+    assert.equal(fs.readFileSync(lockPath, 'utf8'), lockToken);
   }));
 
-  await t.test('recoverable failure', () => withFixture(fixture => {
+  await t.test('missing staging during error cleanup keeps the primary error and lock', () => withFixture(fixture => {
     builder.buildPagesArtifact(validBuildOptions(fixture));
-    const before = snapshotFiles(fixture.outputDirectory);
+    const previousSnapshot = snapshotFiles(fixture.outputDirectory);
+    const primaryFailure = new Error('injected primary error after staging removal');
+    primaryFailure.code = 'EACCES';
+    let lockPath;
+    let lockIdentity;
+    let lockToken;
+    let caught;
+
     assert.throws(() => builder.buildPagesArtifact(validBuildOptions(fixture, {
-      renameSync: injectedBuildRename([2])
-    })), /injected build rename failure 2/);
-    assert.deepEqual(snapshotFiles(fixture.outputDirectory), before);
-    assert.deepEqual(fs.readdirSync(fixture.outputParent).sort(), ['pages-site']);
+      renameSync: () => {
+        const stagingName = fs.readdirSync(fixture.outputParent).find(name => name.startsWith('pages-site.tmp-'));
+        fs.rmSync(path.join(fixture.outputParent, stagingName), { recursive: true, force: true });
+        lockPath = path.join(fixture.outputParent, '.pages-site.build.lock');
+        lockIdentity = directoryIdentity(lockPath);
+        lockToken = fs.readFileSync(lockPath, 'utf8');
+        throw primaryFailure;
+      }
+    })), error => {
+      caught = error;
+      return error === primaryFailure;
+    });
+
+    assert.equal(caught, primaryFailure);
+    assert.equal(caught.code, 'EACCES');
+    assert.equal(caught.cleanupFailure && caught.cleanupFailure.code, 'CLEANUP_TARGET_CHANGED');
+    assert.match(caught.message, /^injected primary error after staging removal/);
+    assert.deepEqual(snapshotFiles(fixture.outputDirectory), previousSnapshot);
+    assertDirectoryIdentity(lockPath, lockIdentity);
+    assert.equal(fs.readFileSync(lockPath, 'utf8'), lockToken);
   }));
 
-  await t.test('unrecoverable failure', () => withFixture(fixture => {
+  await t.test('after-backup empty-directory recreation preserves foreign output, staging, backup, and lock', () => withFixture(fixture => {
     builder.buildPagesArtifact(validBuildOptions(fixture));
-    expectArtifactError(() => builder.buildPagesArtifact(validBuildOptions(fixture, {
-      renameSync: injectedBuildRename([2, 3])
-    })), 'OUTPUT_TRANSACTION_RECOVERY_FAILED');
-    const entries = fs.readdirSync(fixture.outputParent).sort();
-    assert.ok(entries.includes('.pages-site.build.lock'));
-    assert.ok(entries.some(name => name.startsWith('pages-site.tmp-')));
-    assert.ok(entries.some(name => name.startsWith('pages-site.backup-')));
-    assert.equal(entries.includes('pages-site'), false);
-  }));
-
-  await t.test('recreated output is never accepted and the valid backup is never hidden silently', () => withFixture(fixture => {
-    builder.buildPagesArtifact(validBuildOptions(fixture));
-    const before = snapshotFiles(fixture.outputDirectory);
-    let renameCalls = 0;
+    const previousSnapshot = snapshotFiles(fixture.outputDirectory);
+    const ledger = createOperationLedger();
+    let recoveryPaths;
+    let foreignIdentity;
+    let stagingIdentity;
+    let stagingSnapshot;
+    let backupIdentity;
+    let lockIdentity;
+    let lockToken;
     let recoveryError;
+
     assert.throws(() => builder.buildPagesArtifact(validBuildOptions(fixture, {
-      renameSync: (from, to) => {
-        renameCalls += 1;
-        fs.renameSync(from, to);
-        if (renameCalls === 1) {
-          fs.mkdirSync(fixture.outputDirectory);
-          fs.writeFileSync(path.join(fixture.outputDirectory, 'foreign.txt'), 'foreign');
-        }
+      renameSync: ledger.renameSync,
+      removeDirectory: ledger.removeDirectory,
+      onTransactionPhase: (phase, paths) => {
+        if (phase !== 'after-backup') return;
+        recoveryPaths = paths;
+        fs.mkdirSync(fixture.outputDirectory);
+        foreignIdentity = directoryIdentity(fixture.outputDirectory);
+        stagingIdentity = directoryIdentity(paths.stagingDirectory);
+        stagingSnapshot = snapshotFiles(paths.stagingDirectory);
+        backupIdentity = directoryIdentity(paths.backupDirectory);
+        const lockPath = path.join(fixture.outputParent, '.pages-site.build.lock');
+        lockIdentity = directoryIdentity(lockPath);
+        lockToken = fs.readFileSync(lockPath, 'utf8');
       }
     })), error => {
       recoveryError = error;
       return error.code === 'OUTPUT_TRANSACTION_RECOVERY_FAILED' && error.preserveTransaction === true;
     });
 
-    const entries = fs.readdirSync(fixture.outputParent).sort();
-    const backup = entries.find(name => name.startsWith('pages-site.backup-'));
-    const staging = entries.find(name => name.startsWith('pages-site.tmp-'));
-    assert.ok(backup);
-    assert.ok(staging);
-    assert.equal(renameCalls, 1);
-    assert.ok(entries.includes('.pages-site.build.lock'));
-    assert.deepEqual(snapshotFiles(path.join(fixture.outputParent, backup)), before);
-    assert.deepEqual(snapshotFiles(fixture.outputDirectory), {
-      directories: [],
-      files: { 'foreign.txt': Buffer.from('foreign').toString('base64') }
-    });
-    assert.equal(fs.existsSync(path.join(fixture.outputParent, staging, builder.MANIFEST_PATH)), true);
-    assert.match(recoveryError.message, /unexpectedly recreated/);
+    const lockPath = path.join(fixture.outputParent, '.pages-site.build.lock');
+    assert.equal(recoveryError.cause && recoveryError.cause.code, 'EEXIST');
+    assertDirectoryIdentity(fixture.outputDirectory, foreignIdentity);
+    assert.deepEqual(snapshotFiles(fixture.outputDirectory), { directories: [], files: {} });
+    assertDirectoryIdentity(recoveryPaths.stagingDirectory, stagingIdentity);
+    assert.deepEqual(snapshotFiles(recoveryPaths.stagingDirectory), stagingSnapshot);
+    assertDirectoryIdentity(recoveryPaths.backupDirectory, backupIdentity);
+    assert.deepEqual(snapshotFiles(recoveryPaths.backupDirectory), previousSnapshot);
+    assertDirectoryIdentity(lockPath, lockIdentity);
+    assert.equal(fs.readFileSync(lockPath, 'utf8'), lockToken);
+    assert.equal(ledger.operations.filter(operation => operation.kind === 'rename').length, 1);
+    assert.equal(ledger.operations.filter(operation => operation.kind === 'remove').length, 0);
+    assertLedgerNeverTouchedIdentity(ledger, foreignIdentity);
+    assert.match(recoveryError.message, /output=.*pages-site; staging=.*pages-site\.tmp-/);
+    assert.match(recoveryError.message, /backup=.*pages-site\.backup-/);
     assert.match(recoveryError.message, /lock=.*\.pages-site\.build\.lock/);
   }));
+
+  await t.test('byte-identical substitution after real promoted validation is still rejected', () => withFixture(fixture => {
+    builder.buildPagesArtifact(validBuildOptions(fixture));
+    const previousSnapshot = snapshotFiles(fixture.outputDirectory);
+    const ledger = createOperationLedger();
+    const heldCandidate = path.join(fixture.outputParent, 'held-validated-candidate');
+    let recoveryPaths;
+    let candidateSnapshot;
+    let foreignIdentity;
+    let stagingIdentity;
+    let stagingSnapshot;
+    let backupIdentity;
+    let lockIdentity;
+    let lockToken;
+    let recoveryError;
+    assert.throws(() => builder.buildPagesArtifact(validBuildOptions(fixture, {
+      renameSync: ledger.renameSync,
+      removeDirectory: ledger.removeDirectory,
+      onTransactionPhase: (phase, paths) => {
+        if (phase !== 'after-promoted-validation') return;
+        recoveryPaths = paths;
+        candidateSnapshot = snapshotFiles(fixture.outputDirectory);
+        fs.renameSync(fixture.outputDirectory, heldCandidate);
+        fs.cpSync(heldCandidate, fixture.outputDirectory, { recursive: true });
+        foreignIdentity = directoryIdentity(fixture.outputDirectory);
+        stagingIdentity = directoryIdentity(paths.stagingDirectory);
+        stagingSnapshot = snapshotFiles(paths.stagingDirectory);
+        backupIdentity = directoryIdentity(paths.backupDirectory);
+        const lockPath = path.join(fixture.outputParent, '.pages-site.build.lock');
+        lockIdentity = directoryIdentity(lockPath);
+        lockToken = fs.readFileSync(lockPath, 'utf8');
+      }
+    })), error => {
+      recoveryError = error;
+      return error.code === 'OUTPUT_TRANSACTION_RECOVERY_FAILED' && error.preserveTransaction === true;
+    });
+
+    const lockPath = path.join(fixture.outputParent, '.pages-site.build.lock');
+    assert.match(recoveryError.message, /substituted before commit/);
+    assertDirectoryIdentity(fixture.outputDirectory, foreignIdentity);
+    assert.deepEqual(snapshotFiles(fixture.outputDirectory), candidateSnapshot);
+    assert.deepEqual(snapshotFiles(heldCandidate), candidateSnapshot);
+    assertDirectoryIdentity(recoveryPaths.stagingDirectory, stagingIdentity);
+    assert.deepEqual(snapshotFiles(recoveryPaths.stagingDirectory), stagingSnapshot);
+    assertDirectoryIdentity(recoveryPaths.backupDirectory, backupIdentity);
+    assert.deepEqual(snapshotFiles(recoveryPaths.backupDirectory), previousSnapshot);
+    assertDirectoryIdentity(lockPath, lockIdentity);
+    assert.equal(fs.readFileSync(lockPath, 'utf8'), lockToken);
+    assert.equal(ledger.operations.filter(operation => operation.kind === 'rename').length, 1);
+    assert.equal(ledger.operations.filter(operation => operation.kind === 'remove').length, 0);
+    assertLedgerNeverTouchedIdentity(ledger, foreignIdentity);
+  }));
+
+  await t.test('a substituted build lock fails closed before staging or backup cleanup', () => withFixture(fixture => {
+    builder.buildPagesArtifact(validBuildOptions(fixture));
+    const previousSnapshot = snapshotFiles(fixture.outputDirectory);
+    const ledger = createOperationLedger();
+    const foreignToken = 'foreign-lock-owner';
+    let recoveryPaths;
+    let foreignLockIdentity;
+    let recoveryError;
+    assert.throws(() => builder.buildPagesArtifact(validBuildOptions(fixture, {
+      renameSync: ledger.renameSync,
+      removeDirectory: ledger.removeDirectory,
+      onTransactionPhase: (phase, paths) => {
+        if (phase !== 'before-commit-cleanup') return;
+        recoveryPaths = paths;
+        const lockPath = path.join(fixture.outputParent, '.pages-site.build.lock');
+        fs.rmSync(lockPath);
+        fs.writeFileSync(lockPath, foreignToken);
+        foreignLockIdentity = directoryIdentity(lockPath);
+      }
+    })), error => {
+      recoveryError = error;
+      return error.code === 'OUTPUT_TRANSACTION_RECOVERY_FAILED' && error.preserveTransaction === true;
+    });
+
+    const lockPath = path.join(fixture.outputParent, '.pages-site.build.lock');
+    assert.match(recoveryError.message, /build lock changed/i);
+    assertDirectoryIdentity(lockPath, foreignLockIdentity);
+    assert.equal(fs.readFileSync(lockPath, 'utf8'), foreignToken);
+    assert.deepEqual(snapshotFiles(recoveryPaths.backupDirectory), previousSnapshot);
+    assert.equal(fs.existsSync(path.join(recoveryPaths.stagingDirectory, builder.MANIFEST_PATH)), true);
+    assert.equal(ledger.operations.filter(operation => operation.kind === 'remove').length, 0);
+  }));
+
 });
 
 test('runtime input validation accepts only the canonical public configuration contract', async t => {
@@ -1080,32 +1448,6 @@ test('unsafe existing output and concurrent-build markers are rejected without t
     assert.equal(fs.readFileSync(lock, 'utf8'), 'sentinel');
     assert.equal(fs.existsSync(fixture.outputDirectory), false);
   }));
-});
-
-test('a replaced build lock is never deleted by the original builder', () => {
-  withFixture(fixture => {
-    builder.buildPagesArtifact(validBuildOptions(fixture));
-    let renameCalls = 0;
-    const replacement = 'foreign-lock-owner';
-    const result = builder.buildPagesArtifact(validBuildOptions(fixture, {
-      renameSync: (from, to) => {
-        renameCalls += 1;
-        if (renameCalls === 2) {
-          fs.writeFileSync(path.join(fixture.outputParent, '.pages-site.build.lock'), replacement);
-        }
-        fs.renameSync(from, to);
-      }
-    }));
-    assert.match(result.cleanupWarning, /build lock changed or could not be removed/);
-    assert.equal(
-      fs.readFileSync(path.join(fixture.outputParent, '.pages-site.build.lock'), 'utf8'),
-      replacement
-    );
-    assert.equal(builder.validatePagesArtifact({
-      ...validBuildOptions(fixture),
-      artifactDirectory: fixture.outputDirectory
-    }).fileCount, 17);
-  });
 });
 
 test('the independent validator rejects exact-tree and content tampering', async t => {

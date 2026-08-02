@@ -173,33 +173,59 @@ because those bytes are compared independently with their approved inputs.
 ## Safe replacement
 
 The builder constructs a random sibling `pages-site.tmp-*` directory and
-holds an exclusive sibling build lock. It validates staging before touching an
-existing output. An existing directory is replaceable only when its exact
-tree, canonical generated config, application ownership marker, minimal
-manifest, and internal hashes prove that it is a prior builder-owned artifact;
-an unowned, structurally invalid, or internally inconsistent directory is
-rejected untouched. The builder then transactionally renames the owned output
-aside, promotes staging, validates the promoted output, and restores the old
-output if promotion or final validation fails. Only builder-owned staging and
-backup paths may be recursively removed.
+holds an exclusive sibling build lock whose token and filesystem identity are
+checked again before cleanup. It validates staging before touching an existing
+output. An existing directory is replaceable only when its exact tree,
+canonical generated config, application ownership marker, minimal manifest,
+and internal hashes prove that it is a prior builder-owned artifact. Ownership
+is revalidated immediately before the directory is moved to a random sibling
+`pages-site.backup-*` path. An unowned, structurally invalid, or internally
+inconsistent directory is rejected untouched.
 
-Portable Node.js filesystems cannot replace an existing nonempty directory in
-one rename on Windows or POSIX. Consequently, replacement uses two same-parent
-renames: consumers can never observe a mixed or partially written tree, but
-there can be a brief interval when the final pathname is absent. A future
-publisher must consume the directory only after this command succeeds; it is
-not implemented by D2-A.
+Node.js exposes no portable atomic operation that renames a nonempty directory
+only when the destination does not exist. In particular, a POSIX directory
+rename can replace an existing empty directory. The builder therefore never
+renames staging onto the final pathname. After the prior output is backed up,
+it claims `pages-site` with one non-recursive `mkdir`: creation succeeds only
+when no filesystem entry already has that name. It then materializes the
+already validated staging tree using non-recursive directory creation and
+exclusive `wx` file creation. It performs no overwrite or recursive copy into
+the final path and retains staging until the new tree has passed promoted and
+final pre-cleanup validation.
 
-If validation fails, the temporary directory is removed and the previous
-output remains byte-for-byte unchanged. A cleanup warning after the validated
-new output is committed does not invalidate that output. A stale build lock
-is never guessed to be safe or deleted automatically. If filesystem errors
-also prevent automatic restoration, or if another process recreates the final
-output path after backup, the builder preserves every recovery path that still
-exists (foreign output, staging, or prior-output backup) and the build lock.
-It reports the exact applicable recovery paths including the lock and performs
-no further deletion. The foreign output is never accepted as the build result,
-and the prior valid artifact is never silently abandoned in its backup path.
+Immediately before recursive cleanup, the builder rechecks the output,
+staging, backup, and lock identities; revalidates the exact output and staging
+artifacts; and revalidates ownership of the prior-output backup. Only paths
+that retain both their transaction identity and exact expected contents are
+eligible for removal. A known cleanup I/O failure after commit is reported as
+an explicit warning. If cleanup also fails while another error is pending, the
+original error remains primary, the cleanup failure is attached as diagnostic
+information, and staging plus the lock are retained.
+
+Any controlled failure after backup or final-path claim is fail closed. The
+builder does not attempt automatic rollback, because restoring a directory by
+ordinary rename has the same no-replace race. It does not move, remove, or
+accept an entry recreated at `pages-site`. Instead it retains every recovery
+path that still exists, including the foreign output, staging, prior-output
+backup, and build lock, and reports their exact applicable paths for operator
+inspection. The prior valid artifact may therefore be absent from the final
+pathname during a failed transaction, but it is never silently abandoned: its
+reported backup remains intact.
+
+The final directory can be absent briefly and can contain a partial candidate
+until the command succeeds. A future publisher must consume it only after a
+successful command; publication is not implemented by D2-A.
+
+These guarantees use the sibling build lock as a cooperative trust boundary
+and require the output parent to be writable only by trusted processes that
+honor that lock. Portable path-based Node.js APIs do not provide `renameat2`
+no-replace/exchange flags, directory-handle-relative creation, or
+identity-conditional recursive deletion. A same-privilege process that ignores
+the lock can still mutate a pathname in the final instant between an identity
+check and a rename, create, write, or removal operation. The builder detects
+deterministic substitutions at every exposed transaction phase and fails
+closed, but it does not claim absolute protection against arbitrary hostile
+namespace mutation outside the cooperative lock protocol.
 
 ## Exclusion proof and non-goals
 

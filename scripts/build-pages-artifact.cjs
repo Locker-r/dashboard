@@ -902,19 +902,34 @@ function resolveOutputDirectory(outputDirectory) {
   return resolved;
 }
 
-function removeOwnedDirectory(target, parent, prefix) {
-  if (!fs.existsSync(target)) return;
-  if (!samePath(path.dirname(target), parent) || !path.basename(target).startsWith(prefix)) {
-    fail('CLEANUP_TARGET_UNSAFE', 'Refusing to remove a directory not owned by this build transaction.');
+function removeOwnedDirectory(target, parent, prefix, expectedIdentity) {
+  try {
+    if (!pathEntryExists(target)) {
+      if (expectedIdentity) {
+        fail('CLEANUP_TARGET_CHANGED', 'Refusing to treat a missing build directory as successfully removed.');
+      }
+      return;
+    }
+    if (!samePath(path.dirname(target), parent) || !path.basename(target).startsWith(prefix)) {
+      fail('CLEANUP_TARGET_UNSAFE', 'Refusing to remove a directory not owned by this build transaction.');
+    }
+    if (expectedIdentity && !sameDirectoryIdentity(readDirectoryIdentity(target), expectedIdentity)) {
+      fail('CLEANUP_TARGET_CHANGED', 'Refusing to remove a build directory whose filesystem identity changed.');
+    }
+    assertSafeTreeForRemoval(target);
+  } catch (error) {
+    if (error && (typeof error === 'object' || typeof error === 'function')) {
+      error.cleanupOwnershipAmbiguous = true;
+    }
+    throw error;
   }
-  assertSafeTreeForRemoval(target);
   fs.rmSync(target, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
 }
 
-function createTransactionRecoveryError(message, paths) {
+function createTransactionRecoveryError(message, paths, cause) {
   const details = [
     `output=${paths.outputDirectory}`,
-    `staging=${paths.stagingDirectory}`,
+    paths.stagingDirectory ? `staging=${paths.stagingDirectory}` : null,
     paths.backupDirectory ? `backup=${paths.backupDirectory}` : null,
     `lock=${path.join(path.dirname(paths.outputDirectory), '.pages-site.build.lock')}`
   ].filter(Boolean).join('; ');
@@ -922,8 +937,26 @@ function createTransactionRecoveryError(message, paths) {
     'OUTPUT_TRANSACTION_RECOVERY_FAILED',
     `${message} Preserve these paths for operator recovery: ${details}.`
   );
+  if (cause !== undefined) error.cause = cause;
   error.preserveTransaction = true;
   return error;
+}
+
+function attachCleanupFailure(primaryError, cleanupError, outputDirectory, stagingDirectory) {
+  const lockPath = path.join(path.dirname(outputDirectory), '.pages-site.build.lock');
+  const diagnostic = `Cleanup also failed. Preserve staging=${stagingDirectory}; lock=${lockPath} for operator recovery.`;
+  if (!primaryError || (typeof primaryError !== 'object' && typeof primaryError !== 'function')) return;
+
+  try {
+    primaryError.cleanupFailure = cleanupError;
+    primaryError.cleanupWarning = diagnostic;
+    primaryError.preserveTransaction = true;
+    if (typeof primaryError.message === 'string' && !primaryError.message.includes(diagnostic)) {
+      primaryError.message = `${primaryError.message} ${diagnostic}`;
+    }
+  } catch {
+    // The original failure remains primary even if it cannot accept diagnostics.
+  }
 }
 
 function pathEntryExists(target) {
@@ -936,9 +969,119 @@ function pathEntryExists(target) {
   }
 }
 
+function readDirectoryIdentity(target) {
+  const info = fs.lstatSync(target, { bigint: true });
+  if (info.isSymbolicLink() || !info.isDirectory()) {
+    fail('OUTPUT_IDENTITY_INVALID', 'Build transaction path is not an ordinary directory.');
+  }
+  return Object.freeze({
+    dev: info.dev,
+    ino: info.ino,
+    birthtimeNs: info.birthtimeNs
+  });
+}
+
+function sameDirectoryIdentity(left, right) {
+  return Boolean(
+    left && right &&
+    left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.birthtimeNs === right.birthtimeNs
+  );
+}
+
+function assertTransactionDirectoryIdentity(target, expectedIdentity, message, paths) {
+  let actualIdentity;
+  try {
+    actualIdentity = readDirectoryIdentity(target);
+  } catch (error) {
+    throw createTransactionRecoveryError(message, paths, error);
+  }
+  if (!sameDirectoryIdentity(actualIdentity, expectedIdentity)) {
+    throw createTransactionRecoveryError(message, paths);
+  }
+}
+
+function materializeDirectoryExclusively(stagingDirectory, stagingIdentity, outputDirectory, outputIdentity, paths) {
+  assertTransactionDirectoryIdentity(
+    stagingDirectory,
+    stagingIdentity,
+    'The staging directory changed before artifact materialization.',
+    paths
+  );
+  const tree = inspectTree(stagingDirectory);
+  const directories = [...tree.directories].sort((left, right) => {
+    const depthDifference = left.split('/').length - right.split('/').length;
+    return depthDifference || left.localeCompare(right, 'en');
+  });
+
+  for (const relativePath of directories) {
+    assertTransactionDirectoryIdentity(
+      outputDirectory,
+      outputIdentity,
+      'The claimed output directory changed while the artifact was being materialized.',
+      paths
+    );
+    fs.mkdirSync(path.join(outputDirectory, ...relativePath.split('/')));
+  }
+
+  for (const relativePath of tree.files) {
+    assertTransactionDirectoryIdentity(
+      stagingDirectory,
+      stagingIdentity,
+      'The staging directory changed while artifact files were being read.',
+      paths
+    );
+    assertTransactionDirectoryIdentity(
+      outputDirectory,
+      outputIdentity,
+      'The claimed output directory changed while the artifact was being materialized.',
+      paths
+    );
+    const source = path.join(stagingDirectory, ...relativePath.split('/'));
+    const destination = path.join(outputDirectory, ...relativePath.split('/'));
+    let descriptor;
+    let writeError;
+    try {
+      descriptor = fs.openSync(destination, 'wx');
+      fs.writeFileSync(descriptor, fs.readFileSync(source));
+    } catch (error) {
+      writeError = error;
+      throw error;
+    } finally {
+      if (descriptor !== undefined) {
+        try {
+          fs.closeSync(descriptor);
+        } catch (closeError) {
+          if (!writeError) throw closeError;
+          try {
+            writeError.cleanupFailure = closeError;
+          } catch {
+            // The write failure remains primary even if it cannot accept diagnostics.
+          }
+        }
+      }
+    }
+  }
+
+  assertTransactionDirectoryIdentity(
+    outputDirectory,
+    outputIdentity,
+    'The claimed output directory changed while the artifact was being materialized.',
+    paths
+  );
+}
+
+function invokeTransactionPhase(options, phase, paths) {
+  if (typeof options.onTransactionPhase === 'function') {
+    options.onTransactionPhase(phase, Object.freeze({ ...paths }));
+  }
+}
+
 function transactionalReplaceDirectory(stagingDirectory, outputDirectory, options = {}) {
   const renameSync = options.renameSync || fs.renameSync;
   const removeDirectory = options.removeDirectory || removeOwnedDirectory;
+  const verifyLock = options.verifyLock || (() => true);
   const validateExisting = options.validateExisting || (() => {
     fail('OUTPUT_EXISTING_UNOWNED', 'Existing output ownership was not established.');
   });
@@ -948,124 +1091,274 @@ function transactionalReplaceDirectory(stagingDirectory, outputDirectory, option
     fail('OUTPUT_TRANSACTION_INVALID', 'Staging and output directories must be siblings.');
   }
 
-  const hadExistingOutput = fs.existsSync(outputDirectory);
+  const stagingIdentity = readDirectoryIdentity(stagingDirectory);
+  const hadExistingOutput = pathEntryExists(outputDirectory);
   const backupDirectory = path.join(parent, `pages-site.backup-${crypto.randomUUID()}`);
+  const paths = { outputDirectory, stagingDirectory, backupDirectory: null };
+  let backupIdentity = null;
+  let outputIdentity = null;
+
+  function runRecoveryProtected(message, operation) {
+    try {
+      return operation();
+    } catch (error) {
+      if (error && error.preserveTransaction) throw error;
+      throw createTransactionRecoveryError(message, paths, error);
+    }
+  }
+
+  function verifyRecoveryDirectories() {
+    assertTransactionDirectoryIdentity(
+      outputDirectory,
+      outputIdentity,
+      'The claimed output directory changed before transaction cleanup.',
+      paths
+    );
+    assertTransactionDirectoryIdentity(
+      stagingDirectory,
+      stagingIdentity,
+      'The staging directory changed before transaction cleanup.',
+      paths
+    );
+    if (paths.backupDirectory) {
+      assertTransactionDirectoryIdentity(
+        backupDirectory,
+        backupIdentity,
+        'The prior-output backup changed before transaction cleanup.',
+        paths
+      );
+    }
+  }
+
+  function validateClaimedOutput(message) {
+    const result = runRecoveryProtected(message, () => validatePromoted(outputDirectory));
+    assertTransactionDirectoryIdentity(
+      outputDirectory,
+      outputIdentity,
+      'The claimed output changed while it was being validated.',
+      paths
+    );
+    return result;
+  }
+
+  function verifyTransactionLock(message) {
+    runRecoveryProtected(message, () => {
+      if (!verifyLock()) fail('OUTPUT_LOCK_CHANGED', 'The build lock is no longer owned by this transaction.');
+    });
+  }
+
+  function removeRecoveryDirectory(target, prefix, expectedIdentity, ambiguityMessage) {
+    try {
+      removeDirectory(target, parent, prefix, expectedIdentity);
+    } catch (error) {
+      if (error && error.preserveTransaction) throw error;
+      if (error && error.cleanupOwnershipAmbiguous) {
+        throw createTransactionRecoveryError(ambiguityMessage, paths, error);
+      }
+      throw error;
+    }
+
+    let remains;
+    try {
+      remains = pathEntryExists(target);
+    } catch (error) {
+      throw createTransactionRecoveryError(ambiguityMessage, paths, error);
+    }
+    if (!remains) return;
+
+    assertTransactionDirectoryIdentity(target, expectedIdentity, ambiguityMessage, paths);
+    fail('OUTPUT_CLEANUP_INCOMPLETE', 'A verified build directory remained after cleanup.');
+  }
+
   if (hadExistingOutput) {
     assertSafeTreeForRemoval(outputDirectory);
+    const existingIdentity = readDirectoryIdentity(outputDirectory);
     validateExisting(outputDirectory);
+    invokeTransactionPhase(options, 'after-existing-validation', paths);
+    assertTransactionDirectoryIdentity(
+      outputDirectory,
+      existingIdentity,
+      'The existing output changed after ownership validation and was not moved.',
+      paths
+    );
+    runRecoveryProtected(
+      'The existing output changed after ownership validation and was not moved.',
+      () => validateExisting(outputDirectory)
+    );
+    assertTransactionDirectoryIdentity(
+      outputDirectory,
+      existingIdentity,
+      'The existing output changed during its final ownership validation and was not moved.',
+      paths
+    );
     renameSync(outputDirectory, backupDirectory);
-  }
-
-  if (hadExistingOutput) {
-    let outputOccupied;
-    try {
-      outputOccupied = pathEntryExists(outputDirectory);
-    } catch {
+    paths.backupDirectory = backupDirectory;
+    backupIdentity = runRecoveryProtected(
+      'The prior output was moved to backup, but its identity could not be verified.',
+      () => readDirectoryIdentity(backupDirectory)
+    );
+    if (!sameDirectoryIdentity(backupIdentity, existingIdentity)) {
       throw createTransactionRecoveryError(
-        'The output path could not be inspected safely after the previous artifact was backed up.',
-        { outputDirectory, stagingDirectory, backupDirectory }
-      );
-    }
-    if (outputOccupied) {
-      throw createTransactionRecoveryError(
-        'The output path was unexpectedly recreated after the previous artifact was backed up.',
-        { outputDirectory, stagingDirectory, backupDirectory }
+        'The prior output identity changed while it was being moved to backup.',
+        paths
       );
     }
   }
 
-  try {
-    renameSync(stagingDirectory, outputDirectory);
-  } catch (error) {
-    if (hadExistingOutput) {
-      let outputOccupied;
-      try {
-        outputOccupied = pathEntryExists(outputDirectory);
-      } catch {
-        throw createTransactionRecoveryError(
-          'Artifact promotion failed and the output path could not be inspected safely.',
-          { outputDirectory, stagingDirectory, backupDirectory }
-        );
-      }
-      if (outputOccupied) {
-        if (error && error.preserveTransaction) throw error;
-        throw createTransactionRecoveryError(
-          'Artifact promotion failed after the output path was unexpectedly recreated; foreign output was left untouched.',
-          { outputDirectory, stagingDirectory, backupDirectory }
-        );
-      }
-      try {
-        renameSync(backupDirectory, outputDirectory);
-      } catch {
-        throw createTransactionRecoveryError(
-          'Artifact promotion failed and the previous output could not be restored automatically.',
-          { outputDirectory, stagingDirectory, backupDirectory }
-        );
-      }
+  runRecoveryProtected(
+    'The promotion transaction was interrupted after the prior output was backed up.',
+    () => invokeTransactionPhase(options, 'after-backup', paths)
+  );
+  runRecoveryProtected(
+    'The final output pathname could not be claimed exclusively; any existing object was left untouched.',
+    () => fs.mkdirSync(outputDirectory)
+  );
+  outputIdentity = runRecoveryProtected(
+    'The exclusively claimed output directory identity could not be established.',
+    () => readDirectoryIdentity(outputDirectory)
+  );
+  runRecoveryProtected(
+    'The promotion transaction was interrupted after the output pathname was claimed.',
+    () => invokeTransactionPhase(options, 'after-output-claim', paths)
+  );
+  runRecoveryProtected(
+    'The artifact could not be materialized in the exclusively claimed output directory.',
+    () => {
+      assertTransactionDirectoryIdentity(
+        outputDirectory,
+        outputIdentity,
+        'The claimed output directory changed before artifact materialization.',
+        paths
+      );
+      materializeDirectoryExclusively(
+        stagingDirectory,
+        stagingIdentity,
+        outputDirectory,
+        outputIdentity,
+        paths
+      );
     }
-    throw error;
+  );
+
+  runRecoveryProtected(
+    'The promotion transaction was interrupted before promoted validation.',
+    () => invokeTransactionPhase(options, 'before-promoted-validation', paths)
+  );
+  assertTransactionDirectoryIdentity(
+    outputDirectory,
+    outputIdentity,
+    'The materialized output changed before promoted validation.',
+    paths
+  );
+  const validationResult = runRecoveryProtected(
+    'Promoted artifact validation failed; no output or recovery path was moved or removed.',
+    () => validatePromoted(outputDirectory)
+  );
+
+  runRecoveryProtected(
+    'The promotion transaction was interrupted after promoted validation.',
+    () => invokeTransactionPhase(options, 'after-promoted-validation', paths)
+  );
+  assertTransactionDirectoryIdentity(
+    outputDirectory,
+    outputIdentity,
+    'The validated output directory was substituted before commit.',
+    paths
+  );
+  runRecoveryProtected(
+    'The promotion transaction was interrupted before transaction cleanup.',
+    () => invokeTransactionPhase(options, 'before-commit-cleanup', paths)
+  );
+  verifyRecoveryDirectories();
+  runRecoveryProtected(
+    'The staging artifact failed its final pre-cleanup validation.',
+    () => validatePromoted(stagingDirectory)
+  );
+  if (paths.backupDirectory) {
+    runRecoveryProtected(
+      'The prior-output backup failed its final pre-cleanup ownership validation.',
+      () => validateExisting(backupDirectory)
+    );
+  }
+  verifyRecoveryDirectories();
+  let finalValidationResult = validateClaimedOutput(
+    'The claimed output failed its final pre-cleanup validation.'
+  );
+  verifyTransactionLock('The build lock changed before transaction cleanup.');
+
+  const cleanupWarnings = [];
+  try {
+    removeRecoveryDirectory(
+      stagingDirectory,
+      'pages-site.tmp-',
+      stagingIdentity,
+      'The staging directory became ambiguous during cleanup.'
+    );
+    paths.stagingDirectory = null;
+  } catch (error) {
+    if (error && error.preserveTransaction) throw error;
+    cleanupWarnings.push(`Validated artifact committed, but staging could not be removed: ${stagingDirectory}.`);
   }
 
-  let validationResult;
-  try {
-    validationResult = validatePromoted(outputDirectory);
-  } catch (error) {
-    if (hadExistingOutput) {
-      if (fs.existsSync(stagingDirectory)) {
-        throw createTransactionRecoveryError(
-          'Promoted artifact validation failed and the staging recovery path was unexpectedly occupied.',
-          { outputDirectory, stagingDirectory, backupDirectory }
-        );
-      }
-      try {
-        renameSync(outputDirectory, stagingDirectory);
-      } catch {
-        throw createTransactionRecoveryError(
-          'Promoted artifact validation failed and the failed artifact could not be moved aside.',
-          { outputDirectory, stagingDirectory, backupDirectory }
-        );
-      }
-      try {
-        renameSync(backupDirectory, outputDirectory);
-      } catch {
-        throw createTransactionRecoveryError(
-          'Promoted artifact validation failed and the previous output could not be restored automatically.',
-          { outputDirectory, stagingDirectory, backupDirectory }
-        );
-      }
-    } else {
-      try {
-        renameSync(outputDirectory, stagingDirectory);
-      } catch {
-        throw createTransactionRecoveryError(
-          'First artifact validation failed and the failed output could not be moved aside.',
-          { outputDirectory, stagingDirectory }
-        );
-      }
-    }
-    throw error;
-  }
-
-  let cleanupWarning = null;
-  if (hadExistingOutput && fs.existsSync(backupDirectory)) {
+  if (paths.backupDirectory) {
+    finalValidationResult = validateClaimedOutput(
+      'The claimed output changed after staging cleanup.'
+    );
+    assertTransactionDirectoryIdentity(
+      outputDirectory,
+      outputIdentity,
+      'The validated output directory changed before prior-output cleanup.',
+      paths
+    );
+    assertTransactionDirectoryIdentity(
+      backupDirectory,
+      backupIdentity,
+      'The prior-output backup identity changed before cleanup.',
+      paths
+    );
+    runRecoveryProtected(
+      'The prior-output backup changed after staging cleanup.',
+      () => validateExisting(backupDirectory)
+    );
+    assertTransactionDirectoryIdentity(
+      backupDirectory,
+      backupIdentity,
+      'The prior-output backup changed during its final cleanup validation.',
+      paths
+    );
+    verifyTransactionLock('The build lock changed before prior-output backup cleanup.');
     try {
-      removeDirectory(backupDirectory, parent, 'pages-site.backup-');
-    } catch {
-      cleanupWarning = `Validated artifact committed, but the prior output backup could not be removed: ${backupDirectory}.`;
+      removeRecoveryDirectory(
+        backupDirectory,
+        'pages-site.backup-',
+        backupIdentity,
+        'The prior-output backup became ambiguous during cleanup.'
+      );
+      paths.backupDirectory = null;
+    } catch (error) {
+      if (error && error.preserveTransaction) throw error;
+      cleanupWarnings.push(`Validated artifact committed, but the prior output backup could not be removed: ${backupDirectory}.`);
     }
   }
-  return Object.freeze({ cleanupWarning, validationResult });
+  finalValidationResult = validateClaimedOutput(
+    'The claimed output changed during transaction cleanup.'
+  );
+  verifyTransactionLock('The build lock changed during transaction cleanup.');
+  return Object.freeze({ cleanupWarning: cleanupWarnings.join(' ') || null, validationResult: finalValidationResult || validationResult });
 }
 
 function acquireBuildLock(parent) {
   const lockPath = path.join(parent, '.pages-site.build.lock');
   const token = crypto.randomUUID();
   let descriptor;
+  let identity;
   try {
     descriptor = fs.openSync(lockPath, 'wx');
     fs.writeFileSync(descriptor, token, 'utf8');
     fs.closeSync(descriptor);
     descriptor = undefined;
+    const info = fs.lstatSync(lockPath, { bigint: true });
+    identity = Object.freeze({ dev: info.dev, ino: info.ino, birthtimeNs: info.birthtimeNs });
   } catch (error) {
     if (descriptor !== undefined) {
       try {
@@ -1076,15 +1369,25 @@ function acquireBuildLock(parent) {
     }
     fail('OUTPUT_LOCKED', 'Another Pages artifact build is active or a stale build lock requires inspection.');
   }
-  return Object.freeze({ lockPath, token });
+  return Object.freeze({ lockPath, token, identity });
+}
+
+function isBuildLockOwned(lock) {
+  if (!lock) return false;
+  try {
+    const info = fs.lstatSync(lock.lockPath, { bigint: true });
+    const identity = { dev: info.dev, ino: info.ino, birthtimeNs: info.birthtimeNs };
+    return !info.isSymbolicLink() && info.isFile() && info.nlink === 1n &&
+      sameDirectoryIdentity(identity, lock.identity) &&
+      fs.readFileSync(lock.lockPath, 'utf8') === lock.token;
+  } catch {
+    return false;
+  }
 }
 
 function releaseBuildLock(lock) {
-  if (!lock || !fs.existsSync(lock.lockPath)) return false;
+  if (!isBuildLockOwned(lock)) return false;
   try {
-    const info = fs.lstatSync(lock.lockPath);
-    if (info.isSymbolicLink() || !info.isFile() || info.nlink !== 1) return false;
-    if (fs.readFileSync(lock.lockPath, 'utf8') !== lock.token) return false;
     fs.unlinkSync(lock.lockPath);
     return true;
   } catch {
@@ -1103,12 +1406,16 @@ function buildPagesArtifact(options = {}) {
   const parent = path.dirname(outputDirectory);
   const buildLock = acquireBuildLock(parent);
   let stagingDirectory;
+  let stagingIdentity;
   let cleanupWarning = null;
   let preserveTransaction = false;
   let lockHandled = false;
+  let transactionCompleted = false;
+  let primaryError;
 
   try {
     stagingDirectory = fs.mkdtempSync(path.join(parent, 'pages-site.tmp-'));
+    stagingIdentity = readDirectoryIdentity(stagingDirectory);
     writeArtifactFile(stagingDirectory, '.nojekyll', Buffer.alloc(0));
     writeArtifactFile(stagingDirectory, 'index.html', transformIndex(sourceContent.get('index.html')));
     writeArtifactFile(stagingDirectory, RUNTIME_CONFIG_PATH, generateRuntimeConfig(config));
@@ -1122,12 +1429,15 @@ function buildPagesArtifact(options = {}) {
     const transaction = transactionalReplaceDirectory(stagingDirectory, outputDirectory, {
       renameSync: options.renameSync,
       removeDirectory: options.removeDirectory,
+      onTransactionPhase: options.onTransactionPhase,
+      verifyLock: () => isBuildLockOwned(buildLock),
       validateExisting: existing => validateOwnedExistingArtifact({
         artifactDirectory: existing,
         application: metadata.application
       }),
       validatePromoted: promoted => validatePagesArtifact({ sourceRoot, artifactDirectory: promoted, ...config })
     });
+    transactionCompleted = true;
     cleanupWarning = transaction.cleanupWarning;
     const validated = transaction.validationResult;
     if (!releaseBuildLock(buildLock)) {
@@ -1139,12 +1449,28 @@ function buildPagesArtifact(options = {}) {
     lockHandled = true;
     return Object.freeze({ ...validated, cleanupWarning });
   } catch (error) {
+    primaryError = error;
     preserveTransaction = Boolean(error && error.preserveTransaction);
     throw error;
   } finally {
     try {
-      if (!preserveTransaction && stagingDirectory && fs.existsSync(stagingDirectory)) {
-        removeOwnedDirectory(stagingDirectory, parent, 'pages-site.tmp-');
+      if (!preserveTransaction && !transactionCompleted && stagingDirectory) {
+        try {
+          if (!stagingIdentity) {
+            fail('CLEANUP_TARGET_CHANGED', 'Staging ownership could not be established before cleanup.');
+          }
+          const removeDirectory = options.removeDirectory || removeOwnedDirectory;
+          removeDirectory(stagingDirectory, parent, 'pages-site.tmp-', stagingIdentity);
+          if (pathEntryExists(stagingDirectory)) {
+            if (!sameDirectoryIdentity(readDirectoryIdentity(stagingDirectory), stagingIdentity)) {
+              fail('CLEANUP_TARGET_CHANGED', 'Staging changed while cleanup was being verified.');
+            }
+            fail('OUTPUT_CLEANUP_INCOMPLETE', 'Staging remained after cleanup.');
+          }
+        } catch (cleanupError) {
+          preserveTransaction = true;
+          attachCleanupFailure(primaryError, cleanupError, outputDirectory, stagingDirectory);
+        }
       }
     } finally {
       if (!preserveTransaction && !lockHandled) releaseBuildLock(buildLock);
