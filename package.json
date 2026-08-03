@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "build:pages": "node scripts/build-pages-artifact.cjs",
     "build:vendor": "node scripts/build-vendor.cjs",
     "check:js": "node scripts/check-javascript.cjs",
     "check:secrets": "node scripts/check-tracked-secrets.cjs",

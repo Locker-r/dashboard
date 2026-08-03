@@ -19,6 +19,19 @@ The dashboard is a static application, so it reads Supabase settings from a loca
 
 `config/supabase-config.local.js` and `node_modules` are ignored by Git. The generated `vendor/supabase.js` bundle is served locally, so the dashboard does not depend on a CDN.
 
+## Pages artifact construction
+
+`npm run build:pages` constructs and validates a deterministic, fixed-allowlist
+static directory at `artifacts/pages-site`. It takes explicit browser-public
+Supabase configuration from the current process environment, generates
+`config/runtime-config.js`, and transforms only the artifact copy of
+`index.html`. The ignored local configuration files are never read or copied.
+
+This command builds a local directory only. It does not publish an artifact,
+create a Release, configure GitHub Pages, or deploy anything. Its inputs,
+output contract, validation, and safe replacement behavior are documented in
+[`docs/pages-artifact.md`](docs/pages-artifact.md).
+
 Supabase storage setup is documented in `docs/supabase-storage-foundation.md`. The optional atomic write RPC migration and its manual verification workflow are documented in `docs/supabase-atomic-writes.md`; repository scripts never apply SQL to a remote project.
 
 The isolated local/staging Auth, RPC, and RLS smoke-test harness is documented in `docs/runtime-smoke-tests.md`. It is intentionally excluded from credential-free CI runtime execution.
