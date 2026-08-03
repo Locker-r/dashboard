@@ -101,3 +101,50 @@ deleting unknown local files is outside the safe boundary of this tooling.
 Status: Open release risk.
 
 Static and unit gates pass, but Auth, RLS, atomic RPC, team-management, concurrency, last-active-admin, role/deactivation, reassignment, idempotent request ID, `PLAYER_ASSIGNMENT_MISMATCH`, and `REASSIGNMENT_COUNT_MISMATCH` were not exercised against a live database on 2026-07-31. `supabase start` and `supabase start --debug` timed out after approximately 120 and 300 seconds. The provided local wrapper was not run because it executes the prohibited `supabase db reset --local`.
+
+## Accepted Automation PR 2-A1 review follow-ups
+
+Status: Open, accepted by the Product Owner on 2026-08-04 at merge of PR #24
+(squash commit `c6e119ddbdaf23b714b91649520baade4e333d2f`). Recorded from the
+independent adversarial review of PR #24; none of these blocked the merge.
+
+1. Bind or remove the detached two-parent main-SHA fallback.
+   `resolveMainSha` in `scripts/dev/check-project-status.cjs` returns the first
+   parent of a detached two-parent merge commit when neither `refs/heads/main`
+   nor `refs/remotes/origin/main` resolves, without verifying that the parent is
+   main. A fixture whose first parent was a feature commit was certified as
+   current main. This is the active path for pull-request CI runs, so
+   correctness currently depends on GitHub building the pull-request merge ref
+   base-first. Preferred fix: fetch `origin/main` in CI and drop the fallback,
+   or bind the fallback to explicit CI provenance.
+
+2. Add tests for the parent-count restriction. Disabling
+   `parents.length === 2` produced no test failure, so the restriction the
+   existing test is named for is not actually exercised. Cover the one-parent
+   and octopus-merge rejections.
+
+3. Add tests for `OUTPUT_EXISTS`. Disabling the overwrite refusal in
+   `ensureSafeOutputDirectories` produced no test failure.
+
+4. Add tests for `OUTPUT_NOT_IGNORED`. Disabling the ignore verification in
+   `verifyOutputIsIgnored` produced no test failure. The unused `outputIgnored`
+   and `symlinkPath` fixture overrides in `tests/prompt-generator.test.cjs`
+   already provide the hooks.
+
+5. Include branch-vs-base diff in review prompt context.
+   `collectRepositoryContext` reports only the uncommitted working-tree diff, so
+   an `adversarial-review` prompt renders "Tracked changed files: none" for a
+   clean checkout of a pull request that changes many files. Either add the
+   base-relative diff or relabel the existing fields.
+
+6. Correct the shallow-checkout wording. `docs/developer-toolchain.md` describes
+   the fallback as supporting a shallow detached CI merge checkout. In a genuine
+   shallow clone the merge commit's parents are grafted away and the fallback
+   fails closed; it applies to a full-history detached merge checkout.
+
+Lower-severity observations from the same review, not scheduled: locale-sensitive
+`localeCompare` ordering of tracked files feeding the context fingerprint;
+fingerprint excludes supplied task, issue, and findings inputs; Unicode bidi
+controls pass through prompt quoting unescaped; Windows reserved device names and
+NTFS alternate data streams are accepted as output filenames within the ignored
+prompt directory.
