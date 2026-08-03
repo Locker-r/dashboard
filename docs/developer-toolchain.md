@@ -228,13 +228,12 @@ powershell -File scripts/dev/smoke.ps1 -Json -ReportPath artifacts/smoke.json
 - Static checks do not prove live runtime behavior.
 - Existing local runtime wrappers require database reset; this tool makes that decision explicit.
 - PowerShell 5.1 argument passing is less expressive than PowerShell 7, but no shell evaluation is used.
-- `src/supabase-auth-service.js` accepts only an `https://<ref>.supabase.co`
-  project root, so with data mode `supabase` and a loopback URL the dashboard
-  sign-in fails with `config_invalid`. The launcher serves the application and
-  reports the limitation as `FRONTEND_LOOPBACK_AUTH_UNSUPPORTED`; it does not
-  change frontend behaviour. Use data mode `local` for UI work, or the runtime
-  smoke harness for local backend verification. Tracked in
-  [`docs/tech-debt.md`](tech-debt.md).
+- `src/supabase-auth-service.js` accepts a hosted `https://<ref>.supabase.co`
+  project root and an `http` loopback project root, so dashboard sign-in,
+  session restore, and sign-out work against local Supabase in either data mode.
+  The diagnostic reports this as `FRONTEND_LOCAL_AUTH_SUPPORTED`. The published
+  Pages artifact stays pinned to the hosted form by
+  `scripts/build-pages-artifact.cjs`.
 - `supabase/.gitignore` does not cover `supabase/snippets`, so Supabase Studio
   snippets keep appearing as untracked. The diagnostic classifies them and never
   removes them.

@@ -669,12 +669,70 @@ test('the npm scripts expose the documented commands', () => {
   assert.equal(manifest.scripts['dev:local'], 'node scripts/dev/dev-local.cjs');
 });
 
-test('the launcher help text is available without touching the environment', () => {
+// Asserting that the state file is simply absent would make the result depend on
+// whether a launcher happens to be running, and `npm run dev:local` is the very
+// workflow this suite covers. The real behaviour under test is that --help does
+// not touch launcher state at all, which is checked here as byte-level
+// invariance across the call: absent stays absent, and a live launcher's state
+// survives unchanged. That is strictly stronger than the existence check,
+// because it also catches a rewrite or a deletion.
+function readLauncherState() {
+  try {
+    return fs.readFileSync(path.join(repositoryRoot, launcher.STATE_RELATIVE_PATH), 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+function runLauncherHelp() {
+  const before = readLauncherState();
   const result = spawnSync(process.execPath, [path.join('scripts', 'dev', 'dev-local.cjs'), '--help'], {
     cwd: repositoryRoot, encoding: 'utf8', timeout: 60000
   });
+  return { result, before, after: readLauncherState() };
+}
+
+function assertHelpLeftStateUntouched({ result, before, after }) {
   assert.equal(result.status, 0);
   assert.match(result.stdout, /--no-provision/);
   assert.match(result.stdout, /never resets the database/);
-  assert.equal(fs.existsSync(path.join(repositoryRoot, launcher.STATE_RELATIVE_PATH)), false);
+  assert.equal(after, before);
+}
+
+test('the launcher help text is available without touching the environment', () => {
+  assertHelpLeftStateUntouched(runLauncherHelp());
+});
+
+test('the help check holds whether or not a launcher is currently running', () => {
+  const statePath = path.join(repositoryRoot, launcher.STATE_RELATIVE_PATH);
+  const original = readLauncherState();
+  try {
+    // A launcher is running: its state file must survive --help byte for byte.
+    fs.mkdirSync(path.dirname(statePath), { recursive: true });
+    const live = `${JSON.stringify({
+      schemaVersion: 1, pid: 4242, port: 3100, token: 'launcher-owned-token',
+      repositoryRoot, startedAt: '2026-08-03T00:00:00.000Z'
+    }, null, 2)}\n`;
+    fs.writeFileSync(statePath, live);
+    const running = runLauncherHelp();
+    assertHelpLeftStateUntouched(running);
+    assert.equal(running.before, live);
+    assert.equal(readLauncherState(), live);
+
+    // No launcher is running: --help must not create a state file.
+    fs.rmSync(statePath, { force: true });
+    const stopped = runLauncherHelp();
+    assertHelpLeftStateUntouched(stopped);
+    assert.equal(stopped.before, null);
+    assert.equal(readLauncherState(), null);
+
+    // Repeated runs stay stable in both directions.
+    for (const _ of [0, 1]) assertHelpLeftStateUntouched(runLauncherHelp());
+    assert.equal(readLauncherState(), null);
+  } finally {
+    // Restore exactly what was there, so a launcher started outside the suite
+    // keeps the state file it owns.
+    if (original === null) fs.rmSync(statePath, { force: true });
+    else fs.writeFileSync(statePath, original);
+  }
 });

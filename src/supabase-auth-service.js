@@ -7,6 +7,22 @@
 
   const AUTH_STORAGE_KEY = 'reactivation-desk-supabase-auth';
 
+  // Exactly two project roots are accepted, and nothing else:
+  //   - a hosted project root, https://<ref>.supabase.co
+  //   - a local development root on an http loopback origin
+  // The loopback form exists so the documented local workflow (npm run dev:local
+  // against http://127.0.0.1:54321) can sign in with the real auth service. It is
+  // restricted to literal loopback hosts, so this rule can never send credentials
+  // off the machine, and it matches classifyProjectUrl in scripts/dev/doctor.cjs
+  // so the diagnostic and the browser cannot disagree about what "local" means.
+  // The published Pages artifact stays pinned to the hosted form independently,
+  // by scripts/build-pages-artifact.cjs.
+  const LITERAL_LOOPBACK_ROOTS = Object.freeze([
+    Object.freeze({ origin: 'http://127.0.0.1', hostname: '127.0.0.1' }),
+    Object.freeze({ origin: 'http://localhost', hostname: 'localhost' }),
+    Object.freeze({ origin: 'http://[::1]', hostname: '[::1]' })
+  ]);
+
   class AuthServiceError extends Error {
     constructor(code, cause) {
       super(code);
@@ -16,19 +32,44 @@
     }
   }
 
+  function literalLoopbackHostname(raw) {
+    // URL is still the semantic parser, but it cannot be the lexical authority:
+    // WHATWG parsing erases alternate IPv4 spellings, backslashes, empty URL
+    // components, dot segments, case differences, and other input distinctions.
+    // Keep the deliberately tiny raw language authoritative despite parsing;
+    // the only regex parses the optional canonical decimal port, not the URL or hostname.
+    for (const candidate of LITERAL_LOOPBACK_ROOTS) {
+      if (raw === candidate.origin) return candidate.hostname;
+      const portPrefix = `${candidate.origin}:`;
+      if (raw.startsWith(portPrefix) && /^(?:0|[1-9][0-9]{0,4})$/.test(raw.slice(portPrefix.length))) {
+        return candidate.hostname;
+      }
+    }
+    return null;
+  }
+
+  function isProjectRoot(raw, parsed) {
+    // A project root carries no path, query, fragment, or credentials in either form.
+    if ((parsed.pathname !== '' && parsed.pathname !== '/') || parsed.search || parsed.hash ||
+        parsed.username || parsed.password) {
+      return false;
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    if (parsed.protocol === 'https:') return /^[a-z0-9]+\.supabase\.co$/.test(hostname);
+    return parsed.protocol === 'http:' && literalLoopbackHostname(raw) === hostname;
+  }
+
   function normalizeConfig(config) {
     if (!config || typeof config.projectUrl !== 'string' || typeof config.publishableKey !== 'string' ||
         !config.projectUrl.trim() || !config.publishableKey.trim()) {
       throw new AuthServiceError('config_missing');
     }
-    const projectUrl = config.projectUrl.trim();
+    const projectUrlInput = config.projectUrl;
+    const projectUrl = projectUrlInput.trim();
     const publishableKey = config.publishableKey.trim();
     let parsed;
     try { parsed = new URL(projectUrl); } catch (error) { throw new AuthServiceError('config_invalid', error); }
-    const isProjectRoot = parsed.protocol === 'https:' &&
-      /^[a-z0-9]+\.supabase\.co$/i.test(parsed.hostname) &&
-      (parsed.pathname === '' || parsed.pathname === '/') && !parsed.search && !parsed.hash;
-    if (!isProjectRoot) throw new AuthServiceError('config_invalid');
+    if (!isProjectRoot(projectUrlInput, parsed)) throw new AuthServiceError('config_invalid');
     return { projectUrl: parsed.origin, publishableKey };
   }
 

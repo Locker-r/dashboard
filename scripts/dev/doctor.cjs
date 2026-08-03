@@ -16,6 +16,11 @@ const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 const PACKAGE_NAME = 'reactivation-desk-dashboard';
 const IDENTITY_PATH = '/__dev-local-identity__';
 const LOCAL_SUPABASE_URL = 'http://127.0.0.1:54321';
+const LITERAL_LOOPBACK_ROOTS = Object.freeze([
+  Object.freeze({ origin: 'http://127.0.0.1', hostname: '127.0.0.1' }),
+  Object.freeze({ origin: 'http://localhost', hostname: 'localhost' }),
+  Object.freeze({ origin: 'http://[::1]', hostname: '[::1]' })
+]);
 const DEFAULT_DASHBOARD_PORT = 3100;
 const DOCUMENTED_LEGACY_PORT = 3000;
 const MINIMUM_NODE_MAJOR = 22;
@@ -114,8 +119,24 @@ function normalizeText(value) {
   return String(value || '').replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
 }
 
+function literalLoopbackHostname(raw) {
+  // URL provides semantic validation, including the port range, but it cannot
+  // enforce literal input: parsing erases alternate IP forms, separators, empty
+  // components, and dot segments. Only the optional canonical decimal port is
+  // recognized here; URL and hostname parsing remain standards-based below.
+  for (const candidate of LITERAL_LOOPBACK_ROOTS) {
+    if (raw === candidate.origin) return candidate.hostname;
+    const portPrefix = `${candidate.origin}:`;
+    if (raw.startsWith(portPrefix) && /^(?:0|[1-9][0-9]{0,4})$/.test(raw.slice(portPrefix.length))) {
+      return candidate.hostname;
+    }
+  }
+  return null;
+}
+
 function classifyProjectUrl(value) {
-  const raw = String(value === null || value === undefined ? '' : value).trim();
+  const input = String(value === null || value === undefined ? '' : value);
+  const raw = input.trim();
   if (!raw) return Object.freeze({ kind: 'missing', origin: null, hostname: null });
   let parsed;
   try {
@@ -123,13 +144,16 @@ function classifyProjectUrl(value) {
   } catch {
     return Object.freeze({ kind: 'malformed', origin: null, hostname: null, reason: 'not a valid absolute URL' });
   }
-  if ((parsed.pathname !== '' && parsed.pathname !== '/') || parsed.search || parsed.hash || parsed.username || parsed.password) {
-    return Object.freeze({ kind: 'malformed', origin: parsed.origin, hostname: parsed.hostname, reason: 'must be an origin with no path, query, fragment, or credentials' });
-  }
   const hostname = parsed.hostname.toLowerCase();
   const loopback = hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '[::1]' || hostname === '::1';
   if (loopback && parsed.protocol === 'http:') {
+    if (literalLoopbackHostname(input) !== hostname) {
+      return Object.freeze({ kind: 'malformed', origin: parsed.origin, hostname, reason: 'must use an exact literal loopback origin with only an optional canonical decimal port' });
+    }
     return Object.freeze({ kind: 'local', origin: parsed.origin, hostname });
+  }
+  if ((parsed.pathname !== '' && parsed.pathname !== '/') || parsed.search || parsed.hash || parsed.username || parsed.password) {
+    return Object.freeze({ kind: 'malformed', origin: parsed.origin, hostname: parsed.hostname, reason: 'must be an origin with no path, query, fragment, or credentials' });
   }
   if (parsed.protocol === 'https:' && /^[a-z0-9]+\.supabase\.co$/i.test(hostname)) {
     return Object.freeze({ kind: 'hosted', origin: parsed.origin, hostname });
@@ -900,12 +924,14 @@ function checkLocalConfiguration(deps, root, report) {
     }
   }
 
-  // Pre-existing constraint, reported rather than worked around: the browser
-  // auth service accepts only an https://<ref>.supabase.co project root.
-  if (result.dataMode === 'supabase' && result.urlClass && result.urlClass.kind === 'local') {
-    report.warn('FRONTEND_LOOPBACK_AUTH_UNSUPPORTED', 'Frontend auth against local Supabase',
-      "src/supabase-auth-service.js accepts only an https://<ref>.supabase.co project root, so with data mode 'supabase' and a loopback URL the dashboard sign-in fails with config_invalid. This is existing frontend behaviour, not a launcher fault.",
-      "For UI work set mode to 'local' in config/data-config.local.js. For local backend verification use the sanctioned harness: powershell -File scripts/dev/smoke.ps1 -AllowDatabaseReset");
+  // Reported for a loopback origin in every data mode. The previous wording was
+  // emitted only with data mode 'supabase' and told the reader to switch to
+  // 'local', so following its own advice made the warning disappear while the
+  // behaviour it described was unchanged. src/supabase-auth-service.js now
+  // accepts a loopback project root, so the honest report is that sign-in works.
+  if (result.urlClass && result.urlClass.kind === 'local') {
+    report.ok('FRONTEND_LOCAL_AUTH_SUPPORTED', 'Frontend auth against local Supabase',
+      'src/supabase-auth-service.js accepts this loopback project root, so dashboard sign-in, session restore, and sign-out work against local Supabase in every data mode.');
   }
 
   return result;

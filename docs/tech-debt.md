@@ -17,8 +17,9 @@ sent. A manual browser pass over `index.html` additionally confirmed no raw cont
 `sessionStorage`, IndexedDB, DOM attributes or console output, before or after logout.
 
 Two caveats are recorded rather than implied away. The browser pass had to stub the data-service transport,
-because `normalizeConfig` in `src/supabase-auth-service.js` accepts only an `https://<ref>.supabase.co`
-project root and refuses a loopback URL; the live RPC path is covered by the automated suites instead. And
+because `normalizeConfig` in `src/supabase-auth-service.js` accepted only an `https://<ref>.supabase.co`
+project root at the time and refused a loopback URL (lifted in Automation PR 1.1, recorded below); the
+live RPC path is covered by the automated suites instead. And
 the local database's migration ledger listed `20260802000100`/`20260802000200` as applied while the objects
 were absent (consistent with PR B's rollback scripts having been run locally); the two migrations were
 re-applied by hand before verification. Neither affects shipped code, but the ledger drift is worth a look
@@ -56,25 +57,29 @@ Baseline update (2026-07-31, `89acc74`): necessity remains unconfirmed. The cont
 
 ## Local development cannot authenticate against local Supabase
 
-Status: Open, recorded 2026-08-03 while adding `npm run doctor` and `npm run dev:local`.
+Status: Closed 2026-08-03 (Automation PR 1.1), recorded 2026-08-03 while adding
+`npm run doctor` and `npm run dev:local`.
 
-`normalizeConfig` in `src/supabase-auth-service.js` accepts only an
-`https://<ref>.supabase.co` project root, so a loopback project URL is rejected with
-`config_invalid`. With `config/data-config.local.js` set to `mode: 'supabase'` and
-`config/supabase-config.local.js` set to the required local origin
-`http://127.0.0.1:54321`, browser sign-in therefore cannot succeed locally. The same
-constraint already forced the PR C browser pass to stub the data-service transport
-(see the P0 closure caveat above).
+`normalizeConfig` in `src/supabase-auth-service.js` accepted only an
+`https://<ref>.supabase.co` project root, so a loopback project URL was rejected with
+`config_invalid` and browser sign-in could not succeed locally. The same constraint
+forced the PR C browser pass to stub the data-service transport (see the P0 closure
+caveat above).
 
-Current mitigation: `npm run doctor` reports it as `FRONTEND_LOOPBACK_AUTH_UNSUPPORTED`
-with two supported paths — data mode `local` for UI work, and the runtime smoke harness
-for local backend verification. The launcher deliberately does not work around it,
-because changing that validation is frontend business logic and a security-relevant
-decision.
+Resolution: the deferred decision recorded here — whether the auth service should
+accept a loopback origin under a narrowly scoped local-only condition — was taken in
+favour of accepting it. `normalizeConfig` now accepts a hosted project root **or** an
+`http` origin whose hostname is a literal loopback host (`127.0.0.1`, `localhost`,
+`[::1]`), with no path, query, fragment, or embedded credentials in either form. The
+rule cannot send credentials off the machine, and it matches `classifyProjectUrl` in
+`scripts/dev/doctor.cjs` so the diagnostic and the browser agree on what "local" means.
+Production is unaffected: `scripts/build-pages-artifact.cjs` independently pins the
+published artifact to `https://<ref>.supabase.co` with an `sb_publishable_` key.
 
-Proposed follow-up: decide explicitly whether the auth service should accept a loopback
-origin under a narrowly scoped local-only condition, or whether local browser
-verification stays permanently out of scope. Either outcome should be recorded here.
+`npm run doctor` now reports `FRONTEND_LOCAL_AUTH_SUPPORTED` in every data mode. The
+previous `FRONTEND_LOOPBACK_AUTH_UNSUPPORTED` warning was emitted only under data mode
+`supabase` and advised switching to `local`, so following its advice suppressed the
+warning without changing the behaviour it described.
 
 ## `supabase/snippets` is untracked and not ignored
 
