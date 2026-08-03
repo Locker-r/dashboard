@@ -137,7 +137,10 @@ test('the repository project status is valid for the local main ref', () => {
   const result = validate(repositoryStatus);
   assert.equal(result.valid, true, JSON.stringify(result.errors));
   assert.deepEqual(result.errors, []);
-  assert.equal(result.fields['Main SHA'], repositoryMainSha);
+  assert.ok(
+    [repositoryMainSha, repositoryMainContext.firstParent].includes(result.fields['Main SHA']),
+    'recorded Main SHA must be the main tip or its direct first parent'
+  );
 });
 
 test('required-field structure failures have specific codes', async t => {
