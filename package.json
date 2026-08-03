@@ -8,6 +8,8 @@
     "check:js": "node scripts/check-javascript.cjs",
     "check:secrets": "node scripts/check-tracked-secrets.cjs",
     "check:migrations": "node scripts/check-migration-governance.cjs",
+    "check:project-status": "node scripts/dev/check-project-status.cjs",
+    "prompt": "node scripts/dev/generate-prompt.cjs",
     "doctor": "node scripts/dev/doctor.cjs",
     "dev:local": "node scripts/dev/dev-local.cjs",
     "preflight": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/preflight.ps1",

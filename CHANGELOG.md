@@ -13,6 +13,13 @@ snapshot has been deployed: no production deployment pipeline exists yet.
 
 ### Added
 
+- Canonical AI project status and an append-only architecture decision log,
+  with a dependency-free validator that detects malformed or stale context.
+- A dependency-free repository-aware prompt generator with seven role
+  templates, shared safety rules, offline operation, redaction, deterministic
+  fingerprints, guarded file output, and safe Windows clipboard handling.
+- Documentation of the Automation PR 2-A1/2-A2 split. Verification tiers are
+  deferred to PR 2-A2; worktree and PR lifecycle automation remain PR 2-B.
 - `npm run doctor`: read-only local environment diagnostic covering Git state,
   toolchain, Docker, Supabase, port ownership, local configuration, key class,
   Auth health, smoke-user linkage, and competing processes. It finishes with
