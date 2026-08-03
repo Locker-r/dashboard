@@ -18,6 +18,20 @@ function clientWith(options = {}) {
   return { client, calls };
 }
 
+function urlSecurityView(value) {
+  const parsed = new URL(value);
+  return {
+    protocol: parsed.protocol,
+    hostname: parsed.hostname,
+    port: parsed.port,
+    pathname: parsed.pathname,
+    search: parsed.search,
+    hash: parsed.hash,
+    username: parsed.username,
+    password: parsed.password
+  };
+}
+
 test('signs in with email and password and returns compatible currentUser', async () => {
   const fixture = clientWith({
     signInResult: { data: { user: { id: 'u1', email: 'admin@example.com' } }, error: null },
@@ -88,15 +102,17 @@ test('normalizes a trailing slash but rejects REST endpoints and non-Supabase pr
   }
 });
 
-test('accepts an http loopback project root so local development can sign in', () => {
+test('accepts only the three literal http loopback hosts with an optional port', () => {
   for (const projectUrl of [
+    'http://127.0.0.1',
     'http://127.0.0.1:54321',
-    'http://127.0.0.1:54321/',
-    ' http://localhost:54321 ',
+    'http://localhost',
+    'http://localhost:54321',
+    'http://[::1]',
     'http://[::1]:54321'
   ]) {
     const normalized = auth.normalizeConfig({ projectUrl, publishableKey: 'publishable' });
-    assert.equal(normalized.projectUrl, new URL(projectUrl.trim()).origin);
+    assert.equal(normalized.projectUrl, new URL(projectUrl).origin);
     assert.equal(normalized.publishableKey, 'publishable');
   }
 });
@@ -114,6 +130,49 @@ test('a widened loopback rule still refuses to send credentials off the machine'
   ]) {
     assert.throws(() => auth.normalizeConfig({ projectUrl, publishableKey: 'publishable' }),
       error => error.code === 'config_invalid', `expected ${projectUrl} to be refused`);
+  }
+});
+
+test('rejects raw loopback spellings whose evidence URL parsing erases', () => {
+  const canonicalizingInputs = [
+    ['decimal IPv4', 'http://2130706433:54321', 'http://127.0.0.1:54321'],
+    ['hexadecimal IPv4', 'http://0x7f000001:54321', 'http://127.0.0.1:54321'],
+    ['octal IPv4', 'http://017700000001:54321', 'http://127.0.0.1:54321'],
+    ['mixed IPv4', 'http://0x7f.0.0.1:54321', 'http://127.0.0.1:54321'],
+    ['short IPv4', 'http://127.1:54321', 'http://127.0.0.1:54321'],
+    ['zero-padded IPv4', 'http://127.000.000.001:54321', 'http://127.0.0.1:54321'],
+    ['percent-encoded IPv4', 'http://%31%32%37.0.0.1:54321', 'http://127.0.0.1:54321'],
+    ['Unicode IPv4 separators', 'http://127。0。0。1:54321', 'http://127.0.0.1:54321'],
+    ['extra authority slashes', 'http:////127.0.0.1:54321', 'http://127.0.0.1:54321'],
+    ['backslash authority', 'http:\\\\127.0.0.1:54321', 'http://127.0.0.1:54321'],
+    ['mixed separators', 'http:/\\127.0.0.1:54321', 'http://127.0.0.1:54321'],
+    ['trailing backslash', 'http://127.0.0.1:54321\\', 'http://127.0.0.1:54321'],
+    ['empty userinfo', 'http://@127.0.0.1:54321', 'http://127.0.0.1:54321'],
+    ['empty username and password', 'http://:@127.0.0.1:54321', 'http://127.0.0.1:54321'],
+    ['dot-segment path', 'http://127.0.0.1:54321/a/..', 'http://127.0.0.1:54321'],
+    ['encoded dot-segment path', 'http://127.0.0.1:54321/%2e', 'http://127.0.0.1:54321'],
+    ['empty query', 'http://127.0.0.1:54321?', 'http://127.0.0.1:54321'],
+    ['empty fragment', 'http://127.0.0.1:54321#', 'http://127.0.0.1:54321'],
+    ['empty query and fragment', 'http://127.0.0.1:54321?#', 'http://127.0.0.1:54321'],
+    ['expanded IPv6', 'http://[0:0:0:0:0:0:0:1]:54321', 'http://[::1]:54321'],
+    ['fullwidth localhost', 'http://ｌｏｃａｌｈｏｓｔ:54321', 'http://localhost:54321'],
+    ['control-character stripping', 'http://local\thost:54321', 'http://localhost:54321'],
+    ['case normalization', 'HTTP://LOCALHOST:54321', 'http://localhost:54321'],
+    ['empty port', 'http://127.0.0.1:', 'http://127.0.0.1'],
+    ['leading-zero port', 'http://127.0.0.1:05432', 'http://127.0.0.1:5432'],
+    ['trailing root slash', 'http://127.0.0.1:54321/', 'http://127.0.0.1:54321'],
+    ['surrounding whitespace', ' http://127.0.0.1:54321 ', 'http://127.0.0.1:54321']
+  ];
+
+  for (const [name, projectUrl, canonicalProjectUrl] of canonicalizingInputs) {
+    assert.notEqual(projectUrl, canonicalProjectUrl, name + ' must mutate the literal input');
+    assert.deepEqual(
+      urlSecurityView(projectUrl),
+      urlSecurityView(canonicalProjectUrl),
+      name + ' must reproduce the parse-only validation weakness'
+    );
+    assert.throws(() => auth.normalizeConfig({ projectUrl, publishableKey: 'publishable' }),
+      error => error.code === 'config_invalid', name + ' must be rejected despite canonicalization');
   }
 });
 

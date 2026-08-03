@@ -16,6 +16,11 @@ const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 const PACKAGE_NAME = 'reactivation-desk-dashboard';
 const IDENTITY_PATH = '/__dev-local-identity__';
 const LOCAL_SUPABASE_URL = 'http://127.0.0.1:54321';
+const LITERAL_LOOPBACK_ROOTS = Object.freeze([
+  Object.freeze({ origin: 'http://127.0.0.1', hostname: '127.0.0.1' }),
+  Object.freeze({ origin: 'http://localhost', hostname: 'localhost' }),
+  Object.freeze({ origin: 'http://[::1]', hostname: '[::1]' })
+]);
 const DEFAULT_DASHBOARD_PORT = 3100;
 const DOCUMENTED_LEGACY_PORT = 3000;
 const MINIMUM_NODE_MAJOR = 22;
@@ -114,8 +119,24 @@ function normalizeText(value) {
   return String(value || '').replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
 }
 
+function literalLoopbackHostname(raw) {
+  // URL provides semantic validation, including the port range, but it cannot
+  // enforce literal input: parsing erases alternate IP forms, separators, empty
+  // components, and dot segments. Only the optional canonical decimal port is
+  // recognized here; URL and hostname parsing remain standards-based below.
+  for (const candidate of LITERAL_LOOPBACK_ROOTS) {
+    if (raw === candidate.origin) return candidate.hostname;
+    const portPrefix = `${candidate.origin}:`;
+    if (raw.startsWith(portPrefix) && /^(?:0|[1-9][0-9]{0,4})$/.test(raw.slice(portPrefix.length))) {
+      return candidate.hostname;
+    }
+  }
+  return null;
+}
+
 function classifyProjectUrl(value) {
-  const raw = String(value === null || value === undefined ? '' : value).trim();
+  const input = String(value === null || value === undefined ? '' : value);
+  const raw = input.trim();
   if (!raw) return Object.freeze({ kind: 'missing', origin: null, hostname: null });
   let parsed;
   try {
@@ -123,13 +144,16 @@ function classifyProjectUrl(value) {
   } catch {
     return Object.freeze({ kind: 'malformed', origin: null, hostname: null, reason: 'not a valid absolute URL' });
   }
-  if ((parsed.pathname !== '' && parsed.pathname !== '/') || parsed.search || parsed.hash || parsed.username || parsed.password) {
-    return Object.freeze({ kind: 'malformed', origin: parsed.origin, hostname: parsed.hostname, reason: 'must be an origin with no path, query, fragment, or credentials' });
-  }
   const hostname = parsed.hostname.toLowerCase();
   const loopback = hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '[::1]' || hostname === '::1';
   if (loopback && parsed.protocol === 'http:') {
+    if (literalLoopbackHostname(input) !== hostname) {
+      return Object.freeze({ kind: 'malformed', origin: parsed.origin, hostname, reason: 'must use an exact literal loopback origin with only an optional canonical decimal port' });
+    }
     return Object.freeze({ kind: 'local', origin: parsed.origin, hostname });
+  }
+  if ((parsed.pathname !== '' && parsed.pathname !== '/') || parsed.search || parsed.hash || parsed.username || parsed.password) {
+    return Object.freeze({ kind: 'malformed', origin: parsed.origin, hostname: parsed.hostname, reason: 'must be an origin with no path, query, fragment, or credentials' });
   }
   if (parsed.protocol === 'https:' && /^[a-z0-9]+\.supabase\.co$/i.test(hostname)) {
     return Object.freeze({ kind: 'hosted', origin: parsed.origin, hostname });

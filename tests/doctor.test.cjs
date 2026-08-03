@@ -7,6 +7,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const doctor = require('../scripts/dev/doctor.cjs');
+const authService = require('../src/supabase-auth-service.js');
 const fixtures = require('./fixtures/local-environment.cjs');
 
 const { createEnvironment, findingByCode, findingCodes, identityFor } = fixtures;
@@ -20,13 +21,51 @@ function severity(result, code) {
 /* ==================== classification units ==================== */
 
 test('project URL classification separates local, hosted, malformed, and unrelated origins', () => {
-  assert.equal(doctor.classifyProjectUrl('http://127.0.0.1:54321').kind, 'local');
-  assert.equal(doctor.classifyProjectUrl('http://localhost:54321').kind, 'local');
+  for (const projectUrl of [
+    'http://127.0.0.1',
+    'http://127.0.0.1:54321',
+    'http://localhost',
+    'http://localhost:54321',
+    'http://[::1]',
+    'http://[::1]:54321'
+  ]) {
+    assert.equal(doctor.classifyProjectUrl(projectUrl).kind, 'local', projectUrl);
+  }
   assert.equal(doctor.classifyProjectUrl('https://abcdefghij.supabase.co').kind, 'hosted');
   assert.equal(doctor.classifyProjectUrl('https://abcdefghij.supabase.co/rest/v1').kind, 'malformed');
   assert.equal(doctor.classifyProjectUrl('not a url').kind, 'malformed');
   assert.equal(doctor.classifyProjectUrl('').kind, 'missing');
   assert.equal(doctor.classifyProjectUrl('https://dashboard.example.com').kind, 'other');
+});
+
+test('doctor and browser auth both reject raw loopback parser tricks', () => {
+  const invalidLocalUrls = [
+    ['decimal IPv4', 'http://2130706433:54321'],
+    ['hexadecimal IPv4', 'http://0x7f000001:54321'],
+    ['octal IPv4', 'http://017700000001:54321'],
+    ['mixed IPv4', 'http://0x7f.0.0.1:54321'],
+    ['short IPv4', 'http://127.1:54321'],
+    ['credentials', 'http://user:pw@127.0.0.1:54321'],
+    ['query', 'http://127.0.0.1:54321?value=1'],
+    ['fragment', 'http://127.0.0.1:54321#fragment'],
+    ['path', 'http://127.0.0.1:54321/rest/v1'],
+    ['extra authority slashes', 'http:////127.0.0.1:54321'],
+    ['backslash authority', 'http:\\\\127.0.0.1:54321'],
+    ['dot-segment normalization', 'http://127.0.0.1:54321/a/..'],
+    ['empty query', 'http://127.0.0.1:54321?'],
+    ['empty fragment', 'http://127.0.0.1:54321#'],
+    ['empty userinfo', 'http://@127.0.0.1:54321'],
+    ['mixed separators', 'http:/\\127.0.0.1:54321'],
+    ['expanded IPv6', 'http://[0:0:0:0:0:0:0:1]:54321'],
+    ['trailing root slash', 'http://127.0.0.1:54321/'],
+    ['surrounding whitespace', ' http://127.0.0.1:54321 ']
+  ];
+
+  for (const [name, projectUrl] of invalidLocalUrls) {
+    assert.equal(doctor.classifyProjectUrl(projectUrl).kind, 'malformed', name);
+    assert.throws(() => authService.normalizeConfig({ projectUrl, publishableKey: 'publishable' }),
+      error => error.code === 'config_invalid', name + ' must also be rejected by browser auth');
+  }
 });
 
 test('key classification separates publishable from secret classes without echoing the value', () => {
@@ -219,13 +258,18 @@ test('a hosted project URL in the local configuration is a blocker', async () =>
   assert.match(findingByCode(result, 'CONFIG_URL_HOSTED').remediation, /Never edit that file automatically/);
 });
 
-test('a malformed project URL is a blocker with a concrete remediation', async () => {
-  const environment = createEnvironment({
-    supabaseConfig: fixtures.supabaseConfigSource({ projectUrl: 'http://127.0.0.1:54321/rest/v1?x=1' })
-  });
-  const result = await doctor.runDoctor({ deps: environment.deps });
-  assert.equal(severity(result, 'CONFIG_URL_MALFORMED'), 'blocker');
-  assert.match(findingByCode(result, 'CONFIG_URL_MALFORMED').detail, /not usable/);
+test('malformed and parser-normalized project URLs are blockers with a concrete remediation', async () => {
+  for (const projectUrl of [
+    'http://127.0.0.1:54321/rest/v1?x=1',
+    'http://2130706433:54321'
+  ]) {
+    const environment = createEnvironment({
+      supabaseConfig: fixtures.supabaseConfigSource({ projectUrl })
+    });
+    const result = await doctor.runDoctor({ deps: environment.deps });
+    assert.equal(severity(result, 'CONFIG_URL_MALFORMED'), 'blocker', projectUrl);
+    assert.match(findingByCode(result, 'CONFIG_URL_MALFORMED').detail, /not usable/);
+  }
 });
 
 test('a secret-class key in the browser configuration blocks and is never printed', async () => {
@@ -275,7 +319,6 @@ test('the data mode and the local auth capability are both reported', async () =
 });
 
 test('doctor never claims local sign-in is unsupported once the auth service accepts loopback', async () => {
-  const authService = require('../src/supabase-auth-service.js');
   const localOrigin = doctor.LOCAL_SUPABASE_URL;
 
   // The claim and the implementation are checked against each other, so the two
