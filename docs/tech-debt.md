@@ -104,7 +104,9 @@ Static and unit gates pass, but Auth, RLS, atomic RPC, team-management, concurre
 
 ## Accepted Automation PR 2-A1 review follow-ups
 
-Status: Open, accepted by the Product Owner on 2026-08-04 at merge of PR #24
+Status: Partially closed 2026-08-04. Items 1, 2, and 6 are closed by the
+project-status validator hotfix; items 3, 4, and 5 remain Open. Accepted by the
+Product Owner on 2026-08-04 at merge of PR #24
 (squash commit `c6e119ddbdaf23b714b91649520baade4e333d2f`). Recorded from the
 independent adversarial review of PR #24; none of these blocked the merge.
 
@@ -148,3 +150,44 @@ fingerprint excludes supplied task, issue, and findings inputs; Unicode bidi
 controls pass through prompt quoting unescaped; Windows reserved device names and
 NTFS alternate data streams are accepted as output filenames within the ignored
 prompt directory.
+
+### Closure record 2026-08-04: project-status validator hotfix
+
+Trigger: `main` CI was red from `c6e119d` (PR #24) onward. `docs/project-status.md`
+recorded the pre-merge main SHA while the validator required exact equality with
+the main tip, and the commit that updates the field becomes the new tip, so the
+value it records is stale the moment it lands. Exact equality was therefore
+unsatisfiable on a main tip that contains its own status update. Pull-request CI
+did not show this, because it resolved main through the merge-ref first parent,
+which equals the base SHA the document correctly recorded.
+
+Closed by this hotfix:
+
+1. **Detached two-parent main-SHA fallback — closed.** The fallback now runs only
+   when the runner's own event payload declares a pull-request base SHA and that
+   SHA is proven to be the first parent of the exact two-parent merge commit
+   checked out. Commit messages, branch names, and pull-request titles are not
+   evidence. `quality-gates.yml` additionally fetches `origin/main`, so
+   validation normally runs on verified refs and never reaches the fallback.
+   Every unverifiable detached case fails closed with `MAIN_REF_UNAVAILABLE`.
+
+2. **Parent-count restriction tests — closed.** Real Git fixtures now cover
+   ordinary detached commits, octopus merges, truncated shallow history, a
+   payload base that does not match the first parent, a non pull-request event,
+   a non-main base ref, and an unreadable payload.
+
+6. **Shallow-checkout wording — closed.** `docs/developer-toolchain.md` no longer
+   describes the fallback as supporting a shallow checkout. In a genuine shallow
+   clone the merge parents are grafted away and resolution fails closed; the
+   fallback applies to a full-history detached merge checkout.
+
+Still Open, unchanged in scope:
+
+3. Add tests for `OUTPUT_EXISTS` in `scripts/dev/generate-prompt.cjs`.
+4. Add tests for `OUTPUT_NOT_IGNORED` in `scripts/dev/generate-prompt.cjs`.
+5. Include the branch-vs-base diff in review prompt context.
+
+New validation rule, for reference: Main SHA is valid only when it equals the
+resolved main tip or the direct first parent of that tip. Arbitrary ancestry is
+rejected and the depth is not configurable, so a status more than one main
+commit behind still fails as stale.

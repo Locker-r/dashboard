@@ -126,8 +126,19 @@ function validateProjectStatus(input, options = {}) {
   if (Object.hasOwn(fields, 'Main SHA')) {
     if (!SHA_PATTERN.test(fields['Main SHA'])) {
       errors.push(issue('MAIN_SHA_INVALID', 'Main SHA must be a full 40-character Git SHA.'));
-    } else if (options.expectedMainSha && fields['Main SHA'].toLowerCase() !== options.expectedMainSha.toLowerCase()) {
-      errors.push(issue('MAIN_SHA_STALE', 'Main SHA does not match the repository main ref.'));
+    } else if (options.expectedMainSha) {
+      // The recorded SHA may be the main tip or its direct first parent, and
+      // nothing else. The one-commit allowance exists so that the commit which
+      // updates this field can itself become the new tip without immediately
+      // invalidating the value it just recorded; a second main commit without a
+      // status update is stale. Ancestry beyond one commit is never accepted.
+      const recorded = fields['Main SHA'].toLowerCase();
+      const tip = String(options.expectedMainSha).toLowerCase();
+      const parent = options.mainFirstParentSha ? String(options.mainFirstParentSha).toLowerCase() : null;
+      const matchesParent = Boolean(parent) && SHA_PATTERN.test(parent) && recorded === parent;
+      if (recorded !== tip && !matchesParent) {
+        errors.push(issue('MAIN_SHA_STALE', 'Main SHA must be the main tip or its direct first parent.'));
+      }
     }
   }
   if (Object.hasOwn(fields, 'Last merged PR') && !PR_PATTERN.test(fields['Last merged PR'])) {
@@ -166,22 +177,66 @@ function resolveRepositoryRoot(cwd, spawn) {
   return path.resolve(root);
 }
 
-function resolveMainSha(root, spawn) {
+function commitParents(root, revision, spawn) {
+  return String(runGit(['show', '-s', '--format=%P', revision], root, spawn) || '')
+    .split(/\s+/).filter(Boolean);
+}
+
+function firstParentOf(root, revision, spawn) {
+  const parents = commitParents(root, revision, spawn);
+  if (!parents.length) return null;
+  return SHA_PATTERN.test(parents[0]) ? parents[0].toLowerCase() : null;
+}
+
+// A detached checkout carries no main ref, so the base can only be accepted when
+// the CI runner itself vouches for it. The runner-written event payload supplies
+// the declared base SHA; that value is trusted only after it is proven to be the
+// first parent of the exact two-parent merge commit that is checked out. Commit
+// messages, branch names, and pull-request titles are never consulted.
+function resolveTrustedCiBase(root, spawn, env, readFile) {
+  if (env.GITHUB_ACTIONS !== 'true') return null;
+  if (env.GITHUB_EVENT_NAME !== 'pull_request') return null;
+  if (env.GITHUB_BASE_REF !== 'main') return null;
+  if (!env.GITHUB_EVENT_PATH) return null;
+  let payload;
+  try {
+    payload = JSON.parse(readFile(env.GITHUB_EVENT_PATH, 'utf8'));
+  } catch {
+    return null;
+  }
+  const declared = payload && payload.pull_request && payload.pull_request.base && payload.pull_request.base.sha;
+  if (typeof declared !== 'string' || !SHA_PATTERN.test(declared)) return null;
+  if (runGit(['symbolic-ref', '--quiet', '--short', 'HEAD'], root, spawn)) return null;
+  const parents = commitParents(root, 'HEAD', spawn);
+  if (parents.length !== 2 || !parents.every(parent => SHA_PATTERN.test(parent))) return null;
+  if (parents[0].toLowerCase() !== declared.toLowerCase()) return null;
+  return declared.toLowerCase();
+}
+
+function resolveMainContext(root, spawn = spawnSync, env = process.env, readFile = fs.readFileSync) {
   const localMain = runGit(['rev-parse', '--verify', 'refs/heads/main'], root, spawn);
   const originMain = runGit(['rev-parse', '--verify', 'refs/remotes/origin/main'], root, spawn);
-  const validLocal = localMain && SHA_PATTERN.test(localMain) ? localMain : null;
-  const validOrigin = originMain && SHA_PATTERN.test(originMain) ? originMain : null;
-  if (validLocal && validOrigin && validLocal.toLowerCase() !== validOrigin.toLowerCase()) {
+  const validLocal = localMain && SHA_PATTERN.test(localMain) ? localMain.toLowerCase() : null;
+  const validOrigin = originMain && SHA_PATTERN.test(originMain) ? originMain.toLowerCase() : null;
+  if (validLocal && validOrigin && validLocal !== validOrigin) {
     throw Object.assign(new Error('Local main and origin/main differ; synchronize them before validating project status.'), { code: 'MAIN_REFS_DIVERGED' });
   }
-  if (validLocal || validOrigin) return validLocal || validOrigin;
-  const currentBranch = runGit(['symbolic-ref', '--quiet', '--short', 'HEAD'], root, spawn);
-  if (!currentBranch) {
-    const parents = String(runGit(['show', '-s', '--format=%P', 'HEAD'], root, spawn) || '')
-      .split(/\s+/).filter(Boolean);
-    if (parents.length === 2 && parents.every(parent => SHA_PATTERN.test(parent))) return parents[0];
+  const resolved = validLocal || validOrigin;
+  if (resolved) {
+    return Object.freeze({ sha: resolved, firstParent: firstParentOf(root, resolved, spawn), source: 'ref' });
   }
-  throw Object.assign(new Error('Neither local main nor origin/main can be resolved.'), { code: 'MAIN_REF_UNAVAILABLE' });
+  const base = resolveTrustedCiBase(root, spawn, env || {}, readFile);
+  if (base) {
+    return Object.freeze({ sha: base, firstParent: firstParentOf(root, base, spawn), source: 'ci-merge-parent' });
+  }
+  throw Object.assign(
+    new Error('Neither local main nor origin/main can be resolved, and no verifiable CI merge provenance is available. Fetch origin/main before validating project status.'),
+    { code: 'MAIN_REF_UNAVAILABLE' }
+  );
+}
+
+function resolveMainSha(root, spawn, env, readFile) {
+  return resolveMainContext(root, spawn, env, readFile).sha;
 }
 
 function main(argv = process.argv.slice(2), dependencies = {}) {
@@ -197,11 +252,17 @@ function main(argv = process.argv.slice(2), dependencies = {}) {
   try {
     const cwd = dependencies.cwd || process.cwd();
     const spawn = dependencies.spawnSync || spawnSync;
-    const root = dependencies.root || resolveRepositoryRoot(cwd, spawn);
-    const mainSha = dependencies.mainSha || resolveMainSha(root, spawn);
+    const env = dependencies.env || process.env;
     const readFile = dependencies.readFileSync || fs.readFileSync;
+    const root = dependencies.root || resolveRepositoryRoot(cwd, spawn);
+    const context = dependencies.mainSha
+      ? { sha: dependencies.mainSha, firstParent: dependencies.mainFirstParentSha || null }
+      : resolveMainContext(root, spawn, env, fs.readFileSync);
     const statusPath = path.join(root, 'docs', 'project-status.md');
-    const result = validateProjectStatus(readFile(statusPath), { expectedMainSha: mainSha });
+    const result = validateProjectStatus(readFile(statusPath), {
+      expectedMainSha: context.sha,
+      mainFirstParentSha: context.firstParent
+    });
     if (result.valid) {
       streams.stdout.write('PROJECT STATUS VALID\n');
       return 0;
@@ -222,6 +283,7 @@ module.exports = {
   isValidIsoTimestamp,
   normalizeDocument,
   parseCanonicalFields,
+  resolveMainContext,
   resolveMainSha,
   resolveRepositoryRoot,
   validateProjectStatus,
