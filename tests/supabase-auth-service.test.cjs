@@ -88,6 +88,59 @@ test('normalizes a trailing slash but rejects REST endpoints and non-Supabase pr
   }
 });
 
+test('accepts an http loopback project root so local development can sign in', () => {
+  for (const projectUrl of [
+    'http://127.0.0.1:54321',
+    'http://127.0.0.1:54321/',
+    ' http://localhost:54321 ',
+    'http://[::1]:54321'
+  ]) {
+    const normalized = auth.normalizeConfig({ projectUrl, publishableKey: 'publishable' });
+    assert.equal(normalized.projectUrl, new URL(projectUrl.trim()).origin);
+    assert.equal(normalized.publishableKey, 'publishable');
+  }
+});
+
+test('a widened loopback rule still refuses to send credentials off the machine', () => {
+  for (const projectUrl of [
+    'http://example.supabase.co',            // plaintext to a remote host
+    'http://127.0.0.1.evil.com:54321',       // loopback-looking hostname, remote host
+    'http://evil.com/127.0.0.1',             // loopback only in the path
+    'https://127.0.0.1:54321',               // loopback is http-only, matching doctor
+    'http://127.0.0.1:54321/rest/v1',        // not a project root
+    'http://127.0.0.1:54321?apikey=x',
+    'http://user:pw@127.0.0.1:54321',        // embedded credentials
+    'http://[::2]:54321'
+  ]) {
+    assert.throws(() => auth.normalizeConfig({ projectUrl, publishableKey: 'publishable' }),
+      error => error.code === 'config_invalid', `expected ${projectUrl} to be refused`);
+  }
+});
+
+test('the documented local workflow signs in, restores a session, and signs out', async () => {
+  // The whole point of the local origin: the real service, built from the real
+  // local configuration, drives sign-in, session restore and sign-out.
+  const localConfig = { projectUrl: 'http://127.0.0.1:54321', publishableKey: 'publishable' };
+  const fixture = clientWith({
+    signInResult: { data: { user: { id: 'u1', email: 'smoke_test_admin@local.invalid' } }, error: null },
+    sessionResult: { data: { session: { user: { id: 'u1', email: 'smoke_test_admin@local.invalid' } } }, error: null },
+    profileResult: { data: { username: 'SMOKE_TEST_admin', name: 'Admin', role: 'admin', lang: 'ru', is_active: true }, error: null }
+  });
+  let received;
+  const service = auth.createBrowserAuthService(localConfig, {
+    createClient(...args) { received = args; return fixture.client; }
+  }, { getItem() {}, setItem() {}, removeItem() {} });
+
+  assert.equal(received[0], 'http://127.0.0.1:54321');
+  assert.equal(received[2].auth.persistSession, true);
+
+  const signedIn = await service.signIn('smoke_test_admin@local.invalid', 'password');
+  assert.equal(signedIn.role, 'admin');
+  assert.equal((await service.getCurrentUser()).id, 'u1');
+  await service.signOut();
+  assert.equal(fixture.calls.signOut, 1);
+});
+
 test('classifies invalid credentials and network failures', async () => {
   let fixture = clientWith({ signInResult: { data: {}, error: new Error('Invalid login credentials') } });
   await assert.rejects(() => new auth.SupabaseAuthService(fixture.client).signIn('a@example.com', 'bad'), error => error.code === 'invalid_credentials');

@@ -259,18 +259,47 @@ test('a missing local configuration blocks with a safe template instead of a gue
   assert.match(findingByCode(result, 'CONFIG_DATA_MISSING').remediation, /REACTIVATION_DATA_CONFIG/);
 });
 
-test('the data mode and the loopback auth limitation are both reported', async () => {
+test('the data mode and the local auth capability are both reported', async () => {
   const supabaseMode = createEnvironment();
   const supabaseResult = await doctor.runDoctor({ deps: supabaseMode.deps });
   assert.equal(supabaseResult.facts.dataMode, 'supabase');
-  const limitation = findingByCode(supabaseResult, 'FRONTEND_LOOPBACK_AUTH_UNSUPPORTED');
-  assert.equal(limitation.severity, 'warning');
-  assert.match(limitation.detail, /config_invalid/);
+  const capability = findingByCode(supabaseResult, 'FRONTEND_LOCAL_AUTH_SUPPORTED');
+  assert.equal(capability.severity, 'ok');
+  assert.match(capability.detail, /sign-in, session restore, and sign-out/);
 
   const localMode = createEnvironment({ dataConfig: fixtures.dataConfigSource({ mode: 'local' }) });
   const localResult = await doctor.runDoctor({ deps: localMode.deps });
   assert.equal(localResult.facts.dataMode, 'local');
-  assert.equal(findingByCode(localResult, 'FRONTEND_LOOPBACK_AUTH_UNSUPPORTED'), null);
+  // No self-suppression: the finding does not depend on the data mode.
+  assert.equal(findingByCode(localResult, 'FRONTEND_LOCAL_AUTH_SUPPORTED').severity, 'ok');
+});
+
+test('doctor never claims local sign-in is unsupported once the auth service accepts loopback', async () => {
+  const authService = require('../src/supabase-auth-service.js');
+  const localOrigin = doctor.LOCAL_SUPABASE_URL;
+
+  // The claim and the implementation are checked against each other, so the two
+  // cannot drift apart again: whatever doctor reports about the loopback origin
+  // has to match what the browser auth service actually does with it.
+  assert.equal(
+    authService.normalizeConfig({ projectUrl: localOrigin, publishableKey: 'publishable' }).projectUrl,
+    localOrigin);
+
+  for (const dataConfig of [undefined, fixtures.dataConfigSource({ mode: 'local' })]) {
+    const environment = createEnvironment(dataConfig ? { dataConfig } : {});
+    const result = await doctor.runDoctor({ deps: environment.deps });
+    assert.equal(findingByCode(result, 'FRONTEND_LOOPBACK_AUTH_UNSUPPORTED'), null);
+
+    // No remediation anywhere may sell a data-mode switch as the way to sign in,
+    // and none may assert that local sign-in fails.
+    for (const finding of result.findings) {
+      const text = `${finding.detail || ''} ${finding.remediation || ''}`;
+      assert.equal(/sign-?in fails|cannot succeed locally/i.test(text), false,
+        `finding ${finding.code} still claims local sign-in fails`);
+      assert.equal(/For UI work set mode to 'local'/i.test(text), false,
+        `finding ${finding.code} still recommends switching data mode to sign in`);
+    }
+  }
 });
 
 test('auth health is probed only against a loopback endpoint', async () => {

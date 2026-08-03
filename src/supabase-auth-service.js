@@ -7,6 +7,18 @@
 
   const AUTH_STORAGE_KEY = 'reactivation-desk-supabase-auth';
 
+  // Exactly two project roots are accepted, and nothing else:
+  //   - a hosted project root, https://<ref>.supabase.co
+  //   - a local development root on an http loopback origin
+  // The loopback form exists so the documented local workflow (npm run dev:local
+  // against http://127.0.0.1:54321) can sign in with the real auth service. It is
+  // restricted to literal loopback hosts, so this rule can never send credentials
+  // off the machine, and it matches classifyProjectUrl in scripts/dev/doctor.cjs
+  // so the diagnostic and the browser cannot disagree about what "local" means.
+  // The published Pages artifact stays pinned to the hosted form independently,
+  // by scripts/build-pages-artifact.cjs.
+  const LOOPBACK_HOSTNAMES = Object.freeze(['127.0.0.1', 'localhost', '[::1]', '::1']);
+
   class AuthServiceError extends Error {
     constructor(code, cause) {
       super(code);
@@ -14,6 +26,17 @@
       this.code = code;
       this.cause = cause;
     }
+  }
+
+  function isProjectRoot(parsed) {
+    // A project root carries no path, query, fragment, or credentials in either form.
+    if ((parsed.pathname !== '' && parsed.pathname !== '/') || parsed.search || parsed.hash ||
+        parsed.username || parsed.password) {
+      return false;
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    if (parsed.protocol === 'https:') return /^[a-z0-9]+\.supabase\.co$/.test(hostname);
+    return parsed.protocol === 'http:' && LOOPBACK_HOSTNAMES.includes(hostname);
   }
 
   function normalizeConfig(config) {
@@ -25,10 +48,7 @@
     const publishableKey = config.publishableKey.trim();
     let parsed;
     try { parsed = new URL(projectUrl); } catch (error) { throw new AuthServiceError('config_invalid', error); }
-    const isProjectRoot = parsed.protocol === 'https:' &&
-      /^[a-z0-9]+\.supabase\.co$/i.test(parsed.hostname) &&
-      (parsed.pathname === '' || parsed.pathname === '/') && !parsed.search && !parsed.hash;
-    if (!isProjectRoot) throw new AuthServiceError('config_invalid');
+    if (!isProjectRoot(parsed)) throw new AuthServiceError('config_invalid');
     return { projectUrl: parsed.origin, publishableKey };
   }
 

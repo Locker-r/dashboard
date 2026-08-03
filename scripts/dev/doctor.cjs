@@ -900,12 +900,14 @@ function checkLocalConfiguration(deps, root, report) {
     }
   }
 
-  // Pre-existing constraint, reported rather than worked around: the browser
-  // auth service accepts only an https://<ref>.supabase.co project root.
-  if (result.dataMode === 'supabase' && result.urlClass && result.urlClass.kind === 'local') {
-    report.warn('FRONTEND_LOOPBACK_AUTH_UNSUPPORTED', 'Frontend auth against local Supabase',
-      "src/supabase-auth-service.js accepts only an https://<ref>.supabase.co project root, so with data mode 'supabase' and a loopback URL the dashboard sign-in fails with config_invalid. This is existing frontend behaviour, not a launcher fault.",
-      "For UI work set mode to 'local' in config/data-config.local.js. For local backend verification use the sanctioned harness: powershell -File scripts/dev/smoke.ps1 -AllowDatabaseReset");
+  // Reported for a loopback origin in every data mode. The previous wording was
+  // emitted only with data mode 'supabase' and told the reader to switch to
+  // 'local', so following its own advice made the warning disappear while the
+  // behaviour it described was unchanged. src/supabase-auth-service.js now
+  // accepts a loopback project root, so the honest report is that sign-in works.
+  if (result.urlClass && result.urlClass.kind === 'local') {
+    report.ok('FRONTEND_LOCAL_AUTH_SUPPORTED', 'Frontend auth against local Supabase',
+      'src/supabase-auth-service.js accepts this loopback project root, so dashboard sign-in, session restore, and sign-out work against local Supabase in every data mode.');
   }
 
   return result;
