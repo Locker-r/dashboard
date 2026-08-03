@@ -11,7 +11,12 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { isValidIsoTimestamp, normalizeDocument, validateProjectStatus } = require('./check-project-status.cjs');
+const {
+  inspectMainSha,
+  isValidIsoTimestamp,
+  normalizeDocument,
+  validateProjectStatus
+} = require('./check-project-status.cjs');
 
 const EXIT_OK = 0;
 const EXIT_FAILED = 1;
@@ -358,14 +363,27 @@ function collectProjectStatus(deps, repository) {
   }
   const expectedMainSha = repository.localMain || repository.originMain;
   if (!expectedMainSha) throw promptError('MAIN_REF_UNAVAILABLE', 'Neither local main nor origin/main can be resolved.');
-  // Mirror the validator's exact-or-direct-parent rule so a prompt generated
-  // straight after a merge is not rejected for a status that is still current.
-  const mainFirstParentSha = optionalGitSha(deps, repository.root, `${expectedMainSha}^1`);
-  const result = validateProjectStatus(source, { expectedMainSha, mainFirstParentSha });
+  const result = validateProjectStatus(source, {
+    expectedMainSha,
+    inspectMainSha: (recordedSha, resolvedMainSha) => inspectMainSha(
+      repository.root,
+      recordedSha,
+      resolvedMainSha,
+      deps.runCommand
+    )
+  });
   if (!result.valid) {
     throw promptError('PROJECT_STATUS_INVALID', `Project status is invalid: ${result.errors.map(error => error.code).join(', ')}.`);
   }
-  return result.fields;
+  return Object.freeze({
+    fields: result.fields,
+    baseline: Object.freeze({
+      recordedStatusSha: result.fields['Main SHA'],
+      resolvedMainSha: result.resolvedMainSha,
+      commitsBehindMain: result.commitsBehindMain,
+      relation: result.mainShaStatus
+    })
+  });
 }
 
 function parseDecisions(source) {
@@ -601,8 +619,14 @@ function renderRepository(repository) {
   return lines.join('\n');
 }
 
-function renderStatus(fields) {
-  return Object.entries(fields).map(([name, value]) => `- ${name}: ${quoteUntrusted(value)}`).join('\n');
+function renderStatus(fields, baseline) {
+  const lines = Object.entries(fields).map(([name, value]) => name === 'Main SHA'
+    ? `- Recorded status SHA: ${value}`
+    : `- ${name}: ${quoteUntrusted(value)}`);
+  lines.push(`- Resolved main SHA: ${baseline.resolvedMainSha}`);
+  lines.push(`- Commits behind main: ${baseline.commitsBehindMain}`);
+  lines.push(`- Status SHA relation: ${baseline.relation}`);
+  return lines.join('\n');
 }
 
 function renderDecisions(decisions) {
@@ -652,7 +676,7 @@ function renderSuppliedInputs(options, findings) {
   return lines.join('\n');
 }
 
-function renderPrompt({ options, template, rules, repository, status, decisions, github, findings, timestamp, fingerprint }) {
+function renderPrompt({ options, template, rules, repository, status, statusBaseline, decisions, github, findings, timestamp, fingerprint }) {
   return [
     '# Dashboard Latam generated prompt',
     '',
@@ -706,7 +730,7 @@ function renderPrompt({ options, template, rules, repository, status, decisions,
     '',
     '### Project status',
     '',
-    renderStatus(status),
+    renderStatus(status, statusBaseline),
     '',
     '### Relevant decisions',
     '',
@@ -734,7 +758,9 @@ function generationTimestamp(options, deps) {
 function generatePrompt(options, deps) {
   const repository = collectRepositoryContext(deps);
   const assets = loadTrustedAssets(deps, repository.root);
-  const status = collectProjectStatus(deps, repository);
+  const collectedStatus = collectProjectStatus(deps, repository);
+  const status = collectedStatus.fields;
+  const statusBaseline = collectedStatus.baseline;
   const allDecisions = collectDecisions(deps, repository.root);
   const template = assets.templates[options.template];
   const decisions = selectDecisions(template, allDecisions);
@@ -743,11 +769,23 @@ function generatePrompt(options, deps) {
     throw promptError('GITHUB_STATE_REQUIRED', `${options.template} requires live GitHub state; ${github.reason}`);
   }
   const findings = options.findings === null ? null : readFindings(deps, repository.root, options.findings);
-  const fingerprintContext = Object.freeze({ repository, status, decisions, github });
+  const fingerprintContext = Object.freeze({ repository, status, statusBaseline, decisions, github });
   const fingerprint = createContextFingerprint(fingerprintContext);
   const timestamp = generationTimestamp(options, deps);
-  const prompt = renderPrompt({ options, template, rules: assets.rules, repository, status, decisions, github, findings, timestamp, fingerprint });
-  return Object.freeze({ prompt, repository, status, decisions, github, findings, timestamp, fingerprint });
+  const prompt = renderPrompt({
+    options,
+    template,
+    rules: assets.rules,
+    repository,
+    status,
+    statusBaseline,
+    decisions,
+    github,
+    findings,
+    timestamp,
+    fingerprint
+  });
+  return Object.freeze({ prompt, repository, status, statusBaseline, decisions, github, findings, timestamp, fingerprint });
 }
 
 function resolveSafeOutputPath(root, rawPath) {

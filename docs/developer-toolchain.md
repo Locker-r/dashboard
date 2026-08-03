@@ -43,21 +43,23 @@ Run the dependency-free validator with:
 
     npm run check:project-status
 
-Success prints PROJECT STATUS VALID. Failure prints PROJECT STATUS INVALID plus
-specific error codes. The validator accepts LF, CRLF, and a UTF-8 BOM, rejects
+Success prints PROJECT STATUS VALID plus the Main SHA relation and
+commitsBehindMain distance. Failure prints PROJECT STATUS INVALID plus specific
+error codes. The validator accepts LF, CRLF, and a UTF-8 BOM, rejects
 missing, duplicate, unknown, empty, malformed, placeholder, and secret-shaped
 fields, and compares Main SHA with the synchronized local main and origin/main
 refs rather than the current feature-branch HEAD. Divergent main refs fail with
 MAIN_REFS_DIVERGED instead of choosing one silently.
 
-Main SHA is valid when it is either the resolved main tip or the direct first
-parent of that tip, and nothing else. The one-commit allowance is what makes the
-update cycle terminate: the commit that refreshes Main SHA becomes the new main
-tip itself, so an exact-equality rule could never be satisfied on main after a
-merge. Recording the SHA that was main when the status was written keeps main
-green through that merge. Anything further behind is stale, so one more main
-commit without a status update fails with MAIN_SHA_STALE. Arbitrary ancestry is
-never accepted, and there is no configurable depth.
+Main SHA is a verified milestone baseline. It must be a full SHA that resolves
+to a commit and is an ancestor of resolved main. Exact equality is reported as
+exact with commitsBehindMain 0. Any older ancestor remains valid, with the
+shortest parent-edge distance through the Git graph reported as informational
+context; a direct parent is therefore 1 even at a merge. There is no blocking
+maximum depth. A missing commit fails with MAIN_SHA_UNREACHABLE,
+and a reachable unrelated or descendant commit fails with
+MAIN_SHA_NOT_ANCESTOR. This allows technical merges after a milestone without
+creating an endless chain of status-only pull requests.
 
 Main resolution uses refs/heads/main or refs/remotes/origin/main whenever either
 is present. Continuous integration fetches origin/main explicitly so validation
@@ -71,10 +73,11 @@ payload, or a non pull-request event — fails closed with MAIN_REF_UNAVAILABLE.
 
 Milestone status uses exactly: planned, in-progress, blocked, or complete.
 Last merged PR and Current open PR use either none or a positive number prefixed
-with #; Current open PR identifies the current milestone pull request, not
-unrelated dependency-update pull requests. Update project status after each
-milestone merge. If its SHA or PR information disagrees with verified repository
-state, stop and report STALE PROJECT STATUS rather than updating it automatically.
+with #; both are milestone-scoped rather than a log of technical hotfix,
+documentation-only, or dependency-update pull requests. Refresh project status
+when a milestone completes. Valid ancestor lag is informational; unreachable or
+non-ancestor SHAs, unsafe main resolution, or materially incorrect milestone
+state require stopping with the named error instead of an automatic update.
 
 ## Prompt generator
 
@@ -111,7 +114,10 @@ never reads environment files or ignored credential files.
 Git, GitHub, task, issue, findings, branch, commit, filename, and PR-title text
 is redacted and placed in an explicit untrusted-data section, never in the
 mandatory rules. Output includes exact HEAD, timestamp, a context fingerprint,
-and a STALE PROMPT stop condition.
+the recorded status SHA, resolved main SHA, commitsBehindMain, and whether the
+baseline relation is exact or ancestor-based. A valid ancestor is never labeled
+stale-blocking. The STALE PROMPT guard remains exact: branch, HEAD, relevant PR
+head, and other execution context must still match the generated prompt.
 
 Offline mode never invokes GitHub and emits:
 

@@ -21,15 +21,21 @@ Last updated: 2026-08-04T00:58:11.402+05:00
 
 ## Update contract
 
-- Update this file after every milestone merge.
-- Main SHA must be the main tip or its direct first parent. Record the SHA that
-  is main when the change is written; the commit carrying that change becomes
-  the new tip, which keeps main valid without a further update. One more main
-  commit without an update makes this status stale.
-- Report STALE PROJECT STATUS before working when Main SHA, pull-request state,
-  or another material field disagrees with verified repository state.
+- Update this file when a milestone is completed. Main SHA records the verified
+  milestone baseline at that point; technical hotfix, dependency, and
+  documentation merges do not require a self-referential status update.
+- Main SHA must be a full, reachable Git commit that is an ancestor of resolved
+  main. Exact equality is fully current. An older ancestor remains valid, and
+  the validator reports its informational commitsBehindMain distance without
+  imposing an arbitrary maximum.
+- A missing or unreachable Main SHA is blocking. A reachable SHA outside main's
+  ancestry is blocking with MAIN_SHA_NOT_ANCESTOR. Divergent or unresolvable
+  main refs also fail closed. Ancestor lag by itself is not stale project status.
+- Report STALE PROJECT STATUS before working when ancestry, milestone-scoped
+  pull-request state, or another material field disagrees with verified state.
 - Treat every status change as reviewed code. Never update it automatically.
 - Keep values concise and verifiable. Do not add secrets, credentials, volatile
   command output, or a copy of the full roadmap.
-- Current open PR identifies this milestone's pull request; unrelated automated
-  dependency updates are outside this status field.
+- Last merged PR and Current open PR are milestone-scoped. Technical hotfixes,
+  documentation-only changes, and unrelated automated dependency updates are
+  outside these status fields.

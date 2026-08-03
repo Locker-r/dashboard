@@ -15,6 +15,8 @@ const repositoryMainContext = checker.resolveMainContext(root);
 const repositoryMainSha = repositoryMainContext.sha;
 const repositoryStatus = fs.readFileSync(statusPath, 'utf8');
 const lfStatus = repositoryStatus.replace(/\r\n?/g, '\n');
+const repositoryRecordedSha = checker.parseCanonicalFields(checker.normalizeDocument(repositoryStatus)).fields['Main SHA'];
+const repositoryBaselineInspection = checker.inspectMainSha(root, repositoryRecordedSha, repositoryMainSha);
 
 // Real Git fixtures. Ancestry rules and detached-checkout provenance cannot be
 // proven with mocked command output alone, so these build throwaway
@@ -92,8 +94,15 @@ function appendCanonicalLine(line, input = lfStatus) {
   return input.replace(marker, `\n${line}${marker}`);
 }
 
-function validate(input, expectedMainSha = repositoryMainSha, mainFirstParentSha = repositoryMainContext.firstParent) {
-  return checker.validateProjectStatus(input, { expectedMainSha, mainFirstParentSha });
+function validate(input, expectedMainSha = repositoryMainSha, repository = root) {
+  return checker.validateProjectStatus(input, {
+    expectedMainSha,
+    inspectMainSha: (recordedSha, resolvedMainSha) => repository === root
+      && recordedSha === repositoryRecordedSha
+      && resolvedMainSha === repositoryMainSha
+      ? repositoryBaselineInspection
+      : checker.inspectMainSha(repository, recordedSha, resolvedMainSha)
+  });
 }
 
 function errorCodes(result) {
@@ -127,20 +136,24 @@ function runMain(input, options = {}) {
     mainSha: options.mainSha || repositoryMainSha,
     mainFirstParentSha: options.mainFirstParentSha || repositoryMainContext.firstParent,
     readFileSync: () => input,
+    inspectMainSha: options.inspectMainSha || ((recordedSha, resolvedMainSha) => recordedSha === repositoryRecordedSha
+      && resolvedMainSha === repositoryMainSha
+      ? repositoryBaselineInspection
+      : checker.inspectMainSha(root, recordedSha, resolvedMainSha)),
     streams: capture.streams
   });
   return { code, stdout: capture.stdout(), stderr: capture.stderr() };
 }
 
-test('the repository project status is valid for the local main ref', () => {
+test('the repository project status is a valid baseline ancestor of local main', () => {
   assert.match(repositoryMainSha, /^[0-9a-f]{40}$/);
   const result = validate(repositoryStatus);
   assert.equal(result.valid, true, JSON.stringify(result.errors));
   assert.deepEqual(result.errors, []);
-  assert.ok(
-    [repositoryMainSha, repositoryMainContext.firstParent].includes(result.fields['Main SHA']),
-    'recorded Main SHA must be the main tip or its direct first parent'
-  );
+  assert.equal(result.fields['Main SHA'], repositoryRecordedSha);
+  assert.equal(result.resolvedMainSha, repositoryMainSha);
+  assert.equal(result.mainShaStatus, repositoryBaselineInspection.status);
+  assert.equal(result.commitsBehindMain, repositoryBaselineInspection.commitsBehindMain);
 });
 
 test('required-field structure failures have specific codes', async t => {
@@ -163,14 +176,16 @@ test('a second canonical status section is rejected', () => {
   assert.ok(errorCodes(validate(duplicate)).includes('STATUS_SECTION_DUPLICATE'));
 });
 
-test('a malformed SHA and a stale full SHA are distinguished', () => {
+test('a malformed SHA and an unreachable full SHA are distinguished', () => {
   assertOnlyExpectedError(replaceField('Main SHA', 'abc123'), 'MAIN_SHA_INVALID');
 
-  const staleSha = `${repositoryMainSha[0] === '0' ? '1' : '0'}${repositoryMainSha.slice(1)}`;
-  assert.match(staleSha, /^[0-9a-f]{40}$/);
-  assert.notEqual(staleSha, repositoryMainSha, 'the stale fixture must differ from expected main');
-  const result = assertOnlyExpectedError(replaceField('Main SHA', staleSha), 'MAIN_SHA_STALE');
-  assert.equal(result.fields['Main SHA'], staleSha);
+  const unreachableSha = `${repositoryMainSha[0] === '0' ? '1' : '0'}${repositoryMainSha.slice(1)}`;
+  assert.match(unreachableSha, /^[0-9a-f]{40}$/);
+  assert.notEqual(unreachableSha, repositoryMainSha, 'the unreachable fixture must differ from expected main');
+  const result = assertOnlyExpectedError(replaceField('Main SHA', unreachableSha), 'MAIN_SHA_UNREACHABLE');
+  assert.equal(result.fields['Main SHA'], unreachableSha);
+  assert.equal(result.mainShaStatus, 'unreachable');
+  assert.equal(result.commitsBehindMain, null);
 });
 
 test('milestone status is restricted to the documented allowlist', async t => {
@@ -264,6 +279,69 @@ test('main ref resolution rejects local and origin divergence', () => {
   );
 });
 
+test('ancestry inspection distinguishes document failures from Git failures', async t => {
+  const recorded = 'a'.repeat(40);
+  const resolved = 'b'.repeat(40);
+  const processResult = (status, stdout = '', error = null) => ({ status, stdout, stderr: '', error });
+  const spawnFor = overrides => (_file, args, options = {}) => {
+    if (args[0] === 'cat-file') {
+      const sha = String(options.input || '').trim();
+      if (sha === recorded && overrides.recordedMissing) return processResult(0, `${sha} missing\n`);
+      if (sha === recorded && Object.hasOwn(overrides, 'recordedStatus')) {
+        return processResult(overrides.recordedStatus, overrides.recordedStdout || '', overrides.recordedError || null);
+      }
+      return processResult(0, `${sha} commit\n`);
+    }
+    if (args[0] === 'merge-base') return processResult(overrides.mergeBaseStatus ?? 0, '', overrides.mergeBaseError || null);
+    if (args[0] === 'rev-list') return processResult(0, `${resolved} ${recorded}\n`);
+    return processResult(127, '', new Error(`unexpected command: ${args.join(' ')}`));
+  };
+
+  await t.test('missing recorded commit is a validation failure', () => {
+    assert.deepEqual(
+      checker.inspectMainSha(root, recorded, resolved, spawnFor({ recordedMissing: true })),
+      { status: 'unreachable', commitsBehindMain: null }
+    );
+  });
+
+  await t.test('operational recorded-object failure is not mislabeled unreachable', () => {
+    for (const recordedStatus of [1, 128]) {
+      assert.throws(
+        () => checker.inspectMainSha(root, recorded, resolved, spawnFor({ recordedStatus })),
+        error => error.code === 'MAIN_SHA_INSPECTION_FAILED'
+      );
+    }
+    assert.throws(
+      () => checker.inspectMainSha(root, recorded, resolved, spawnFor({
+        recordedStatus: null,
+        recordedError: new Error('synthetic spawn failure')
+      })),
+      error => error.code === 'MAIN_SHA_INSPECTION_FAILED'
+    );
+  });
+
+  await t.test('merge-base exit one means non-ancestor; higher exits are operational', () => {
+    assert.deepEqual(
+      checker.inspectMainSha(root, recorded, resolved, spawnFor({ mergeBaseStatus: 1 })),
+      { status: 'not-ancestor', commitsBehindMain: null }
+    );
+    assert.throws(
+      () => checker.inspectMainSha(root, recorded, resolved, spawnFor({ mergeBaseStatus: 2 })),
+      error => error.code === 'MAIN_SHA_INSPECTION_FAILED'
+    );
+  });
+
+  await t.test('negative relations cannot carry a false distance', () => {
+    assert.throws(
+      () => checker.validateProjectStatus(replaceField('Main SHA', recorded), {
+        expectedMainSha: resolved,
+        inspectMainSha: () => ({ status: 'not-ancestor', commitsBehindMain: 42 })
+      }),
+      error => error.code === 'MAIN_SHA_INSPECTION_INVALID'
+    );
+  });
+});
+
 test('an unverified detached two-parent merge no longer resolves main', () => {
   const base = '3'.repeat(40);
   const feature = '4'.repeat(40);
@@ -307,7 +385,11 @@ test('LF, CRLF, and UTF-8 BOM documents are accepted', async t => {
 test('CLI success, validation failure, help, and invalid usage are deterministic', async t => {
   await t.test('success', () => {
     const result = runMain(lfStatus);
-    assert.deepEqual(result, { code: 0, stdout: 'PROJECT STATUS VALID\n', stderr: '' });
+    assert.deepEqual(result, {
+      code: 0,
+      stdout: `PROJECT STATUS VALID\nMain SHA relation: ${repositoryBaselineInspection.status}; commitsBehindMain=${repositoryBaselineInspection.commitsBehindMain}\n`,
+      stderr: ''
+    });
   });
 
   await t.test('validation failure', () => {
@@ -336,7 +418,7 @@ test('CLI success, validation failure, help, and invalid usage are deterministic
   });
 });
 
-test('Main SHA accepts the main tip and its direct first parent only', async t => {
+test('Main SHA accepts any reachable main ancestor and reports commit distance', async t => {
   const repository = createFixtureRepository();
   const first = fixtureCommit(repository, 'first');
   const second = fixtureCommit(repository, 'second');
@@ -345,6 +427,12 @@ test('Main SHA accepts the main tip and its direct first parent only', async t =
   git(repository, 'checkout', '-q', 'main');
   const third = fixtureCommit(repository, 'third');
   const fourth = fixtureCommit(repository, 'fourth');
+  git(repository, 'checkout', '-q', '-b', 'future', fourth);
+  const descendantCommit = fixtureCommit(repository, 'future-work');
+  git(repository, 'checkout', '-q', 'main');
+  git(repository, 'tag', '-a', 'annotated-baseline', fourth, '-m', 'Annotated baseline');
+  const annotatedTagObject = git(repository, 'rev-parse', 'refs/tags/annotated-baseline');
+  assert.notEqual(annotatedTagObject, fourth, 'the fixture must use the tag object SHA, not its peeled commit');
   const context = checker.resolveMainContext(repository);
 
   assert.equal(context.sha, fourth);
@@ -352,27 +440,72 @@ test('Main SHA accepts the main tip and its direct first parent only', async t =
 
   const check = sha => checker.validateProjectStatus(
     replaceField('Main SHA', sha),
-    { expectedMainSha: context.sha, mainFirstParentSha: context.firstParent }
+    {
+      expectedMainSha: context.sha,
+      inspectMainSha: (recordedSha, resolvedMainSha) => checker.inspectMainSha(
+        repository,
+        recordedSha,
+        resolvedMainSha
+      )
+    }
   );
 
   await t.test('recorded SHA equals main', () => {
-    assert.equal(check(fourth).valid, true);
+    const result = check(fourth);
+    assert.equal(result.valid, true);
+    assert.equal(result.mainShaStatus, 'exact');
+    assert.equal(result.commitsBehindMain, 0);
   });
 
   await t.test('recorded SHA is the direct first parent of main', () => {
-    assert.equal(check(third).valid, true);
+    const result = check(third);
+    assert.equal(result.valid, true);
+    assert.equal(result.mainShaStatus, 'ancestor');
+    assert.equal(result.commitsBehindMain, 1);
   });
 
-  await t.test('recorded SHA two commits behind is stale', () => {
-    assert.deepEqual(errorCodes(check(second)), ['MAIN_SHA_STALE']);
+  await t.test('recorded SHA two commits behind remains valid', () => {
+    const result = check(second);
+    assert.equal(result.valid, true);
+    assert.equal(result.mainShaStatus, 'ancestor');
+    assert.equal(result.commitsBehindMain, 2);
   });
 
-  await t.test('an older unrelated ancestor is stale', () => {
-    assert.deepEqual(errorCodes(check(first)), ['MAIN_SHA_STALE']);
+  await t.test('an older ancestor remains valid at the correct distance', () => {
+    const result = check(first);
+    assert.equal(result.valid, true);
+    assert.equal(result.mainShaStatus, 'ancestor');
+    assert.equal(result.commitsBehindMain, 3);
   });
 
-  await t.test('a commit from an unrelated branch is stale', () => {
-    assert.deepEqual(errorCodes(check(featureCommit)), ['MAIN_SHA_STALE']);
+  await t.test('a commit from an unrelated branch is blocking', () => {
+    const result = check(featureCommit);
+    assert.deepEqual(errorCodes(result), ['MAIN_SHA_NOT_ANCESTOR']);
+    assert.equal(result.mainShaStatus, 'not-ancestor');
+    assert.equal(result.commitsBehindMain, null);
+  });
+
+  await t.test('a descendant of resolved main is blocking', () => {
+    const result = check(descendantCommit);
+    assert.deepEqual(errorCodes(result), ['MAIN_SHA_NOT_ANCESTOR']);
+    assert.equal(result.mainShaStatus, 'not-ancestor');
+    assert.equal(result.commitsBehindMain, null);
+  });
+
+  await t.test('a missing commit is unreachable and blocking', () => {
+    const missing = 'f'.repeat(40);
+    assert.notEqual(missing, fourth);
+    const result = check(missing);
+    assert.deepEqual(errorCodes(result), ['MAIN_SHA_UNREACHABLE']);
+    assert.equal(result.mainShaStatus, 'unreachable');
+    assert.equal(result.commitsBehindMain, null);
+  });
+
+  await t.test('an annotated tag object that peels to an ancestor is not a commit SHA', () => {
+    const result = check(annotatedTagObject);
+    assert.deepEqual(errorCodes(result), ['MAIN_SHA_UNREACHABLE']);
+    assert.equal(result.mainShaStatus, 'unreachable');
+    assert.equal(result.commitsBehindMain, null);
   });
 });
 
@@ -545,7 +678,7 @@ test('local main and origin/main divergence fails closed before any comparison',
   );
 });
 
-test('resolved main refs expose the first parent for the parent rule', () => {
+test('resolved main refs retain first-parent metadata for secure CI provenance', () => {
   const repository = createFixtureRepository();
   const base = fixtureCommit(repository, 'base');
   const tip = fixtureCommit(repository, 'tip');
@@ -561,34 +694,76 @@ test('a root commit without a parent still validates by exact equality', () => {
   const context = checker.resolveMainContext(repository);
   assert.equal(context.sha, only);
   assert.equal(context.firstParent, null);
-  assert.equal(checker.validateProjectStatus(replaceField('Main SHA', only), {
+  const result = checker.validateProjectStatus(replaceField('Main SHA', only), {
     expectedMainSha: context.sha,
-    mainFirstParentSha: context.firstParent
-  }).valid, true);
+    inspectMainSha: (recordedSha, resolvedMainSha) => checker.inspectMainSha(
+      repository,
+      recordedSha,
+      resolvedMainSha
+    )
+  });
+  assert.equal(result.valid, true);
+  assert.equal(result.mainShaStatus, 'exact');
+  assert.equal(result.commitsBehindMain, 0);
 });
 
-test('post-merge main validation passes end to end in a synthetic repository', () => {
+test('three normal merges remain valid until the milestone baseline is refreshed', () => {
   const repository = createFixtureRepository();
   fixtureCommit(repository, 'earlier');
-  const beforeMerge = fixtureCommit(repository, 'feature-merge');
+  const baseline = fixtureCommit(repository, 'milestone-merge');
 
-  // Model the real cycle: the status commit records the SHA that was main when
-  // it was written, then becomes the new main tip itself.
-  writeFixtureStatus(repository, beforeMerge);
+  writeFixtureStatus(repository, baseline);
   git(repository, 'add', '-A');
   git(repository, 'commit', '-q', '-m', 'docs: sync canonical status');
-  const afterMerge = git(repository, 'rev-parse', 'HEAD');
-  assert.notEqual(afterMerge, beforeMerge);
+  const mergedFeatureCommits = [];
+  for (const name of ['one', 'two', 'three']) {
+    git(repository, 'checkout', '-q', '-b', `feature-${name}`);
+    mergedFeatureCommits.push(fixtureCommit(repository, `feature-${name}-work`));
+    git(repository, 'checkout', '-q', 'main');
+    git(repository, 'merge', '-q', '--no-ff', `feature-${name}`, '-m', `Merge feature ${name}`);
+  }
+  const tip = git(repository, 'rev-parse', 'main');
+  const baselineInspection = checker.inspectMainSha(repository, baseline, tip);
+  assert.deepEqual(baselineInspection, { status: 'ancestor', commitsBehindMain: 4 });
+
+  const secondParent = mergedFeatureCommits.at(-1);
+  const secondParentResult = checker.validateProjectStatus(replaceField('Main SHA', secondParent), {
+    expectedMainSha: tip,
+    inspectMainSha: (recordedSha, resolvedMainSha) => checker.inspectMainSha(
+      repository,
+      recordedSha,
+      resolvedMainSha
+    )
+  });
+  assert.equal(secondParentResult.valid, true, JSON.stringify(secondParentResult.errors));
+  assert.equal(secondParentResult.mainShaStatus, 'ancestor');
+  assert.equal(secondParentResult.commitsBehindMain, 1, 'a direct second parent must be one edge behind');
 
   const capture = createStreams();
   const code = checker.main([], { root: repository, cwd: repository, streams: capture.streams });
   assert.equal(code, 0, capture.stderr());
-  assert.equal(capture.stdout(), 'PROJECT STATUS VALID\n');
+  assert.match(capture.stdout(), /^PROJECT STATUS VALID\n/);
+  assert.match(capture.stdout(), /commitsBehindMain=4/);
   assert.equal(capture.stderr(), '');
 
-  // One further main commit without a status update must go stale again.
-  fixtureCommit(repository, 'later');
-  const stale = createStreams();
-  assert.equal(checker.main([], { root: repository, cwd: repository, streams: stale.streams }), 1);
-  assert.match(stale.stderr(), /\[MAIN_SHA_STALE\]/);
+  const beforeRefresh = git(repository, 'rev-parse', 'HEAD');
+  writeFixtureStatus(repository, beforeRefresh);
+  const exact = checker.validateProjectStatus(fs.readFileSync(path.join(repository, 'docs', 'project-status.md')), {
+    expectedMainSha: beforeRefresh,
+    inspectMainSha: (recordedSha, resolvedMainSha) => checker.inspectMainSha(
+      repository,
+      recordedSha,
+      resolvedMainSha
+    )
+  });
+  assert.equal(exact.valid, true);
+  assert.equal(exact.mainShaStatus, 'exact');
+  assert.equal(exact.commitsBehindMain, 0);
+
+  git(repository, 'add', '-A');
+  git(repository, 'commit', '-q', '-m', 'docs: refresh milestone baseline');
+  const refreshed = createStreams();
+  assert.equal(checker.main([], { root: repository, cwd: repository, streams: refreshed.streams }), 0);
+  assert.match(refreshed.stdout(), /commitsBehindMain=1/);
+  assert.equal(refreshed.stderr(), '');
 });

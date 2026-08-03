@@ -109,6 +109,8 @@ function createFixture(overrides = {}) {
     [path.resolve(root, '.ai', 'rules', 'shared.md'), overrides.rulesSource || rulesSource],
     [findingsPath, findingsContent]
   ]);
+  const statusMainMatch = /^Main SHA:\s*([0-9a-f]{40})$/im.exec(files.get(path.resolve(root, 'docs', 'project-status.md')));
+  const recordedMain = statusMainMatch ? statusMainMatch[1].toLowerCase() : null;
   const stdout = stream();
   const stderr = stream();
   const clipboard = [];
@@ -153,6 +155,27 @@ function createFixture(overrides = {}) {
     }
     if (file === 'git' && args.join(' ') === 'rev-parse --verify --quiet refs/remotes/origin/main') {
       return originMain ? result(0, `${originMain}\n`) : result(1);
+    }
+    if (file === 'git' && args[0] === 'cat-file' && args[1].startsWith('--batch-check=')) {
+      const sha = String(options.input || '').trim().toLowerCase();
+      if (sha === recordedMain && overrides.statusReachable === false) return result(0, `${sha} missing\n`);
+      return result(0, `${sha} commit\n`);
+    }
+    if (file === 'git' && args[0] === 'merge-base' && args[1] === '--is-ancestor') {
+      return result(overrides.statusIsAncestor === false ? 1 : 0);
+    }
+    if (file === 'git' && args[0] === 'rev-list' && args[1] === '--parents' && args[2] === '--ancestry-path') {
+      const distance = overrides.commitsBehindMain === undefined ? 1 : overrides.commitsBehindMain;
+      const [recorded, resolved] = args[3].split('..');
+      const intermediates = ['a', 'b', 'c', 'd', 'e'].map(value => value.repeat(40));
+      const lines = [];
+      let current = resolved;
+      for (let index = 0; index < distance; index += 1) {
+        const parent = index === distance - 1 ? recorded : intermediates[index];
+        lines.push(`${current} ${parent}`);
+        current = parent;
+      }
+      return result(0, `${lines.join('\n')}\n`);
     }
     if (file === 'git' && args.join(' ') === 'status --porcelain=v1 -z --untracked-files=normal') {
       return result(0, statusEntries.length ? `${statusEntries.join('\0')}\0` : '');
@@ -254,6 +277,10 @@ function assertPromptContract(prompt) {
   assert.match(prompt, /Generated timestamp: /);
   assert.match(prompt, /Context fingerprint: sha256:[0-9a-f]{64}/);
   assert.match(prompt, new RegExp(`Exact HEAD: ${HEAD}`));
+  assert.match(prompt, /Recorded status SHA: [0-9a-f]{40}/);
+  assert.match(prompt, /Resolved main SHA: [0-9a-f]{40}/);
+  assert.match(prompt, /Commits behind main: [0-9]+/);
+  assert.match(prompt, /Status SHA relation: (?:exact|ancestor)/);
   assert.match(prompt, /If branch, HEAD, PR head, or relevant repository state differs[\s\S]*STALE PROMPT/);
   assert.doesNotMatch(prompt, /\{\{[^{}\r\n]+\}\}/);
 }
@@ -333,6 +360,55 @@ test('local and origin main divergence stops prompt generation as stale context'
     () => generator.generatePrompt(options, fixture.deps),
     error => error.code === 'MAIN_REFS_DIVERGED'
   );
+});
+
+test('project-status context reports exact and ancestor baselines without stale-blocking lag', () => {
+  const exact = generate(['validation', '--offline']).generated;
+  assert.deepEqual(exact.statusBaseline, {
+    recordedStatusSha: MAIN,
+    resolvedMainSha: MAIN,
+    commitsBehindMain: 0,
+    relation: 'exact'
+  });
+  assert.match(exact.prompt, new RegExp(`Recorded status SHA: ${MAIN}`));
+  assert.match(exact.prompt, /Commits behind main: 0/);
+  assert.match(exact.prompt, /Status SHA relation: exact/);
+
+  const recorded = '6'.repeat(40);
+  const ancestor = generate(['validation', '--offline'], {
+    statusSource: projectStatusSource(recorded),
+    commitsBehindMain: 2
+  }).generated;
+  assert.deepEqual(ancestor.statusBaseline, {
+    recordedStatusSha: recorded,
+    resolvedMainSha: MAIN,
+    commitsBehindMain: 2,
+    relation: 'ancestor'
+  });
+  assert.match(ancestor.prompt, new RegExp(`Recorded status SHA: ${recorded}`));
+  assert.match(ancestor.prompt, new RegExp(`Resolved main SHA: ${MAIN}`));
+  assert.match(ancestor.prompt, /Commits behind main: 2/);
+  assert.match(ancestor.prompt, /Status SHA relation: ancestor/);
+  assert.doesNotMatch(ancestor.prompt, /ancestor status is invalid|stale-blocking/i);
+});
+
+test('prompt generation blocks unreachable and non-ancestor status SHAs', () => {
+  const recorded = '6'.repeat(40);
+  for (const [name, overrides, code] of [
+    ['unreachable', { statusReachable: false }, 'MAIN_SHA_UNREACHABLE'],
+    ['non-ancestor', { statusIsAncestor: false }, 'MAIN_SHA_NOT_ANCESTOR']
+  ]) {
+    const fixture = createFixture({
+      statusSource: projectStatusSource(recorded),
+      ...overrides
+    });
+    const options = generator.parseArgs(['validation', '--offline']);
+    assert.throws(
+      () => generator.generatePrompt(options, fixture.deps),
+      error => error.code === 'PROJECT_STATUS_INVALID' && error.message.includes(code),
+      name
+    );
+  }
 });
 
 test('GitHub failure is tolerated by review prompts but blocks live merge templates', () => {
