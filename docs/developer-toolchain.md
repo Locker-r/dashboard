@@ -48,9 +48,26 @@ specific error codes. The validator accepts LF, CRLF, and a UTF-8 BOM, rejects
 missing, duplicate, unknown, empty, malformed, placeholder, and secret-shaped
 fields, and compares Main SHA with the synchronized local main and origin/main
 refs rather than the current feature-branch HEAD. Divergent main refs fail with
-MAIN_REFS_DIVERGED instead of choosing one silently. A shallow detached CI
-merge checkout may use the first parent only when HEAD has exactly two full-SHA
-parents; named branches never use that fallback.
+MAIN_REFS_DIVERGED instead of choosing one silently.
+
+Main SHA is valid when it is either the resolved main tip or the direct first
+parent of that tip, and nothing else. The one-commit allowance is what makes the
+update cycle terminate: the commit that refreshes Main SHA becomes the new main
+tip itself, so an exact-equality rule could never be satisfied on main after a
+merge. Recording the SHA that was main when the status was written keeps main
+green through that merge. Anything further behind is stale, so one more main
+commit without a status update fails with MAIN_SHA_STALE. Arbitrary ancestry is
+never accepted, and there is no configurable depth.
+
+Main resolution uses refs/heads/main or refs/remotes/origin/main whenever either
+is present. Continuous integration fetches origin/main explicitly so validation
+stays on verified refs. A detached checkout with no main ref falls back to the
+merge parent only when the runner's own event payload declares a pull-request
+base SHA and that SHA is proven to be the first parent of the exact two-parent
+merge commit that is checked out. Commit messages, branch names, and
+pull-request titles are never treated as proof. Every other detached case —
+ordinary commits, octopus merges, truncated shallow history, a mismatched
+payload, or a non pull-request event — fails closed with MAIN_REF_UNAVAILABLE.
 
 Milestone status uses exactly: planned, in-progress, blocked, or complete.
 Last merged PR and Current open PR use either none or a positive number prefixed

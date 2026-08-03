@@ -17,6 +17,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      # Pull-request checkouts are detached and carry no main ref, which would
+      # force project-status validation onto the merge-parent fallback. Fetching
+      # the ref explicitly keeps validation on verified refs on every event.
+      - name: Fetch origin/main for project-status validation
+        run: git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
       - uses: actions/setup-node@v4
         with:
           node-version: 24

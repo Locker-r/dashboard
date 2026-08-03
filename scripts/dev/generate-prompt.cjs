@@ -358,7 +358,10 @@ function collectProjectStatus(deps, repository) {
   }
   const expectedMainSha = repository.localMain || repository.originMain;
   if (!expectedMainSha) throw promptError('MAIN_REF_UNAVAILABLE', 'Neither local main nor origin/main can be resolved.');
-  const result = validateProjectStatus(source, { expectedMainSha });
+  // Mirror the validator's exact-or-direct-parent rule so a prompt generated
+  // straight after a merge is not rejected for a status that is still current.
+  const mainFirstParentSha = optionalGitSha(deps, repository.root, `${expectedMainSha}^1`);
+  const result = validateProjectStatus(source, { expectedMainSha, mainFirstParentSha });
   if (!result.valid) {
     throw promptError('PROJECT_STATUS_INVALID', `Project status is invalid: ${result.errors.map(error => error.code).join(', ')}.`);
   }
