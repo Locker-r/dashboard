@@ -54,6 +54,43 @@ A separate `docker-compose.yml` one directory above `dashboard/` (`C:\Projects\r
 
 Baseline update (2026-07-31, `89acc74`): necessity remains unconfirmed. The container existed as `Exited (0) 22 hours ago`; no active port conflict was present. Do not delete the Compose file, container, or volume until the owner is identified, dependent applications are checked, volume data and backup requirements are reviewed, and Product Owner approval is recorded.
 
+## Local development cannot authenticate against local Supabase
+
+Status: Open, recorded 2026-08-03 while adding `npm run doctor` and `npm run dev:local`.
+
+`normalizeConfig` in `src/supabase-auth-service.js` accepts only an
+`https://<ref>.supabase.co` project root, so a loopback project URL is rejected with
+`config_invalid`. With `config/data-config.local.js` set to `mode: 'supabase'` and
+`config/supabase-config.local.js` set to the required local origin
+`http://127.0.0.1:54321`, browser sign-in therefore cannot succeed locally. The same
+constraint already forced the PR C browser pass to stub the data-service transport
+(see the P0 closure caveat above).
+
+Current mitigation: `npm run doctor` reports it as `FRONTEND_LOOPBACK_AUTH_UNSUPPORTED`
+with two supported paths — data mode `local` for UI work, and the runtime smoke harness
+for local backend verification. The launcher deliberately does not work around it,
+because changing that validation is frontend business logic and a security-relevant
+decision.
+
+Proposed follow-up: decide explicitly whether the auth service should accept a loopback
+origin under a narrowly scoped local-only condition, or whether local browser
+verification stays permanently out of scope. Either outcome should be recorded here.
+
+## `supabase/snippets` is untracked and not ignored
+
+Status: Open, low severity, recorded 2026-08-03.
+
+Supabase Studio writes ad-hoc query files into `supabase/snippets`, which
+`supabase/.gitignore` does not cover, so they permanently appear as untracked
+paths and dirty every status listing. The three present files
+(`Untitled query 173/693/952.sql`) are read-only `SELECT`s against
+`public.profiles`. `npm run doctor` classifies each file as read-only or mutating
+and never deletes anything.
+
+Proposed follow-up: an owner decision to either ignore the directory in
+`supabase/.gitignore` or remove the files. Not done automatically here, because
+deleting unknown local files is outside the safe boundary of this tooling.
+
 ## Runtime Supabase baseline is not verified
 
 Status: Open release risk.

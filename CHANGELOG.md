@@ -13,6 +13,17 @@ snapshot has been deployed: no production deployment pipeline exists yet.
 
 ### Added
 
+- `npm run doctor`: read-only local environment diagnostic covering Git state,
+  toolchain, Docker, Supabase, port ownership, local configuration, key class,
+  Auth health, smoke-user linkage, and competing processes. It finishes with
+  exactly one of `READY`, `READY WITH WARNINGS`, or `BLOCKED`, prints a code and
+  a remediation for every warning and blocker, redacts credential-shaped values,
+  and supports `--json`.
+- `npm run dev:local`: safe local launcher that gates on the diagnostic, starts
+  or reuses local Supabase without ever resetting the database, serves the
+  dashboard on port 3100 from a verified repository root, refuses a port held by
+  another project, provisions smoke users only through the existing sanctioned
+  local-only path, and stops only the process it started.
 - Deterministic fixed-allowlist Pages artifact construction with generated
   runtime configuration, an exact transformed entrypoint, minimal integrity
   manifest, and LF/CRLF-safe regression coverage. Publishing and deployment

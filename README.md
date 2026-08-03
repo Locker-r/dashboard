@@ -1,12 +1,32 @@
 # Reactivation Desk Dashboard
 
-Use one canonical development address:
+## Local development
 
-```text
-http://localhost:3000
+Diagnose the environment, then start the dashboard:
+
+```powershell
+npm run doctor
+npm run dev:local
 ```
 
-`http://127.0.0.1:3000`, any other port, and a published domain are different origins and therefore have separate `localStorage` data. Starting and stopping the HTTP server at the canonical address does not clear browser users.
+`npm run doctor` is read-only and finishes with `READY`, `READY WITH WARNINGS`,
+or `BLOCKED`, printing a remediation for every warning and blocker.
+`npm run dev:local` serves the dashboard at:
+
+```text
+http://127.0.0.1:3100
+```
+
+Both commands are documented in
+[`docs/developer-toolchain.md`](docs/developer-toolchain.md).
+
+The historical canonical address was `http://localhost:3000`. Port 3100 is used
+now because 3000 is commonly held by an unrelated project; the diagnostic warns
+when that is the case. Every distinct origin — `http://localhost:3000`,
+`http://127.0.0.1:3000`, `http://127.0.0.1:3100`, and a published domain — has
+its own `localStorage`, so local-storage-mode data does not carry across them.
+Starting and stopping the HTTP server at one address does not clear its browser
+users.
 
 ## Supabase Auth configuration
 

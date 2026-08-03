@@ -8,6 +8,8 @@
     "check:js": "node scripts/check-javascript.cjs",
     "check:secrets": "node scripts/check-tracked-secrets.cjs",
     "check:migrations": "node scripts/check-migration-governance.cjs",
+    "doctor": "node scripts/dev/doctor.cjs",
+    "dev:local": "node scripts/dev/dev-local.cjs",
     "preflight": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/preflight.ps1",
     "preflight:runtime": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/preflight.ps1 -StartSupabase -IncludeRuntime",
     "smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/smoke.ps1",
