@@ -45,6 +45,24 @@ function get(port, requestPath) {
   });
 }
 
+// A Windows junction needs no elevated privilege, unlike a Windows symlink, so
+// this is reproducible for an unprivileged developer and in CI on both platforms.
+function linkDirectory(target, linkPath) {
+  fs.symlinkSync(target, linkPath, process.platform === 'win32' ? 'junction' : 'dir');
+}
+
+function unlinkQuietly(target) {
+  try {
+    fs.unlinkSync(target);
+  } catch {
+    try {
+      fs.rmSync(target, { recursive: true, force: true });
+    } catch {
+      // The temporary tree is removed wholesale by the caller.
+    }
+  }
+}
+
 test('the static server answers an identity endpoint that names the served repository', async () => {
   await withTemporaryTree(async root => {
     const started = await staticServer.startStaticServer({ root, port: 0, token: 'token-abc', application: doctor.PACKAGE_NAME });
@@ -113,6 +131,94 @@ test('the static server refuses non-read methods', async () => {
         request.end();
       });
       assert.equal(status, 405);
+    } finally {
+      started.server.close();
+    }
+  });
+});
+
+// Regression: an ancestor junction or symlink used to escape the served root,
+// because only the final path component was checked for link-ness.
+test('an ancestor junction or symlink cannot serve a file from outside the root', async () => {
+  await withTemporaryTree(async (root, base) => {
+    const outside = path.join(base, 'outside');
+    fs.mkdirSync(outside, { recursive: true });
+    fs.writeFileSync(path.join(outside, 'secrets.js'), 'const leaked = 1;\n');
+    const link = path.join(root, 'vendor');
+    linkDirectory(outside, link);
+
+    const started = await staticServer.startStaticServer({ root, port: 0, token: 't', application: 'a' });
+    try {
+      const response = await get(started.port, '/vendor/secrets.js');
+      assert.equal(response.status, 404, 'a linked ancestor directory must not expose files outside the root');
+      assert.equal(response.body.toString('utf8').includes('leaked'), false);
+      assert.equal(staticServer.resolveRequestPath(root, '/vendor/secrets.js'), null);
+      // The legitimate tree still resolves.
+      assert.equal((await get(started.port, '/index.html')).status, 200);
+      assert.equal((await get(started.port, '/src/auth.js')).status, 200);
+    } finally {
+      started.server.close();
+      unlinkQuietly(link);
+    }
+  });
+});
+
+test('a nested junction or symlink deeper in the tree cannot escape the root', async () => {
+  await withTemporaryTree(async (root, base) => {
+    const outside = path.join(base, 'outside-nested');
+    fs.mkdirSync(outside, { recursive: true });
+    fs.writeFileSync(path.join(outside, 'secrets.js'), 'const leaked = 1;\n');
+    const link = path.join(root, 'src', 'nested');
+    linkDirectory(outside, link);
+
+    const started = await staticServer.startStaticServer({ root, port: 0, token: 't', application: 'a' });
+    try {
+      const response = await get(started.port, '/src/nested/secrets.js');
+      assert.equal(response.status, 404);
+      assert.equal(staticServer.resolveRequestPath(root, '/src/nested/secrets.js'), null);
+      assert.equal((await get(started.port, '/src/auth.js')).status, 200, 'sibling files must still be served');
+    } finally {
+      started.server.close();
+      unlinkQuietly(link);
+    }
+  });
+});
+
+test('a symlinked file inside the root is refused', async () => {
+  await withTemporaryTree(async (root, base) => {
+    const secret = path.join(base, 'file-secret.js');
+    fs.writeFileSync(secret, 'const leaked = 1;\n');
+    const link = path.join(root, 'src', 'linked.js');
+    let created = true;
+    try {
+      fs.symlinkSync(secret, link, 'file');
+    } catch {
+      created = false; // Windows file symlinks need a privilege a developer may not hold.
+    }
+    if (!created) return;
+    const started = await staticServer.startStaticServer({ root, port: 0, token: 't', application: 'a' });
+    try {
+      assert.equal((await get(started.port, '/src/linked.js')).status, 404);
+      assert.equal(staticServer.resolveRequestPath(root, '/src/linked.js'), null);
+    } finally {
+      started.server.close();
+      unlinkQuietly(link);
+    }
+  });
+});
+
+test('ordinary nested directories are still served after the containment check', async () => {
+  await withTemporaryTree(async root => {
+    fs.mkdirSync(path.join(root, 'src', 'data'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'src', 'data', 'service.js'), 'const real = 1;\n');
+    const started = await staticServer.startStaticServer({ root, port: 0, token: 't', application: 'a' });
+    try {
+      assert.equal((await get(started.port, '/src/data/service.js')).status, 200);
+      assert.ok(staticServer.resolveRequestPath(root, '/src/data/service.js'));
+      // Traversal protection is unchanged.
+      for (const denied of ['/../outside.txt', '/src/../../outside.txt', '/config/%2e%2e/%2e%2e/outside.txt', '/scripts/secret-tool.cjs']) {
+        assert.equal((await get(started.port, denied)).status, 404, denied);
+      }
     } finally {
       started.server.close();
     }
@@ -336,6 +442,100 @@ test('provisioning is refused when a duplicate username would be corrupted', asy
   assert.equal(fixture.environment.commands().some(command => command.includes('Initialize-LocalSmokeUsers')), false);
   assert.match(fixture.text(), /conflicting profile rows/);
   assert.match(fixture.text(), /would corrupt usernames/);
+});
+
+// Regression: the provisioning gate used to read the diagnostic snapshot taken
+// before the launcher started Supabase. In the ordinary case - Supabase stopped
+// when the diagnostic ran - no user inspection had happened at all, so the
+// duplicate-username gate silently passed.
+test('a duplicate username is caught when Supabase was stopped at diagnostic time', async () => {
+  const fixture = createLauncherFixture(healthyOverrides({
+    supabaseRunning: false,
+    smokeUsers: [],
+    smokeProfiles: [{ id: 'someone-else', username: 'SMOKE_TEST_admin', role: 'agent' }],
+    env: {
+      SMOKE_TEST_ADMIN_PASSWORD: 'local-only-admin',
+      SMOKE_TEST_AGENT_A_PASSWORD: 'local-only-agent-a',
+      SMOKE_TEST_AGENT_B_PASSWORD: 'local-only-agent-b'
+    }
+  }));
+  const code = await fixture.run([]);
+  assert.equal(code, doctor.EXIT_READY, fixture.text());
+
+  const calls = fixture.environment.calls;
+  const startIndex = calls.findIndex(item => item.kind === 'command' && /supabase start$/.test(item.detail));
+  const inspectionIndex = calls.findIndex(item => item.kind === 'smoke-inspection');
+  assert.ok(startIndex >= 0, 'the launcher must have started Supabase itself');
+  assert.ok(inspectionIndex >= 0, 'a fresh smoke-user inspection must run after Supabase starts');
+  assert.ok(inspectionIndex > startIndex, 'the inspection must happen after the start, not before it');
+
+  assert.equal(
+    fixture.environment.commands().some(command => command.includes('Initialize-LocalSmokeUsers')),
+    false,
+    'provisioning must be refused when a profile row already holds a smoke username'
+  );
+  assert.match(fixture.text(), /conflicting profile rows/);
+  assert.match(fixture.text(), /would corrupt usernames/);
+});
+
+test('a fresh inspection that cannot run refuses provisioning instead of assuming it is safe', async () => {
+  const fixture = createLauncherFixture(healthyOverrides({
+    supabaseRunning: false,
+    smokeError: 'relation "public.profiles" does not exist',
+    env: {
+      SMOKE_TEST_ADMIN_PASSWORD: 'local-only-admin',
+      SMOKE_TEST_AGENT_A_PASSWORD: 'local-only-agent-a',
+      SMOKE_TEST_AGENT_B_PASSWORD: 'local-only-agent-b'
+    }
+  }));
+  const code = await fixture.run([]);
+  assert.equal(code, doctor.EXIT_READY, fixture.text());
+  assert.equal(
+    fixture.environment.commands().some(command => command.includes('Initialize-LocalSmokeUsers')),
+    false,
+    'an unverifiable state must not authorise provisioning'
+  );
+  assert.match(fixture.text(), /could not be verified/);
+  assert.match(fixture.text(), /relation "public\.profiles" does not exist/);
+});
+
+test('a clean local database still provisions after the fresh inspection', async () => {
+  const fixture = createLauncherFixture(healthyOverrides({
+    supabaseRunning: false,
+    smokeUsers: [],
+    smokeProfiles: [],
+    env: {
+      SMOKE_TEST_ADMIN_PASSWORD: 'local-only-admin',
+      SMOKE_TEST_AGENT_A_PASSWORD: 'local-only-agent-a',
+      SMOKE_TEST_AGENT_B_PASSWORD: 'local-only-agent-b'
+    }
+  }));
+  const code = await fixture.run([]);
+  assert.equal(code, doctor.EXIT_READY, fixture.text());
+  assert.ok(fixture.environment.calls.some(item => item.kind === 'smoke-inspection'));
+  assert.ok(
+    fixture.environment.commands().some(command => command.includes('Initialize-LocalSmokeUsers')),
+    'a clean database must still be provisioned'
+  );
+});
+
+test('a profile bound to another id refuses provisioning after Supabase starts', async () => {
+  const fixture = createLauncherFixture(healthyOverrides({
+    supabaseRunning: false,
+    smokeProfiles: [
+      { id: 'user-0', username: 'SOMEONE_ELSE', role: 'admin' },
+      { id: 'user-1', username: 'SMOKE_TEST_agent_a', role: 'agent' },
+      { id: 'user-2', username: 'SMOKE_TEST_agent_b', role: 'agent' }
+    ],
+    env: {
+      SMOKE_TEST_ADMIN_PASSWORD: 'local-only-admin',
+      SMOKE_TEST_AGENT_A_PASSWORD: 'local-only-agent-a',
+      SMOKE_TEST_AGENT_B_PASSWORD: 'local-only-agent-b'
+    }
+  }));
+  await fixture.run([]);
+  assert.equal(fixture.environment.commands().some(command => command.includes('Initialize-LocalSmokeUsers')), false);
+  assert.match(fixture.text(), /conflicting profile rows/);
 });
 
 test('--no-provision skips provisioning entirely', async () => {

@@ -388,6 +388,23 @@ async function defaultInspectSmokeUsers({ projectUrl, serviceKey, expected }) {
   return buildSmokeUserReport(expected, users, rows);
 }
 
+// The single definition of "provisioning here would corrupt a profile row",
+// used by both the diagnostic and the launcher gate so the two cannot drift.
+// A conflicting row counts on its own evidence: deriving it from the account
+// state hid the case where a stray row holds a smoke username while its Auth
+// user is absent, because that account state is 'user-missing'.
+function smokeUserConflicts(inspection) {
+  if (!inspection || !Array.isArray(inspection.accounts)) return Object.freeze({ duplicates: [], mismatched: [] });
+  const conflicted = inspection.accounts.filter(account => account.conflictingProfileCount > 0);
+  const duplicates = [...new Set([
+    ...conflicted.map(account => account.expectedUsername),
+    ...(inspection.duplicateUsernames || [])
+  ])];
+  const mismatched = inspection.accounts.filter(account =>
+    account.state === 'profile-mismatch' || account.state === 'role-mismatch');
+  return Object.freeze({ duplicates, mismatched });
+}
+
 // Pure: turns raw Auth users and profile rows into per-account findings.
 function buildSmokeUserReport(expected, users, profiles) {
   const byEmail = new Map(users.map(user => [user.email.toLowerCase(), user]));
@@ -962,8 +979,7 @@ async function checkSmokeUsers(deps, configuration, supabase, report) {
 
   const missing = inspection.accounts.filter(account => account.state === 'user-missing');
   const profileless = inspection.accounts.filter(account => account.state === 'profile-missing');
-  const mismatched = inspection.accounts.filter(account => account.state === 'profile-mismatch' || account.state === 'role-mismatch');
-  const conflicts = inspection.accounts.filter(account => account.state === 'username-conflict');
+  const { duplicates, mismatched } = smokeUserConflicts(inspection);
 
   if (missing.length) {
     report.warn('SMOKE_USER_MISSING', 'Smoke users',
@@ -980,12 +996,12 @@ async function checkSmokeUsers(deps, configuration, supabase, report) {
       `Profile linkage differs from the expected fixture for: ${mismatched.map(account => `${account.email} (${account.state})`).join(', ')}.`,
       'Inspect the profiles table before provisioning. The launcher refuses to provision over a mismatch.');
   }
-  if (conflicts.length || inspection.duplicateUsernames.length) {
+  if (duplicates.length) {
     report.warn('SMOKE_USERNAME_DUPLICATE', 'Smoke usernames',
-      `Smoke usernames are bound to unexpected rows: ${[...conflicts.map(account => account.expectedUsername), ...inspection.duplicateUsernames].join(', ')}.`,
+      `Smoke usernames are bound to unexpected rows: ${duplicates.join(', ')}.`,
       'Resolve the duplicate profile rows manually before provisioning; the launcher refuses to provision into a duplicate username.');
   }
-  if (!missing.length && !profileless.length && !mismatched.length && !conflicts.length && !inspection.duplicateUsernames.length) {
+  if (!missing.length && !profileless.length && !mismatched.length && !duplicates.length) {
     report.ok('SMOKE_USERS_READY', 'Smoke users', `${inspection.accounts.length} expected account(s) present with linked profiles.`);
   }
   return inspection;
@@ -1216,7 +1232,8 @@ module.exports = {
   redact,
   redactDeep,
   resolveDashboardPort,
-  runDoctor
+  runDoctor,
+  smokeUserConflicts
 };
 
 if (require.main === module) {

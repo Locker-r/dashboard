@@ -330,6 +330,49 @@ test('duplicate smoke usernames are surfaced as a corruption risk', async () => 
   assert.deepEqual(result.facts.duplicateSmokeUsernames, ['smoke_test_admin']);
 });
 
+// Regression: a conflicting row was only reported when the account was otherwise
+// healthy, so the exact corruption case - a stray row owning a smoke username
+// while the Auth user is absent - produced no finding at all.
+test('a single conflicting profile row is reported even when the Auth user is missing', async () => {
+  const environment = createEnvironment({
+    smokeUsers: [],
+    smokeProfiles: [{ id: 'someone-else', username: 'SMOKE_TEST_admin', role: 'agent' }]
+  });
+  const result = await doctor.runDoctor({ deps: environment.deps });
+  const finding = findingByCode(result, 'SMOKE_USERNAME_DUPLICATE');
+  assert.ok(finding, 'a profile row holding a smoke username must be reported without a matching Auth user');
+  assert.equal(finding.severity, 'warning');
+  assert.match(finding.detail, /SMOKE_TEST_admin/);
+  assert.match(finding.remediation, /refuses to provision/);
+  assert.deepEqual(result.facts.duplicateSmokeUsernames, [], 'no username occurs twice; the finding comes from the conflict count');
+  assert.equal(result.facts.smokeUsers.find(account => account.key === 'admin').conflictingProfileCount, 1);
+  assert.equal(findingByCode(result, 'SMOKE_USERS_READY'), null);
+});
+
+test('a conflicting profile row is reported alongside another defect on the same account', async () => {
+  const environment = createEnvironment({
+    smokeProfiles: [
+      { id: 'user-0', username: 'RENAMED_admin', role: 'admin' },
+      { id: 'stray', username: 'SMOKE_TEST_admin', role: 'agent' },
+      { id: 'user-1', username: 'SMOKE_TEST_agent_a', role: 'agent' },
+      { id: 'user-2', username: 'SMOKE_TEST_agent_b', role: 'agent' }
+    ]
+  });
+  const result = await doctor.runDoctor({ deps: environment.deps });
+  assert.equal(severity(result, 'SMOKE_PROFILE_MISMATCH'), 'warning');
+  assert.equal(severity(result, 'SMOKE_USERNAME_DUPLICATE'), 'warning', 'the mismatch must not mask the conflict');
+  assert.deepEqual(result.facts.duplicateSmokeUsernames, []);
+  assert.equal(result.facts.smokeUsers.find(account => account.key === 'admin').conflictingProfileCount, 1);
+});
+
+test('an unconflicted database still reports the accounts as ready', async () => {
+  const environment = createEnvironment();
+  const result = await doctor.runDoctor({ deps: environment.deps });
+  assert.equal(severity(result, 'SMOKE_USERS_READY'), 'ok');
+  assert.equal(findingByCode(result, 'SMOKE_USERNAME_DUPLICATE'), null);
+  assert.ok(result.facts.smokeUsers.every(account => account.conflictingProfileCount === 0));
+});
+
 test('a competing smoke, reset, or provisioning process blocks', async () => {
   for (const commandLine of [
     'powershell.exe -File scripts\\Invoke-LocalRuntimeSmokeTest.ps1',

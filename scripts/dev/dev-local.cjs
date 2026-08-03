@@ -27,7 +27,8 @@ const {
   redact,
   redactDeep,
   resolveDashboardPort,
-  runDoctor
+  runDoctor,
+  smokeUserConflicts
 } = doctorModule;
 
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
@@ -315,15 +316,46 @@ async function claimDashboardPort(deps, root, port, application) {
   return { started: true, pid: started.pid, port: started.port, token, child: started.child };
 }
 
+// Inspects the live local database immediately before provisioning. The
+// diagnostic runs before Supabase is started, so in the ordinary case it has no
+// user state to report; a gate built on that snapshot would pass vacuously.
+async function inspectSmokeUsersNow(deps, statusValues) {
+  const serviceKey = statusValues.get('SERVICE_ROLE_KEY') || '';
+  const apiUrl = statusValues.get('API_URL') || '';
+  if (!serviceKey) {
+    return { available: false, reason: 'the local status output contained no service key' };
+  }
+  if (classifyProjectUrl(apiUrl).kind !== 'local') {
+    return { available: false, reason: 'the reported API URL is not a loopback endpoint' };
+  }
+  const expected = EXPECTED_SMOKE_USERS.map(fixture => ({
+    ...fixture,
+    email: String(deps.env[fixture.envName] || fixture.email)
+  }));
+  try {
+    const inspection = await deps.inspectSmokeUsers({ projectUrl: apiUrl, serviceKey, expected });
+    return { available: true, inspection };
+  } catch (error) {
+    return { available: false, reason: redact(error && error.message || error) };
+  }
+}
+
 // Provisioning goes through the existing sanctioned local-only path. The
 // launcher supplies no credential of its own: a missing password produces an
 // instruction, never a generated value.
-function provisionSmokeUsers(deps, root, statusValues, doctorResult) {
-  const blockedCodes = ['SMOKE_USERNAME_DUPLICATE', 'SMOKE_PROFILE_MISMATCH'];
-  const blocking = doctorResult.findings.filter(finding => blockedCodes.includes(finding.code));
-  if (blocking.length) {
-    deps.log('Skipping smoke-user provisioning: the diagnostic found conflicting profile rows.');
-    for (const finding of blocking) deps.log(`  ${finding.code}: ${finding.detail}`);
+function provisionSmokeUsers(deps, root, statusValues, inspectionResult) {
+  if (!inspectionResult || !inspectionResult.available) {
+    deps.log('Skipping smoke-user provisioning: the local smoke-user state could not be verified.');
+    deps.log(`  Reason: ${inspectionResult ? inspectionResult.reason : 'no inspection was performed'}`);
+    deps.log('  Provisioning is refused rather than attempted blind, because it could overwrite an existing profile row.');
+    return { skipped: 'unverified' };
+  }
+
+  const { duplicates, mismatched } = smokeUserConflicts(inspectionResult.inspection);
+  if (duplicates.length || mismatched.length) {
+    deps.log('Skipping smoke-user provisioning: the local database has conflicting profile rows.');
+    if (duplicates.length) deps.log(`  SMOKE_USERNAME_DUPLICATE: smoke usernames bound to unexpected rows: ${duplicates.join(', ')}.`);
+    if (mismatched.length) deps.log(`  SMOKE_PROFILE_MISMATCH: profile linkage differs for: ${mismatched.map(account => `${account.email} (${account.state})`).join(', ')}.`);
     deps.log('  Resolve the duplicate or mismatched profile rows manually first; provisioning into them would corrupt usernames.');
     return { skipped: 'conflict' };
   }
@@ -339,11 +371,6 @@ function provisionSmokeUsers(deps, root, statusValues, doctorResult) {
 
   const serviceKey = statusValues.get('SERVICE_ROLE_KEY') || '';
   const apiUrl = statusValues.get('API_URL') || '';
-  if (!serviceKey) {
-    deps.log('Skipping smoke-user provisioning: the local status output contained no service key.');
-    return { skipped: 'no-service-key' };
-  }
-
   const childEnv = {
     ...deps.env,
     SMOKE_TEST_MODE: 'local',
@@ -441,8 +468,14 @@ async function runLauncher(options = {}) {
   if (claim.refused) return EXIT_BLOCKED;
   if (claim.failed) return EXIT_FAILED;
 
-  if (flags.provision) provisionSmokeUsers(deps, root, statusValues, doctorResult);
-  else deps.log('Smoke-user provisioning skipped (--no-provision).');
+  if (flags.provision) {
+    // Deliberately after ensureSupabase: the gate must see the database as it is
+    // now, not as the pre-start diagnostic could not see it.
+    const inspectionResult = await inspectSmokeUsersNow(deps, statusValues);
+    provisionSmokeUsers(deps, root, statusValues, inspectionResult);
+  } else {
+    deps.log('Smoke-user provisioning skipped (--no-provision).');
+  }
 
   const dashboardUrl = `http://127.0.0.1:${claim.port}/`;
   const studioPort = doctorResult.facts.expectedSupabasePorts ? doctorResult.facts.expectedSupabasePorts.studio : null;
@@ -503,6 +536,7 @@ module.exports = {
   USAGE,
   claimDashboardPort,
   createLauncherDeps,
+  inspectSmokeUsersNow,
   main,
   parseLauncherArgs,
   provisionSmokeUsers,

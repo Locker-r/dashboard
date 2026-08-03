@@ -40,6 +40,38 @@ function decodePath(requestUrl) {
   }
 }
 
+// Mirrors samePath/isInside in scripts/build-pages-artifact.cjs: Windows paths
+// compare case-insensitively, and containment is decided on resolved paths.
+function normalizeForComparison(value) {
+  return process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
+}
+
+function isInsideRoot(root, candidate) {
+  const normalizedRoot = normalizeForComparison(root);
+  const normalizedCandidate = normalizeForComparison(candidate);
+  const prefix = normalizedRoot.endsWith(path.sep) ? normalizedRoot : normalizedRoot + path.sep;
+  return normalizedCandidate !== normalizedRoot && normalizedCandidate.startsWith(prefix);
+}
+
+// Every directory between the served root and the target must be an ordinary
+// directory. A junction or symbolic link in that chain would otherwise let a
+// path that looks contained resolve to a file anywhere on disk; the Pages
+// artifact builder applies the same rule to its approved sources.
+function hasSafeAncestors(root, segments) {
+  let ancestor = path.resolve(root);
+  for (const segment of segments.slice(0, -1)) {
+    ancestor = path.join(ancestor, segment);
+    let info;
+    try {
+      info = fs.lstatSync(ancestor);
+    } catch {
+      return false;
+    }
+    if (info.isSymbolicLink() || !info.isDirectory()) return false;
+  }
+  return true;
+}
+
 // Resolves a request path to a real file inside the served root, or null.
 function resolveRequestPath(root, requestUrl) {
   const decoded = decodePath(requestUrl);
@@ -54,8 +86,8 @@ function resolveRequestPath(root, requestUrl) {
   if (segments.some(segment => segment.startsWith('.'))) return null;
 
   const candidate = path.resolve(root, ...segments);
-  const prefix = path.resolve(root) + path.sep;
-  if (!candidate.startsWith(prefix)) return null;
+  if (!isInsideRoot(root, candidate)) return null;
+  if (!hasSafeAncestors(root, segments)) return null;
 
   let info;
   try {
@@ -64,6 +96,18 @@ function resolveRequestPath(root, requestUrl) {
     return null;
   }
   if (info.isSymbolicLink() || !info.isFile()) return null;
+
+  // Final containment decided on canonical paths, so no reparse point anywhere
+  // in the chain can place the served file outside the repository.
+  let realRoot;
+  let realCandidate;
+  try {
+    realRoot = fs.realpathSync(path.resolve(root));
+    realCandidate = fs.realpathSync(candidate);
+  } catch {
+    return null;
+  }
+  if (!isInsideRoot(realRoot, realCandidate)) return null;
   return candidate;
 }
 
@@ -159,7 +203,15 @@ async function main(argv) {
   return null;
 }
 
-module.exports = { ALLOWED_TOP_LEVEL, IDENTITY_PATH, createStaticServer, resolveRequestPath, startStaticServer };
+module.exports = {
+  ALLOWED_TOP_LEVEL,
+  IDENTITY_PATH,
+  createStaticServer,
+  hasSafeAncestors,
+  isInsideRoot,
+  resolveRequestPath,
+  startStaticServer
+};
 
 if (require.main === module) {
   main(process.argv.slice(2)).then(code => {
