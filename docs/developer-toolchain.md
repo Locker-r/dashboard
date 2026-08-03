@@ -48,7 +48,9 @@ specific error codes. The validator accepts LF, CRLF, and a UTF-8 BOM, rejects
 missing, duplicate, unknown, empty, malformed, placeholder, and secret-shaped
 fields, and compares Main SHA with the synchronized local main and origin/main
 refs rather than the current feature-branch HEAD. Divergent main refs fail with
-MAIN_REFS_DIVERGED instead of choosing one silently.
+MAIN_REFS_DIVERGED instead of choosing one silently. A shallow detached CI
+merge checkout may use the first parent only when HEAD has exactly two full-SHA
+parents; named branches never use that fallback.
 
 Milestone status uses exactly: planned, in-progress, blocked, or complete.
 Last merged PR and Current open PR use either none or a positive number prefixed

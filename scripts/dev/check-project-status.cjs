@@ -175,6 +175,12 @@ function resolveMainSha(root, spawn) {
     throw Object.assign(new Error('Local main and origin/main differ; synchronize them before validating project status.'), { code: 'MAIN_REFS_DIVERGED' });
   }
   if (validLocal || validOrigin) return validLocal || validOrigin;
+  const currentBranch = runGit(['symbolic-ref', '--quiet', '--short', 'HEAD'], root, spawn);
+  if (!currentBranch) {
+    const parents = String(runGit(['show', '-s', '--format=%P', 'HEAD'], root, spawn) || '')
+      .split(/\s+/).filter(Boolean);
+    if (parents.length === 2 && parents.every(parent => SHA_PATTERN.test(parent))) return parents[0];
+  }
   throw Object.assign(new Error('Neither local main nor origin/main can be resolved.'), { code: 'MAIN_REF_UNAVAILABLE' });
 }
 

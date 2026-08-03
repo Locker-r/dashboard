@@ -4,16 +4,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
 
 const root = path.join(__dirname, '..');
 const statusPath = path.join(root, 'docs', 'project-status.md');
 const checker = require(path.join(root, 'scripts', 'dev', 'check-project-status.cjs'));
-const repositoryMainSha = execFileSync(
-  'git',
-  ['rev-parse', '--verify', 'refs/heads/main'],
-  { cwd: root, encoding: 'utf8' }
-).trim();
+const repositoryMainSha = checker.resolveMainSha(root);
 const repositoryStatus = fs.readFileSync(statusPath, 'utf8');
 const lfStatus = repositoryStatus.replace(/\r\n?/g, '\n');
 
@@ -204,6 +199,27 @@ test('main ref resolution rejects local and origin divergence', () => {
   assert.throws(
     () => checker.resolveMainSha(root, spawn),
     error => error.code === 'MAIN_REFS_DIVERGED'
+  );
+});
+
+test('main ref resolution supports only a detached two-parent CI merge commit fallback', () => {
+  const base = '3'.repeat(40);
+  const feature = '4'.repeat(40);
+  const detachedSpawn = (_file, args) => {
+    if (args[0] === 'rev-parse' || args[0] === 'symbolic-ref') return { status: 1, stdout: '', stderr: '' };
+    if (args.join(' ') === 'show -s --format=%P HEAD') return { status: 0, stdout: `${base} ${feature}\n`, stderr: '' };
+    return { status: 127, stdout: '', stderr: 'unexpected command' };
+  };
+  assert.equal(checker.resolveMainSha(root, detachedSpawn), base);
+
+  const namedBranchSpawn = (_file, args) => {
+    if (args[0] === 'rev-parse') return { status: 1, stdout: '', stderr: '' };
+    if (args[0] === 'symbolic-ref') return { status: 0, stdout: 'feature/example\n', stderr: '' };
+    throw new Error('named branches must not use the merge-parent fallback');
+  };
+  assert.throws(
+    () => checker.resolveMainSha(root, namedBranchSpawn),
+    error => error.code === 'MAIN_REF_UNAVAILABLE'
   );
 });
 
