@@ -1,5 +1,28 @@
 # Reactivation Desk Dashboard
 
+## AI project context
+
+Every implementation and review session starts by reading
+docs/project-status.md and docs/decisions.md. Validate the canonical status
+against the local main ref with:
+
+    npm run check:project-status
+
+Generate a repository-aware prompt with:
+
+    npm run prompt -- implementation --task "Automation PR 2-A1"
+    npm run prompt -- adversarial-review --pr 24
+    npm run prompt -- validation --offline
+
+Prompts default to stdout. File output is confined to the already ignored
+artifacts/prompts directory. Offline mode performs no GitHub query and marks
+mergeability and CI as unverified. Windows clipboard output uses prompt bytes
+through standard input rather than shell interpolation.
+
+Verification tiers are intentionally deferred to Automation PR 2-A2.
+Worktrees, PR preparation, merge, and post-merge automation remain deferred to
+Automation PR 2-B.
+
 ## Local development
 
 Diagnose the environment, then start the dashboard:

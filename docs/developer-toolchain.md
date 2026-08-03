@@ -32,6 +32,93 @@ Standard daily workflow and the check before starting a task:
 npm run preflight
 ```
 
+## Durable project context
+
+Every implementation and review agent reads docs/project-status.md and
+docs/decisions.md before beginning. Project status is a concise, parseable
+snapshot; decisions are append-only records. Both change through ordinary code
+review.
+
+Run the dependency-free validator with:
+
+    npm run check:project-status
+
+Success prints PROJECT STATUS VALID. Failure prints PROJECT STATUS INVALID plus
+specific error codes. The validator accepts LF, CRLF, and a UTF-8 BOM, rejects
+missing, duplicate, unknown, empty, malformed, placeholder, and secret-shaped
+fields, and compares Main SHA with the synchronized local main and origin/main
+refs rather than the current feature-branch HEAD. Divergent main refs fail with
+MAIN_REFS_DIVERGED instead of choosing one silently.
+
+Milestone status uses exactly: planned, in-progress, blocked, or complete.
+Last merged PR and Current open PR use either none or a positive number prefixed
+with #; Current open PR identifies the current milestone pull request, not
+unrelated dependency-update pull requests. Update project status after each
+milestone merge. If its SHA or PR information disagrees with verified repository
+state, stop and report STALE PROJECT STATUS rather than updating it automatically.
+
+## Prompt generator
+
+The dependency-free generator supports these templates:
+
+- implementation
+- adversarial-review
+- fix-blockers
+- validation
+- runtime-investigation
+- merge
+- post-merge
+
+Examples:
+
+    npm run prompt -- implementation --task "Automation PR 2-A1"
+    npm run prompt -- adversarial-review --pr 24
+    npm run prompt -- fix-blockers --pr 24 --findings docs/reviews/pr-24.md
+    npm run prompt -- validation
+    npm run prompt -- runtime-investigation --issue "local login"
+    npm run prompt -- merge --pr 24
+    npm run prompt -- post-merge --pr 24
+
+Common options are --out, --clipboard, --timestamp, --offline, and --help.
+Default output is stdout. A relative --out value is resolved under
+artifacts/prompts; output outside that owned directory, traversal, linked
+targets, and tracked targets are refused. The artifacts directory is already
+ignored, so generated prompts are never committed by the command.
+
+The generator reads only fixed repository context files and explicit tracked,
+non-ignored, ordinary findings files outside Git internals; linked paths are
+refused. A --findings path must already exist and be tracked. The generator
+never reads environment files or ignored credential files.
+Git, GitHub, task, issue, findings, branch, commit, filename, and PR-title text
+is redacted and placed in an explicit untrusted-data section, never in the
+mandatory rules. Output includes exact HEAD, timestamp, a context fingerprint,
+and a STALE PROMPT stop condition.
+
+Offline mode never invokes GitHub and emits:
+
+    GitHub state unavailable.
+    PR mergeability and CI status are unverified.
+
+Merge and post-merge prompts require verified live GitHub state because they
+authorize state-changing work. Other templates degrade safely when GitHub is
+unavailable.
+
+On Windows, --clipboard starts the fixed clip.exe program with shell execution
+disabled and sends the prompt through standard input. Unsupported or failed
+clipboard output is reported without removing stdout or a successfully written
+file.
+
+## Verification tiers
+
+The verify:fast, verify:pr, verify:runtime, and verify:release commands are
+deferred intact to Automation PR 2-A2. This PR does not claim they exist.
+Current preflight, doctor, smoke, review, and release checks keep their existing
+contracts until that focused follow-up.
+
+Automation PR 2-B remains responsible for AI worktrees, PR preparation, merge,
+and post-merge automation. No worktree or AI client is launched by the prompt
+generator.
+
 ## Doctor
 
 `npm run doctor` is a read-only diagnostic. It reports the repository root,
