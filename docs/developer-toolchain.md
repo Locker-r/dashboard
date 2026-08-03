@@ -99,8 +99,15 @@ pristine database still goes through `smoke.ps1 -AllowDatabaseReset`. It never
 edits an ignored local configuration file: a missing or wrong value produces a
 safe template and an instruction, never a generated credential. Provisioning is
 skipped rather than forced when `SMOKE_TEST_*` passwords are absent, and refused
-outright when the diagnostic found duplicate or mismatched smoke profile rows,
-because provisioning into them would corrupt usernames.
+outright when the launcher's pre-provisioning live inspection detects duplicate
+or mismatched smoke profile rows, because provisioning into them would corrupt
+usernames.
+
+That inspection reads the local database after Supabase is running and
+immediately before provisioning, not from the earlier diagnostic run: when
+Supabase was stopped at diagnostic time, the diagnostic has no user state to
+report. If the inspection cannot run at all, provisioning is refused rather than
+attempted blind.
 
 Cleanup is ownership-bound. The launcher records the static server's pid, port,
 and a random token in `artifacts/dev-local.state.json`; `--stop` terminates that
