@@ -22,8 +22,18 @@ snapshot has been deployed: no production deployment pipeline exists yet.
 - Four dependency-free verification tiers for focused feedback, complete PR
   gates, guarded local runtime checks, and deterministic non-publishing release
   readiness, with human and JSON output and explicit failure/skip semantics.
+- `npm run agent:worktree`: safe Git worktree management for AI agents, with
+  create, list, inspect, remove, and prune commands. Worktrees are created
+  beside the repository, implementation roles require a feature/fix/docs
+  branch, review worktrees use a detached HEAD at an exact SHA, and every
+  destructive operation must revalidate an exclusive ownership marker. It never
+  launches an AI client, never force-removes, never deletes a branch, and never
+  deletes untracked, ignored, or foreign files.
+- An advisory shared-runtime lock coordinating database reset, runtime smoke,
+  and smoke provisioning across worktrees, with exclusive acquisition, stale and
+  PID-reuse detection, and no automatic stealing of a live lock.
 - Documentation of the Automation PR 2-A1/2-A2 split. Verification tiers are
-  delivered in PR 2-A2; worktree and PR lifecycle automation remain PR 2-B.
+  delivered in PR 2-A2; agent worktrees in PR 2-B1; PR lifecycle automation remains PR 2-B2.
 - `npm run doctor`: read-only local environment diagnostic covering Git state,
   toolchain, Docker, Supabase, port ownership, local configuration, key class,
   Auth health, smoke-user linkage, and competing processes. It finishes with
@@ -49,6 +59,20 @@ snapshot has been deployed: no production deployment pipeline exists yet.
   protection, Dependabot alerts, merge strategy, and GitHub Pages governance.
 
 ### Changed
+
+- `verify:release` no longer runs `npm run check:migrations` twice. Migration
+  governance runs once as a PR-gate stage; the duplicate release stage was
+  removed.
+- Release artifact comparison, validation, and secret-shape scanning now
+  revalidate workspace ownership before reading, closing the window between
+  build and scan.
+- `npm run smoke` reports a stopped local Supabase as a configuration blocker
+  (exit 2) with the destructive checks `Skipped`, instead of reporting them as
+  required failures (exit 1). Without `-AllowDatabaseReset` but with Supabase
+  reachable, it still refuses with exit 1.
+- Documentation now states that the destructive reset wait is unbounded and
+  that Windows delivers Ctrl+C to the whole console process group, so the
+  verifier cannot guarantee an interrupt never reaches the child.
 
 - Project-status Main SHA validation now accepts any reachable ancestor of
   verified main, reports commitsBehindMain, and blocks unreachable or

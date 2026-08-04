@@ -14,6 +14,7 @@
     "verify:pr": "node scripts/dev/verify.cjs pr",
     "verify:runtime": "node scripts/dev/verify.cjs runtime",
     "verify:release": "node scripts/dev/verify.cjs release",
+    "agent:worktree": "node scripts/dev/agent-worktree.cjs",
     "doctor": "node scripts/dev/doctor.cjs",
     "dev:local": "node scripts/dev/dev-local.cjs",
     "preflight": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/preflight.ps1",

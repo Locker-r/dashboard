@@ -121,3 +121,15 @@ Decision: Deliver status, decisions, validation, and prompts in PR 2-A1; verific
 Rejected alternatives: One automation monolith; removing required safety controls to meet a line target.
 Consequences: Later automation remains explicitly deferred and no unimplemented command is documented as available.
 Related milestone: Developer Automation PR 2-A and PR 2-B
+
+## ADR-011 — Prove worktree ownership with a marker, never by path convention
+
+Decision ID: ADR-011
+Date: 2026-08-04
+Status: accepted
+Context: Automation that deletes worktrees must distinguish directories it created from operator directories that merely share a name or location.
+Decision: Record an exclusive `.automation-owner.json` marker holding a random token, repository identity, name, role, path, and ref; refuse every destructive worktree operation that cannot revalidate it, and never adopt or force-remove a path.
+Rejected alternatives: Trust the managed parent path; trust the directory name; offer a `--force` removal mode.
+Consequences: Automation refuses more often, including after legitimate manual edits, and the documented remedy is human inspection rather than a bypass flag.
+Related milestone: Developer Automation PR 2-B1
+Evidence: scripts/dev/automation-core.cjs, tests/agent-worktree.test.cjs

@@ -834,6 +834,7 @@ function createReleaseOps(deps) {
   }
 
   function compare(workspace) {
+    validateCleanupOwnership(workspace);
     const first = workspace.slots.a.output;
     const second = workspace.slots.b.output;
     const hash = crypto.createHash('sha256');
@@ -851,12 +852,14 @@ function createReleaseOps(deps) {
   }
 
   function validate(workspace, config, repositoryRoot) {
+    validateCleanupOwnership(workspace);
     const first = pages.validatePagesArtifact({ sourceRoot: repositoryRoot, artifactDirectory: workspace.slots.a.output, ...config });
     const second = pages.validatePagesArtifact({ sourceRoot: repositoryRoot, artifactDirectory: workspace.slots.b.output, ...config });
     return Object.freeze({ first, second });
   }
 
   function scan(workspace) {
+    validateCleanupOwnership(workspace);
     const patterns = [
       /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/,
       new RegExp('\\bsb_' + 'secret_[A-Za-z0-9_-]{8,}\\b', 'i'),
@@ -1051,7 +1054,8 @@ function createReleaseStages() {
       return artifactFailure(error, context);
     }
   }));
-  stages.push(npmStage({ id: 'release-migration-governance', label: 'Release migration governance', args: ['run', 'check:migrations'], timeoutMs: 180000 }));
+  // Migration governance already runs as a PR-gate stage; repeating the identical
+  // npm run check:migrations here added cost without adding coverage.
   stages.push(governanceStage('release-governance', 'Release governance structure', 'migration governance|rollback|CODEOWNERS|changelog'));
   stages.push(governanceStage('workflow-structure', 'Workflow structural checks', 'release workflow|quality gates|required status check names'));
   stages.push(internalStage('artifact-content-contract', 'Approved artifact-content contract', context => {

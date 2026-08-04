@@ -245,9 +245,21 @@ user, and ownership precondition, and prints a destructive warning. The wrapper
 is the only reset path; it rechecks that canonical local Supabase is already
 running and never starts it for this verifier. Hosted Supabase is always refused. Supplying the flag
 expresses authorization but does not bypass a failed safety check.
-During this destructive tree, timeout and repeated ordinary interruption signals
-wait for the owned wrapper and its descendants to finish instead of killing an
-outer PowerShell process and orphaning a database reset.
+During this destructive tree the verifier's own timeout does not kill the owned
+wrapper: it waits for the process tree to finish rather than orphaning a
+half-completed database reset. Two consequences must be understood before use.
+
+First, the wait is unbounded. Once the sanctioned reset wrapper starts, neither
+the verifier's 35-minute stage timeout nor the wrapper's own 900-second timeouts
+will terminate it; they only change how the result is reported. A hung
+`supabase db reset` will block until it exits or you intervene at the operating
+system level.
+
+Second, the verifier cannot guarantee that an interrupt never reaches the child.
+Its SIGINT and SIGTERM handlers decline to forward a signal to a destructive
+child, but on Windows Ctrl+C is delivered by the console to every process in the
+group, including the child PowerShell process. Automation policy cannot override
+that. Do not use Ctrl+C to stop a running reset; let it finish.
 
 ### `verify:release`
 
@@ -261,12 +273,16 @@ then:
 4. deterministic Pages artifact build B;
 5. exact comparison of all artifact paths, bytes, and the combined digest;
 6. independent validation of both artifacts;
-7. release migration governance;
-8. release-governance structural tests;
-9. workflow structural tests;
-10. the fixed artifact-content contract;
-11. an elevated credential-shape scan across both artifacts;
-12. identity- and token-verified cleanup of only this run's workspace.
+7. release-governance structural tests;
+8. workflow structural tests;
+9. the fixed artifact-content contract;
+10. an elevated credential-shape scan across both artifacts;
+11. identity- and token-verified cleanup of only this run's workspace.
+
+Migration governance is not repeated here. It runs once, as PR-gate stage 4.
+Artifact comparison, validation, and the credential-shape scan each revalidate
+workspace ownership before reading, so a directory substituted mid-run is
+refused rather than trusted.
 
 The caller must set `DASHBOARD_SUPABASE_PROJECT_URL` to an exact hosted HTTPS
 Supabase project root and `DASHBOARD_SUPABASE_PUBLISHABLE_KEY` to an approved
@@ -484,9 +500,123 @@ powershell -File scripts/dev/smoke.ps1 -Json -ReportPath artifacts/smoke.json
 - If push succeeds but PR creation fails, run `gh pr create`; the commit is not rolled back.
 - Existing PRs are reported rather than duplicated.
 
+## Agent worktrees
+
+`npm run agent:worktree` gives each AI agent an isolated checkout so two agents
+never fight over one working tree. It is dependency-free and shares the
+verification tiers' execution, redaction, and exit-code conventions.
+
+```powershell
+npm.cmd run agent:worktree -- create --name claude --branch feature/example --create-branch
+npm.cmd run agent:worktree -- create --name codex  --branch feature/example-review --create-branch
+npm.cmd run agent:worktree -- create --name review --ref <sha-or-branch> --read-only
+npm.cmd run agent:worktree -- list [--json]
+npm.cmd run agent:worktree -- inspect --name claude [--json]
+npm.cmd run agent:worktree -- remove --name claude
+npm.cmd run agent:worktree -- prune
+```
+
+### Roles and location
+
+Three logical roles are supported: `claude`, `codex`, and `review`. A custom
+name is allowed only with an explicit `--role`. Names must match
+`^[a-z0-9][a-z0-9_-]{0,39}$`.
+
+Worktrees live at `<repository-parent>\.worktrees\<repository-name>\<name>` —
+outside the primary working tree, so they never appear as untracked content.
+A parent inside the repository is refused, as are traversal segments, control
+and bidirectional characters, UNC paths, drive-relative paths, and any path with
+a symbolic-link or junction ancestor.
+
+`claude` and `codex` are implementation roles: they require an existing
+`feature/`, `fix/`, or `docs/` branch, or `--create-branch` to create one from
+HEAD. `main`, `master`, and any name Git could read as an option or revision
+(leading `-`, `..`, `@{`, whitespace, `.lock`) are refused. A branch already
+checked out in another worktree is refused.
+
+`review` uses a detached HEAD at an exact resolved commit, so no branch can move
+underneath a review and the implementation branch is never silently checked out.
+
+### What read-only does and does not mean
+
+`--read-only` records a convention in the ownership marker and is reported by
+`list` and `inspect`. **Git does not enforce it and neither does the
+filesystem.** A detached worktree will not advance a branch, but any process —
+including an AI agent — can still edit files there. Treat it as a signal to
+reviewers, not a permission boundary.
+
+### Ownership
+
+Every created worktree receives `.automation-owner.json` containing a random
+token, the repository identity, the logical name and role, the path, the branch
+or ref, and the creation time. Creation uses exclusive write and never adopts an
+existing directory: a pre-existing path is refused and preserved.
+
+`remove` refuses unless it can still prove ownership. It refuses a missing,
+malformed, or tampered marker; a repository or path mismatch; a dirty tracked
+tree; any untracked path other than the marker; ignored files created by an
+unknown process; a locked worktree; an in-progress Git operation; a live shared
+runtime lock; and a branch with commits not reachable from `main`. It never uses
+`--force`, never deletes untracked files, and never deletes a branch. Branch
+deletion is deliberately a separate, explicit, manual operation in this
+milestone.
+
+The marker is deleted immediately before `git worktree remove`, because Git
+refuses to remove a worktree that still contains untracked files. If the Git
+removal then fails, the worktree is left in place without a marker and
+automation can no longer remove it — this is deliberate fail-closed behaviour.
+The reported recovery path tells you which directory to inspect and remove
+manually.
+
+`prune` touches Git metadata only. It never deletes a filesystem path, shows the
+Git prune plan first, and refuses to prune automatically when a prunable entry
+lies under the managed worktree parent, because that usually means an owned
+directory disappeared unexpectedly and deserves inspection.
+
+### Shared local runtime
+
+Every worktree of this repository shares one Docker daemon, one local Supabase
+instance, and the same ports. An advisory lock under
+`<repository-parent>\.worktrees\.automation-locks\` coordinates the destructive
+operations: `database-reset`, `runtime-smoke`, and `smoke-provisioning`. It
+records the operation, owning worktree, PID, process start identity where
+available, timestamp, and a token, and contains no secrets.
+
+Acquisition is exclusive. A second owner is refused rather than queued.
+Automation never steals a live lock and never deletes a lock it does not hold;
+a dead PID is reported stale for a human to clear. A live PID whose recorded
+start identity no longer matches is treated as PID reuse and reported stale
+rather than live.
+
+**The lock is advisory.** It coordinates the commands in this repository. It
+cannot stop a local process that ignores it, so do not run two database resets
+concurrently on the strength of the lock alone.
+
+### Exit codes and output
+
+`0` success, `1` validation failure, `2` environment or precondition blocker,
+`64` invalid usage, `70` internal orchestration failure. Status lines are
+`WORKTREE CREATED`, `WORKTREE LIST OK`, `WORKTREE OWNED`, `WORKTREE NOT OWNED`,
+`WORKTREE REMOVED`, `WORKTREE METADATA PRUNED`, `WORKTREE PRUNE SKIPPED`, and
+`WORKTREE BLOCKED`. `--json` emits the versioned machine result only. Untrusted
+branch names, paths, and Git output are redacted and quoted as JSON strings, so
+they cannot inject headings or newlines into output.
+
+### What this milestone does not do
+
+Automation never launches Claude, Codex, or any other AI client — `create`
+prints the `cd` command for you to run yourself. PR preparation, review-package
+generation, merge-readiness verification, post-merge validation, and branch
+cleanup are deferred to Automation PR 2-B2 and are not available yet.
+
 ## Known limitations
 
 - Diff classification requires human interpretation.
+- Review worktrees are read-only by convention only; nothing enforces it.
+- The shared runtime lock is advisory and cannot constrain a process that
+  ignores it.
+- Worktree removal deliberately refuses more often than strictly necessary; the
+  documented remediation is manual inspection, not a force flag.
 - Static checks do not prove live runtime behavior.
 - Existing local runtime wrappers require database reset; this tool makes that decision explicit.
 - PowerShell 5.1 argument passing is less expressive than PowerShell 7, but no shell evaluation is used.
