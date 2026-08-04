@@ -6,10 +6,20 @@ try {
   foreach ($name in @('SMOKE_TEST_ADMIN_PASSWORD','SMOKE_TEST_AGENT_A_PASSWORD','SMOKE_TEST_AGENT_B_PASSWORD')) {
     if (-not [Environment]::GetEnvironmentVariable($name)) { throw "Missing environment variable: $name" }
   }
-  $ErrorActionPreference = 'Continue'
-  $null = & npx.cmd supabase start -x realtime,storage-api,imgproxy,postgres-meta,studio,logflare,vector,supavisor 2>&1
-  $ErrorActionPreference = 'Stop'
-  if ($LASTEXITCODE -ne 0) { throw 'Local Supabase failed to start.' }
+  if ($env:SMOKE_TEST_REQUIRE_ALREADY_RUNNING -eq '1') {
+    $ErrorActionPreference = 'Continue'
+    $preflightStatus = & npx.cmd supabase status -o env 2>$null
+    $ErrorActionPreference = 'Stop'
+    if ($LASTEXITCODE -ne 0) { throw 'Local Supabase stopped before reset; automatic startup is disabled for this run.' }
+    $preflightValues = @{}
+    foreach ($line in $preflightStatus) { if ($line -match '^([A-Z_]+)="?(.*?)"?$') { $preflightValues[$matches[1]] = $matches[2].TrimEnd('"') } }
+    if ($preflightValues.API_URL -ne 'http://127.0.0.1:54321') { throw 'Local Supabase reported a noncanonical API URL before reset.' }
+  } else {
+    $ErrorActionPreference = 'Continue'
+    $null = & npx.cmd supabase start -x realtime,storage-api,imgproxy,postgres-meta,studio,logflare,vector,supavisor 2>&1
+    $ErrorActionPreference = 'Stop'
+    if ($LASTEXITCODE -ne 0) { throw 'Local Supabase failed to start.' }
+  }
   $ErrorActionPreference = 'Continue'
   $null = & npx.cmd supabase db reset --local --no-seed 2>&1
   $ErrorActionPreference = 'Stop'

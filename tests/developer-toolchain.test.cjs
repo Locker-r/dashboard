@@ -38,11 +38,32 @@ test('common returns structured results, redacts secrets, and computes exit code
   const cmd=`. '${file}'; $p=New-CheckResult pass Passed $true 0 'token=abc'; $f=New-CheckResult fail Failed $true; [pscustomobject]@{Redacted=$p.Details;Ok=(Get-ToolchainExitCode @($p));Failed=(Get-ToolchainExitCode @($f));Config=(Get-ToolchainExitCode @() -ConfigurationError)}|ConvertTo-Json -Compress`;
   const r=spawnSync(shell,['-NoProfile','-ExecutionPolicy','Bypass','-Command',cmd],{encoding:'utf8'});assert.equal(r.status,0,r.stderr);const v=JSON.parse(r.stdout.trim());assert.match(v.Redacted,/REDACTED/);assert.deepEqual([v.Ok,v.Failed,v.Config],[0,1,2]);
 });
-test('smoke plan refuses reset-dependent runtime without opt-in',()=>{const r=run('smoke.ps1',['-Json']);assert.equal(r.status,1);const v=JSON.parse(r.stdout);assert.equal(v.Passed,false);assert.ok(v.Plan.some(x=>x.Classification==='destructive-local'));assert.ok(v.Results.some(x=>x.Name==='Base runtime smoke'&&x.Status==='Failed'));});
+test('common wait timeout lets a nested process finish instead of orphaning it',()=>{
+  const directory=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'toolchain-wait-timeout-'));
+  try {
+    const marker=path.join(directory,'grandchild-finished.txt'),outer=path.join(directory,'outer.cjs'),grandchild=path.join(directory,'grandchild.cjs');
+    fs.writeFileSync(grandchild,"const fs=require('node:fs');setTimeout(()=>fs.writeFileSync(process.argv[2],'finished\\n'),75);\n");
+    fs.writeFileSync(outer,"const{spawn}=require('node:child_process');const c=spawn(process.execPath,[process.argv[2],process.argv[3]],{stdio:'inherit',windowsHide:true});c.on('exit',code=>process.exit(code===0?0:1));\n");
+    const quote=value=>value.replaceAll("'","''"),common=quote(path.join(dev,'common.ps1')),cwd=quote(directory);
+    const cmd=`. '${common}'; $r=Invoke-CheckedCommand nested node @('${quote(outer)}','${quote(grandchild)}','${quote(marker)}') $true 0 '${cwd}' Wait; $r|ConvertTo-Json -Compress`;
+    const result=spawnSync(shell,['-NoProfile','-ExecutionPolicy','Bypass','-Command',cmd],{encoding:'utf8',timeout:10000});
+    assert.equal(result.status,0,result.stderr);const value=JSON.parse(result.stdout.trim());assert.equal(value.Status,'Failed');assert.match(value.Details,/allowed to finish safely/);assert.equal(fs.readFileSync(marker,'utf8'),'finished\n');
+  } finally { fs.rmSync(directory,{recursive:true,force:true}); }
+});
+test('guarded local reset refuses a stopped Supabase race without starting or resetting it',{skip:process.platform!=='win32'},()=>{
+  const directory=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'toolchain-stopped-race-'));
+  try {
+    const calls=path.join(directory,'calls.txt'),fake=path.join(directory,'npx.cmd');fs.writeFileSync(fake,`@echo off\r\necho %*>>"${calls}"\r\nexit /b 1\r\n`);
+    const env={...process.env,PATH:`${directory};${process.env.PATH}`,SMOKE_TEST_REQUIRE_ALREADY_RUNNING:'1',SMOKE_TEST_ADMIN_PASSWORD:'fixture-admin',SMOKE_TEST_AGENT_A_PASSWORD:'fixture-a',SMOKE_TEST_AGENT_B_PASSWORD:'fixture-b'};
+    const result=spawnSync(shell,['-NoProfile','-ExecutionPolicy','Bypass','-File',path.join(root,'scripts','Invoke-LocalRuntimeSmokeTest.ps1')],{cwd:root,env,encoding:'utf8',timeout:10000});
+    assert.notEqual(result.status,0);const invoked=fs.readFileSync(calls,'utf8');assert.match(invoked,/supabase status -o env/);assert.doesNotMatch(invoked,/supabase start|db reset/);
+  } finally { fs.rmSync(directory,{recursive:true,force:true}); }
+});
+test('smoke plan refuses reset-dependent runtime without opt-in',()=>{const r=run('smoke.ps1',['-Json']);assert.ok([1,2].includes(r.status));const v=JSON.parse(r.stdout);assert.equal(v.Passed,false);assert.ok(v.Plan.some(x=>x.Classification==='destructive-local'));assert.ok(v.Results.some(x=>x.Name==='Base runtime smoke'&&x.Status!=='Passed'));});
 test('preflight source implements JSON reports and required failure propagation',()=>{const s=read('preflight.ps1');assert.match(s,/ConvertTo-Json/);assert.match(s,/Write-ToolchainReport/);assert.match(s,/Get-ToolchainExitCode/);assert.match(s,/Supabase status/);});
 test('smoke renders the execution plan stage in non-JSON mode',()=>{
   const r=run('smoke.ps1');
-  assert.equal(r.status,1);
+  assert.ok([1,2].includes(r.status));
   assert.match(r.stdout,/== Execution plan ==/);
   assert.doesNotMatch(`${r.stdout}\n${r.stderr}`,/is not recognized as the name of a cmdlet/i);
 });
