@@ -187,7 +187,25 @@ Still Open, unchanged in scope:
 4. Add tests for `OUTPUT_NOT_IGNORED` in `scripts/dev/generate-prompt.cjs`.
 5. Include the branch-vs-base diff in review prompt context.
 
-New validation rule, for reference: Main SHA is valid only when it equals the
-resolved main tip or the direct first parent of that tip. Arbitrary ancestry is
-rejected and the depth is not configurable, so a status more than one main
-commit behind still fails as stale.
+Rule adopted by PR #26, now superseded: Main SHA was valid only when it equaled
+the resolved main tip or that tip's direct first parent. A baseline more than
+one main commit behind failed as stale.
+
+### Supersession record 2026-08-04: final project-status ancestry policy
+
+PR #27 demonstrated that the direct-parent allowance survived only one
+additional merge: the next ordinary merge moved the recorded baseline two
+commits behind main and made main CI red again. Requiring a documentation update
+after every technical merge would recreate the same self-referential cycle.
+
+The final policy treats Main SHA as a verified milestone baseline. A full SHA
+that resolves to a commit and is an ancestor of resolved main is valid at any
+depth; the validator reports commitsBehindMain as informational context. Exact
+equality remains fully current. Missing commits block as MAIN_SHA_UNREACHABLE,
+and reachable unrelated or descendant commits block as
+MAIN_SHA_NOT_ANCESTOR. Milestone completion refreshes the baseline; technical
+hotfix and documentation merges do not require status-only follow-ups.
+
+PR #26's secure main-resolution work is retained unchanged: synchronized main
+refs are preferred, CI fetches origin/main, and the detached pull-request
+fallback remains provenance-gated and fails closed when its evidence is absent.

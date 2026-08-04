@@ -14,7 +14,8 @@ snapshot has been deployed: no production deployment pipeline exists yet.
 ### Added
 
 - Canonical AI project status and an append-only architecture decision log,
-  with a dependency-free validator that detects malformed or stale context.
+  with a dependency-free validator that detects malformed or unsafe ancestry
+  context.
 - A dependency-free repository-aware prompt generator with seven role
   templates, shared safety rules, offline operation, redaction, deterministic
   fingerprints, guarded file output, and safe Windows clipboard handling.
@@ -46,4 +47,8 @@ snapshot has been deployed: no production deployment pipeline exists yet.
 
 ### Changed
 
+- Project-status Main SHA validation now accepts any reachable ancestor of
+  verified main, reports commitsBehindMain, and blocks unreachable or
+  non-ancestor SHAs. Prompt context reports the same relationship, while exact
+  branch, HEAD, and PR-head stale-context guards remain unchanged.
 - `package.json` declares a supported Node.js range.
