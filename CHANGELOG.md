@@ -19,8 +19,11 @@ snapshot has been deployed: no production deployment pipeline exists yet.
 - A dependency-free repository-aware prompt generator with seven role
   templates, shared safety rules, offline operation, redaction, deterministic
   fingerprints, guarded file output, and safe Windows clipboard handling.
+- Four dependency-free verification tiers for focused feedback, complete PR
+  gates, guarded local runtime checks, and deterministic non-publishing release
+  readiness, with human and JSON output and explicit failure/skip semantics.
 - Documentation of the Automation PR 2-A1/2-A2 split. Verification tiers are
-  deferred to PR 2-A2; worktree and PR lifecycle automation remain PR 2-B.
+  delivered in PR 2-A2; worktree and PR lifecycle automation remain PR 2-B.
 - `npm run doctor`: read-only local environment diagnostic covering Git state,
   toolchain, Docker, Supabase, port ownership, local configuration, key class,
   Auth health, smoke-user linkage, and competing processes. It finishes with
@@ -51,4 +54,9 @@ snapshot has been deployed: no production deployment pipeline exists yet.
   verified main, reports commitsBehindMain, and blocks unreachable or
   non-ancestor SHAs. Prompt context reports the same relationship, while exact
   branch, HEAD, and PR-head stale-context guards remain unchanged.
+- Adversarial-review prompts now render the exact live pull-request base-to-head
+  diff separately from uncommitted working-tree changes. Guarded prompt output
+  refusals now have behavioral coverage for existing and non-ignored targets.
+- Destructive local smoke timeouts now wait for the sanctioned owned process
+  tree to finish, preventing an outer-wrapper kill from orphaning reset work.
 - `package.json` declares a supported Node.js range.

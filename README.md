@@ -10,16 +10,47 @@ against the local main ref with:
 
 Generate a repository-aware prompt with:
 
-    npm run prompt -- implementation --task "Automation PR 2-A1"
+    npm run prompt -- implementation --task "Automation PR 2-A2"
     npm run prompt -- adversarial-review --pr 24
     npm run prompt -- validation --offline
 
 Prompts default to stdout. File output is confined to the already ignored
 artifacts/prompts directory. Offline mode performs no GitHub query and marks
-mergeability and CI as unverified. Windows clipboard output uses prompt bytes
-through standard input rather than shell interpolation.
+mergeability and CI as unverified. Windows clipboard output uses prompt bytes through standard input rather than shell interpolation. Adversarial-review prompts
+report the exact live pull-request base-to-head diff separately from uncommitted working-tree changes; unavailable live context is reported rather than guessed.
 
-Verification tiers are intentionally deferred to Automation PR 2-A2.
+## Verification tiers
+
+Use the smallest tier that truthfully covers the task:
+
+```powershell
+npm.cmd run verify:fast
+npm.cmd run verify:pr
+npm.cmd run verify:runtime
+npm.cmd run verify:release
+```
+
+- `verify:fast` reports repository state, checks JavaScript and whitespace,
+  validates project status, and runs the focused automation tests. It is for
+  implementation feedback and is not sufficient for a pull request or merge.
+- `verify:pr` runs the complete local PR gate: the full tests, JavaScript and
+  secret checks, migration and project-status validation, preflight, and
+  `git diff --check`.
+- `verify:runtime` checks the local Docker, Supabase, Auth, smoke-user, and
+  runtime-harness state without resetting or starting services. Its destructive
+  smoke stage is skipped unless `--allow-reset` is supplied explicitly.
+- `verify:release` includes the PR gate and production dependency audit, then
+  builds two isolated Pages artifacts, compares their bytes, validates their
+  content and governance contracts, scans them for elevated credential shapes,
+  and cleans only its identity-verified workspace. It never tags, publishes,
+  creates a Release, or deploys.
+
+`--json` emits the versioned machine result. `verify:release` requires explicit `DASHBOARD_SUPABASE_PROJECT_URL` and
+`DASHBOARD_SUPABASE_PUBLISHABLE_KEY` browser-public values; it accepts only a hosted HTTPS Supabase project root and the `sb_publishable_` key class, never
+fabricates production values, and blocks rather than skipping its dependency audit in `--offline` mode. Full stage, option, output, exit-code, reset, and
+artifact-cleanup contracts are documented in
+[`docs/developer-toolchain.md`](docs/developer-toolchain.md).
+
 Worktrees, PR preparation, merge, and post-merge automation remain deferred to
 Automation PR 2-B.
 

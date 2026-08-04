@@ -104,9 +104,9 @@ Static and unit gates pass, but Auth, RLS, atomic RPC, team-management, concurre
 
 ## Accepted Automation PR 2-A1 review follow-ups
 
-Status: Partially closed 2026-08-04. Items 1, 2, and 6 are closed by the
-project-status validator hotfix; items 3, 4, and 5 remain Open. Accepted by the
-Product Owner on 2026-08-04 at merge of PR #24
+Status: Closed 2026-08-04. Items 1, 2, and 6 were closed by the project-status
+validator hotfix; items 3, 4, and 5 are closed by Automation PR 2-A2. Accepted
+by the Product Owner on 2026-08-04 at merge of PR #24
 (squash commit `c6e119ddbdaf23b714b91649520baade4e333d2f`). Recorded from the
 independent adversarial review of PR #24; none of these blocked the merge.
 
@@ -181,11 +181,23 @@ Closed by this hotfix:
    clone the merge parents are grafted away and resolution fails closed; the
    fallback applies to a full-history detached merge checkout.
 
-Still Open, unchanged in scope:
+### Closure record 2026-08-04: Automation PR 2-A2 prompt follow-ups
 
-3. Add tests for `OUTPUT_EXISTS` in `scripts/dev/generate-prompt.cjs`.
-4. Add tests for `OUTPUT_NOT_IGNORED` in `scripts/dev/generate-prompt.cjs`.
-5. Include the branch-vs-base diff in review prompt context.
+Closed by Automation PR 2-A2:
+
+3. **`OUTPUT_EXISTS` behavioral coverage — closed.** The prompt-generator test
+   executes the same guarded output twice, proves the second call fails with
+   `OUTPUT_EXISTS`, and proves the original bytes, write count, and clipboard
+   state remain unchanged.
+4. **`OUTPUT_NOT_IGNORED` behavioral coverage — closed.** The test makes Git's
+   literal `check-ignore` decision fail, proves `OUTPUT_NOT_IGNORED` is returned,
+   and proves no file or clipboard write occurs.
+5. **Exact review diff context — closed.** `adversarial-review` now uses the full
+   live GitHub base and head SHAs for an exact `base...head` Git diff, renders its
+   sorted changed files and statistics separately from uncommitted working-tree
+   changes, treats filenames as redacted untrusted data, and fingerprints the
+   result. Missing live state or Git objects are reported as unavailable rather
+   than replaced with a guessed diff.
 
 Rule adopted by PR #26, now superseded: Main SHA was valid only when it equaled
 the resolved main tip or that tip's direct first parent. A baseline more than

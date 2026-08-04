@@ -2,14 +2,15 @@
 
 ## Purpose
 
-The scripts in `scripts/dev` provide repeatable readiness checks, guarded runtime smoke orchestration, diff-aware review reports, and dry-run-first pull request creation without new dependencies.
+The scripts in `scripts/dev` provide repeatable verification tiers, readiness checks, guarded runtime smoke orchestration, diff-aware review reports, and dry-run-first pull request creation without new dependencies.
 
 ## Safety model
 
 - Read-only behavior is the default; required failures are never reported as success.
 - Output and reports redact credential-shaped values and remain inside the repository.
 - No force push, automatic merge, container/volume deletion, or production targeting.
-- Database reset requires explicit `-AllowDatabaseReset`.
+- Database reset requires explicit `--allow-reset`, which delegates only to the
+  existing `-AllowDatabaseReset` smoke path.
 - PR commits use an explicit `-Paths` allowlist.
 
 ## Commands
@@ -119,6 +120,10 @@ baseline relation is exact or ancestor-based. A valid ancestor is never labeled
 stale-blocking. The STALE PROMPT guard remains exact: branch, HEAD, relevant PR
 head, and other execution context must still match the generated prompt.
 
+For `adversarial-review`, verified live GitHub base and head SHAs define an exact base-to-head Git diff. Its sorted changed-file list and short statistics are
+rendered separately from uncommitted working-tree changes, remain quoted untrusted data, and participate in the context fingerprint. If live PR state or either
+Git diff query is unavailable, the prompt reports the missing context and does not substitute a guessed branch or working-tree diff.
+
 Offline mode never invokes GitHub and emits:
 
     GitHub state unavailable.
@@ -135,14 +140,159 @@ file.
 
 ## Verification tiers
 
-The verify:fast, verify:pr, verify:runtime, and verify:release commands are
-deferred intact to Automation PR 2-A2. This PR does not claim they exist.
-Current preflight, doctor, smoke, review, and release checks keep their existing
-contracts until that focused follow-up.
+The dependency-free verifier provides one interface over the existing checks:
+
+```powershell
+npm.cmd run verify:fast
+npm.cmd run verify:pr
+npm.cmd run verify:runtime
+npm.cmd run verify:release
+```
+
+Every tier reports the selected tier, repository root, branch, full HEAD, start and completion time, total duration, destructive intent, each stage's duration
+and result, skip reasons, and the first failure. Stages use fixed executable and argument arrays with shell execution disabled. The first failed, blocked, or
+interrupted required stage remains primary; later stages are explicitly `skipped`. Release cleanup still runs when it is safe, and a cleanup failure is reported
+without replacing an earlier failure.
+
+The final human line is exactly `VERIFY <TIER> PASSED` or
+`VERIFY <TIER> FAILED`. Supported options are:
+
+- `--json`: emit only the versioned JSON result.
+- `--offline`: record offline intent. For `verify:release` this blocks at the
+  required dependency audit instead of skipping it and returning a false pass;
+  it does not rewrite the commands used by other tiers.
+- `--allow-reset`: authorize the sanctioned destructive stage in
+  `verify:runtime` only. Other tiers reject it as invalid usage.
+- `--help` or `-h`: print usage without running stages.
+
+JSON schema version 1 contains `schemaVersion`, `tier`, `repository`, `branch`, `head`, `status`, `destructive`, `offline`, `stages`, `startedAt`, `completedAt`,
+`durationMs`, `failureCode`, and `failureStage`. Each stage records its id, label, required and destructive flags, status, fixed display command when applicable,
+duration, redacted details, and failure metadata.
+Credential-shaped output is redacted in both formats.
+
+Verifier exit codes are:
+
+- `0`: every required stage passed; an intentionally skipped default runtime
+  reset does not make the non-destructive tier fail.
+- `1`: a validation stage failed or execution was interrupted.
+- `2`: an environment or precondition blocker prevented truthful validation.
+- `64`: invalid tier, option, or option combination.
+- `70`: internal orchestration or unmasked cleanup failure.
+
+On Windows, invoke a tier through its npm script so the verifier can resolve the
+installed npm CLI without running a `.cmd` file through a shell. Durations are
+environment-dependent: fast is normally seconds to a few minutes; PR and
+release are several-minute gates; runtime depends on local services, and an
+explicit reset suite can take substantially longer.
+
+### `verify:fast`
+
+Fast feedback runs exactly:
+
+1. repository identity and Git-state reporting;
+2. JavaScript syntax validation;
+3. `git diff --check`;
+4. project-status validation;
+5. `tests/project-status.test.cjs`, `tests/prompt-generator.test.cjs`, and
+   `tests/verification-tiers.test.cjs`.
+
+Tracked and untracked changes are reported rather than rejected, including the
+allowlisted `supabase/snippets` path, which is never modified. This tier invokes
+no Docker, Supabase, dependency audit, release artifact, GitHub, or network
+stage. It is useful while implementing but is not sufficient for PR creation or
+merge.
+
+### `verify:pr`
+
+The complete local PR gate runs these mandatory stages in order:
+
+1. `npm test`;
+2. `npm run check:js`;
+3. `npm run check:secrets`;
+4. `npm run check:migrations`;
+5. `npm run check:project-status`;
+6. `npm run preflight`;
+7. `git diff --check`.
+
+It stops after the first meaningful failure and marks every later stage skipped.
+It never resets a database, pushes, or requires GitHub state. Preflight retains
+its own documented optional environment and connectivity warnings.
+
+### `verify:runtime`
+
+Runtime verification runs:
+
+1. the read-only doctor;
+2. Docker CLI availability;
+3. Docker daemon availability;
+4. local Supabase status at the canonical loopback URL;
+5. canonical local Dashboard configuration and browser-public key checks;
+6. local Auth health;
+7. smoke-user linkage;
+8. competing-process and runtime-ownership checks;
+9. the existing runtime harness dry-run;
+10. the sanctioned local reset smoke suite, skipped by default.
+
+The default never starts Docker or Supabase, resets a database, provisions a
+user, or terminates a process. Stopped services, hosted or malformed targets,
+secret or unknown key classes, unhealthy Auth, unsafe smoke-user state, and
+ambiguous process ownership block with an exact remediation.
+
+`npm.cmd run verify:runtime -- --allow-reset` is destructive. Before invoking
+`scripts/dev/smoke.ps1 -AllowDatabaseReset`, the verifier requires the three
+local smoke passwords, reruns doctor, rechecks every loopback, service, Auth,
+user, and ownership precondition, and prints a destructive warning. The wrapper
+is the only reset path; it rechecks that canonical local Supabase is already
+running and never starts it for this verifier. Hosted Supabase is always refused. Supplying the flag
+expresses authorization but does not bypass a failed safety check.
+During this destructive tree, timeout and repeated ordinary interruption signals
+wait for the owned wrapper and its descendants to finish instead of killing an
+outer PowerShell process and orphaning a database reset.
+
+### `verify:release`
+
+Release readiness is a local proof only. It runs all seven `verify:pr` stages,
+then:
+
+1. `npm audit --omit=dev --audit-level=high`;
+2. validation of explicit browser-public artifact configuration and creation of
+   a unique run-owned ignored workspace;
+3. deterministic Pages artifact build A;
+4. deterministic Pages artifact build B;
+5. exact comparison of all artifact paths, bytes, and the combined digest;
+6. independent validation of both artifacts;
+7. release migration governance;
+8. release-governance structural tests;
+9. workflow structural tests;
+10. the fixed artifact-content contract;
+11. an elevated credential-shape scan across both artifacts;
+12. identity- and token-verified cleanup of only this run's workspace.
+
+The caller must set `DASHBOARD_SUPABASE_PROJECT_URL` to an exact hosted HTTPS
+Supabase project root and `DASHBOARD_SUPABASE_PUBLISHABLE_KEY` to an approved
+`sb_publishable_` value. Synthetic format-valid public fixture values are
+acceptable for local proof when explicitly supplied. Missing, placeholder,
+loopback, malformed, JWT, secret, service-role, or unknown values block; the
+verifier never invents or prints configuration.
+
+Both artifacts are built under `artifacts/verify-release-*`, which is ignored by
+Git. The verifier compares every byte, independently validates the fixed
+17-file Pages contract, and removes the workspace only while its path, identity,
+ownership token, and exact entries remain trustworthy. On ambiguous ownership
+or recovery material it fails closed and preserves the reported workspace for
+inspection. Dependency-audit registry failure is an environment blocker.
+
+This tier never invokes the publishing release workflow, creates a tag or
+GitHub Release, uploads an artifact, pushes, publishes, or deploys Pages.
+
+Use `verify:fast` during implementation and `verify:pr` before handing off a
+pull request. AI agents should run runtime or release only when the task actually
+requires those environment-specific proofs and must never use `--allow-reset`
+without explicit destructive-local authorization.
 
 Automation PR 2-B remains responsible for AI worktrees, PR preparation, merge,
-and post-merge automation. No worktree or AI client is launched by the prompt
-generator.
+and post-merge automation. The verifier launches no worktree or AI client and
+performs no PR lifecycle action.
 
 ## Doctor
 

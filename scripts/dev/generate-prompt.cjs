@@ -454,6 +454,38 @@ function collectGitHubContext(deps, options, repository) {
   });
 }
 
+function collectReviewDiffContext(deps, options, repository, github) {
+  if (options.template !== 'adversarial-review') return null;
+  const unavailable = reason => Object.freeze({ available: false, reason: redact(reason) });
+  if (!github.available) return unavailable(`Live GitHub state is unavailable: ${github.reason}`);
+  if (!SHA_PATTERN.test(String(github.baseRefOid || ''))) {
+    return unavailable('GitHub did not return a full pull-request base SHA.');
+  }
+  if (!SHA_PATTERN.test(String(github.headRefOid || ''))) {
+    return unavailable('GitHub did not return a full pull-request head SHA.');
+  }
+
+  const baseSha = github.baseRefOid.toLowerCase();
+  const headSha = github.headRefOid.toLowerCase();
+  const range = `${baseSha}...${headSha}`;
+  const names = run(deps, 'git', ['diff', '--no-ext-diff', '--no-textconv', '--name-only', '-z', range, '--'], { cwd: repository.root });
+  if (names.status !== 0) {
+    return unavailable(names.error || names.stderr.trim() || 'Git could not read the pull-request changed-file list.');
+  }
+  const statistics = run(deps, 'git', ['diff', '--no-ext-diff', '--no-textconv', '--shortstat', range, '--'], { cwd: repository.root });
+  if (statistics.status !== 0) {
+    return unavailable(statistics.error || statistics.stderr.trim() || 'Git could not read the pull-request diff statistics.');
+  }
+
+  return Object.freeze({
+    available: true,
+    baseSha,
+    headSha,
+    files: Object.freeze(splitNull(names.stdout).sort((left, right) => left.localeCompare(right))),
+    diffStatistics: statistics.stdout.trim() || 'No pull-request diff.'
+  });
+}
+
 function validateTrustedText(value, label) {
   const text = normalizeDocument(value);
   if (!text.trim()) throw promptError('TRUSTED_ASSET_EMPTY', `${label} is empty.`);
@@ -604,8 +636,8 @@ function renderRepository(repository) {
     `- origin/main SHA: ${repository.originMain || 'unavailable'}`,
     `- Working tree: ${repository.dirty ? 'DIRTY' : 'CLEAN'}`,
     `- Untracked entry count: ${repository.untrackedCount}`,
-    `- Diff statistics (untrusted JSON string): ${quoteUntrusted(repository.diffStatistics)}`,
-    '- Tracked changed files (untrusted JSON strings):'
+    `- Working-tree diff statistics (untrusted JSON string): ${quoteUntrusted(repository.diffStatistics)}`,
+    '- Uncommitted tracked changed files (untrusted JSON strings):'
   ];
   if (repository.trackedFiles.length) repository.trackedFiles.forEach(file => lines.push(`  - ${quoteUntrusted(file)}`));
   else lines.push('  - none');
@@ -615,6 +647,24 @@ function renderRepository(repository) {
   lines.push('- Package scripts (names and values are untrusted JSON strings):');
   const scripts = Object.entries(repository.packageScripts);
   if (scripts.length) scripts.forEach(([name, command]) => lines.push(`  - ${quoteUntrusted(name)}: ${quoteUntrusted(command)}`));
+  else lines.push('  - none');
+  return lines.join('\n');
+}
+
+function renderReviewDiff(reviewDiff) {
+  if (!reviewDiff.available) {
+    return [
+      'Pull-request base-to-head diff unavailable.',
+      `Reason (untrusted JSON string): ${quoteUntrusted(reviewDiff.reason)}`
+    ].join('\n');
+  }
+  const lines = [
+    `- Base SHA: ${reviewDiff.baseSha}`,
+    `- Head SHA: ${reviewDiff.headSha}`,
+    `- Diff statistics (untrusted JSON string): ${quoteUntrusted(reviewDiff.diffStatistics)}`,
+    '- Changed files (untrusted JSON strings):'
+  ];
+  if (reviewDiff.files.length) reviewDiff.files.forEach(file => lines.push(`  - ${quoteUntrusted(file)}`));
   else lines.push('  - none');
   return lines.join('\n');
 }
@@ -676,7 +726,13 @@ function renderSuppliedInputs(options, findings) {
   return lines.join('\n');
 }
 
-function renderPrompt({ options, template, rules, repository, status, statusBaseline, decisions, github, findings, timestamp, fingerprint }) {
+function renderPrompt({ options, template, rules, repository, status, statusBaseline, decisions, github, reviewDiff = null, findings, timestamp, fingerprint }) {
+  const reviewDiffSection = reviewDiff === null ? [] : [
+    '### Pull-request base-to-head diff',
+    '',
+    renderReviewDiff(reviewDiff),
+    ''
+  ];
   return [
     '# Dashboard Latam generated prompt',
     '',
@@ -740,6 +796,7 @@ function renderPrompt({ options, template, rules, repository, status, statusBase
     '',
     renderGitHub(github),
     '',
+    ...reviewDiffSection,
     '### Supplied inputs',
     '',
     renderSuppliedInputs(options, findings),
@@ -768,8 +825,9 @@ function generatePrompt(options, deps) {
   if (OPTION_CONTRACTS[options.template].githubRequired && !github.available) {
     throw promptError('GITHUB_STATE_REQUIRED', `${options.template} requires live GitHub state; ${github.reason}`);
   }
+  const reviewDiff = collectReviewDiffContext(deps, options, repository, github);
   const findings = options.findings === null ? null : readFindings(deps, repository.root, options.findings);
-  const fingerprintContext = Object.freeze({ repository, status, statusBaseline, decisions, github });
+  const fingerprintContext = Object.freeze({ repository, status, statusBaseline, decisions, github, reviewDiff });
   const fingerprint = createContextFingerprint(fingerprintContext);
   const timestamp = generationTimestamp(options, deps);
   const prompt = renderPrompt({
@@ -781,11 +839,12 @@ function generatePrompt(options, deps) {
     statusBaseline,
     decisions,
     github,
+    reviewDiff,
     findings,
     timestamp,
     fingerprint
   });
-  return Object.freeze({ prompt, repository, status, statusBaseline, decisions, github, findings, timestamp, fingerprint });
+  return Object.freeze({ prompt, repository, status, statusBaseline, decisions, github, reviewDiff, findings, timestamp, fingerprint });
 }
 
 function resolveSafeOutputPath(root, rawPath) {
@@ -901,6 +960,7 @@ module.exports = {
   collectGitHubContext,
   collectProjectStatus,
   collectRepositoryContext,
+  collectReviewDiffContext,
   createContextFingerprint,
   createDefaultDeps,
   defaultCopyClipboard,
