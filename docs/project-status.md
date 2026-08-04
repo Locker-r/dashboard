@@ -11,7 +11,7 @@ Current milestone: Developer Automation PR 2-B1
 Milestone status: in-progress
 Main SHA: 0efe42f82edc520a5bb1293a5996407811fba77d
 Last merged PR: #29
-Current open PR: none
+Current open PR: #30
 Active blockers: none
 Approved decisions: ADR-001 through ADR-011 in docs/decisions.md
 Next task: Review and merge Automation PR 2-B1, then implement Automation PR 2-B2
