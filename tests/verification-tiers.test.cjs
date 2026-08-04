@@ -250,6 +250,52 @@ test('the default Windows runner maps npm.cmd to the trusted npm CLI without a s
   assert.deepEqual(spawned.options.stdio, ['ignore', 'pipe', 'pipe']);
   assert.equal(controller.child, null);
 });
+test('the Windows runner fails closed when npm_execpath cannot be trusted', async t => {
+  const npmCli = 'C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js';
+  for (const [name, env, fsOverride] of [
+    ['missing npm_execpath', {}, null],
+    ['relative npm_execpath', { npm_execpath: 'node_modules\\npm\\bin\\npm-cli.js' }, null],
+    ['wrong basename', { npm_execpath: 'C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npx-cli.js' }, null],
+    ['unreadable file', { npm_execpath: npmCli }, { statSync() { const error = new Error('missing'); error.code = 'ENOENT'; throw error; } }],
+    ['not an ordinary file', { npm_execpath: npmCli }, { statSync: () => ({ isFile: () => false }) }]
+  ]) {
+    await t.test(name, async () => {
+      let spawned = 0;
+      const deps = verify.createDefaultDeps({
+        platform: 'win32',
+        env,
+        fs: fsOverride || { statSync: () => ({ isFile: () => true }) },
+        spawnProcess() { spawned += 1; throw new Error('must not spawn'); }
+      });
+      const result = await deps.runCommand('npm.cmd', ['test'], { cwd: ROOT, timeoutMs: 1000 });
+      assert.equal(spawned, 0, 'an untrusted npm CLI must never be spawned');
+      assert.equal(result.status, null);
+      assert.equal(result.error.code, 'NPM_EXECUTABLE_UNAVAILABLE');
+      assert.equal(result.error.exitCode, verify.EXIT_BLOCKED);
+    });
+  }
+
+  await t.test('the blocked runner becomes an exit-2 tier result', async () => {
+    const capture = captureStreams();
+    const code = await verify.main(['pr', '--json'], {
+      repository: { root: ROOT, branch: 'feature/verification', head: HEAD },
+      platform: 'win32',
+      env: {},
+      now: deterministicClock(),
+      streams: capture.streams,
+      installSignalHandlers: false,
+      fs: { statSync: () => ({ isFile: () => true }) },
+      spawnProcess() { throw new Error('must not spawn'); }
+    });
+    assert.equal(code, verify.EXIT_BLOCKED);
+    const parsed = JSON.parse(capture.stdout());
+    assert.equal(parsed.status, 'blocked');
+    assert.equal(parsed.failureCode, 'NPM_EXECUTABLE_UNAVAILABLE');
+    assert.equal(parsed.failureStage, 'unit-tests');
+    assert.match(parsed.stages[0].details, /run the verifier through npm run verify:/);
+    assert.ok(parsed.stages.slice(1).every(stage => stage.status === 'skipped'));
+  });
+});
 test('timeout waits for confirmed owned-child close and escalates an ignored graceful signal', async () => {
   const controller = { interrupted: false, child: null };
   const signals = [];
@@ -660,12 +706,10 @@ test('verify:runtime --allow-reset reaches only the sanctioned guarded wrapper a
   assert.equal(Object.hasOwn(resetCalls[0].options.env, 'SMOKE_TEST_LOCAL_SERVICE_KEY'), false);
   assert.equal(run.calls.some(call => call.args.includes('Invoke-LocalRuntimeSmokeTest.ps1')), false);
   assert.equal(run.calls.some(call => /start|stop|kill/i.test(call.args[0] || '')), false);
-  const commonSource = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'dev', 'common.ps1'), 'utf8');
-  const smokeSource = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'dev', 'smoke.ps1'), 'utf8');
-  assert.match(commonSource, /ValidateSet\('Terminate','Wait'\)/);
-  assert.match(commonSource, /TimeoutPolicy-eq'Wait'[\s\S]*process\.WaitForExit\(\)/);
-  assert.equal((smokeSource.match(/\$root 'Wait'/g) || []).length, 2, 'both destructive wrapper calls must use cooperative timeout waiting');
-  assert.match(smokeSource, /configurationError[\s\S]*destructive checks were not started/);
+  // The cooperative timeout policy itself is proven behaviourally by
+  // tests/developer-toolchain.test.cjs against the real PowerShell wrappers,
+  // so this test no longer asserts on wrapper source text.
+  assert.equal(resetCalls[0].options.terminationPolicy, 'wait');
 });
 
 test('verify:runtime --allow-reset refuses a safety regression found by the fresh doctor', async () => {
@@ -735,7 +779,6 @@ test('verify:release reuses PR gates then audits, builds twice, validates, gover
     'artifact-build-b',
     'artifact-determinism',
     'artifact-validation',
-    'release-migration-governance',
     'release-governance',
     'workflow-structure',
     'artifact-content-contract',
@@ -744,6 +787,15 @@ test('verify:release reuses PR gates then audits, builds twice, validates, gover
   ]);
   assert.deepEqual(release.calls.map(call => call.name), ['create', 'build', 'build', 'compare', 'validate', 'scan', 'cleanup']);
   assert.deepEqual(release.calls.filter(call => call.name === 'build').map(call => call.slot), ['a', 'b']);
+  // No stage may run the same command twice: a duplicated gate costs time on the
+  // slowest tier without adding coverage.
+  const commandCounts = new Map();
+  for (const call of run.calls) {
+    const text = callText(call);
+    commandCounts.set(text, (commandCounts.get(text) || 0) + 1);
+  }
+  const duplicated = [...commandCounts.entries()].filter(([, count]) => count > 1);
+  assert.deepEqual(duplicated, [], `verify:release must not repeat a command: ${JSON.stringify(duplicated)}`);
   assert.ok(run.calls.some(call => call.file === 'npm.cmd' && call.args.join(' ') === 'audit --omit=dev --audit-level=high'));
   const ignoreCall = run.calls.find(call => call.file === 'git' && call.args[0] === 'check-ignore');
   assert.ok(ignoreCall);
@@ -1092,24 +1144,25 @@ test('artifact scanning rejects expanded GitHub-token and private-key shapes', a
     ['DSA private key', [`-----BEGIN ${'DSA PRIVATE KEY-----'}`, 'fixture', `-----END ${'DSA PRIVATE KEY-----'}`].join('\n')]
   ]) {
     await t.test(name, () => {
+      // A real owned workspace with real builds: scan now revalidates ownership
+      // first, so a hand-assembled directory would be refused before scanning.
       const repository = fs.mkdtempSync(path.join(os.tmpdir(), 'verify artifact scan-'));
       try {
-        const root = path.join(repository, 'workspace');
-        const slots = {};
-        for (const slot of ['a', 'b']) {
-          const parent = path.join(root, slot);
-          const output = path.join(parent, 'pages-site');
-          slots[slot] = { parent, output };
-          for (const relative of pages.ARTIFACT_FILES) {
-            const target = path.join(output, ...relative.split('/'));
-            fs.mkdirSync(path.dirname(target), { recursive: true });
-            fs.writeFileSync(target, relative === pages.ARTIFACT_FILES[0] && slot === 'a' ? secret : 'safe fixture\n');
-          }
-        }
-        const deps = verify.createDefaultDeps({ platform: process.platform, fs, env: {} });
+        const deps = verify.createDefaultDeps({ platform: process.platform, fs, env: {}, randomToken: () => 'owned-token' });
         const ops = verify.createReleaseOps(deps);
+        const workspace = ops.create(repository);
+        const config = {
+          projectUrl: SAFE_RELEASE_ENV.DASHBOARD_SUPABASE_PROJECT_URL,
+          publishableKey: SAFE_RELEASE_ENV.DASHBOARD_SUPABASE_PUBLISHABLE_KEY
+        };
+        const sourceRoot = path.resolve(__dirname, '..');
+        for (const slot of ['a', 'b']) ops.build(workspace, slot, config, sourceRoot);
+        assert.equal(ops.scan(workspace).filesScanned, pages.ARTIFACT_FILES.length * 2, 'clean artifacts must scan cleanly');
+
+        const planted = path.join(workspace.slots.a.output, ...pages.ARTIFACT_FILES[0].split('/'));
+        fs.writeFileSync(planted, secret);
         assert.throws(
-          () => ops.scan({ root, slots }),
+          () => ops.scan(workspace),
           error => error.code === 'ARTIFACT_SECRET_SHAPE' && error.preserveReleaseWorkspace
         );
       } finally {

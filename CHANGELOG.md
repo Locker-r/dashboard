@@ -22,8 +22,27 @@ snapshot has been deployed: no production deployment pipeline exists yet.
 - Four dependency-free verification tiers for focused feedback, complete PR
   gates, guarded local runtime checks, and deterministic non-publishing release
   readiness, with human and JSON output and explicit failure/skip semantics.
+- `npm run agent:worktree`: safe Git worktree management for AI agents, with
+  create, list, inspect, remove, and prune commands. Worktrees are created
+  beside the repository, implementation roles require a feature/fix/docs
+  branch, review worktrees use a detached HEAD at an exact SHA, and every
+  destructive operation must revalidate an exclusive ownership marker. It never
+  launches an AI client, never force-removes, never deletes a branch, and never
+  deletes untracked, ignored, or foreign files. The ownership marker is an
+  accident guard rather than an authentication mechanism: it lives inside the
+  directory it describes and holds no secret, so removal safety rests on the
+  Git-registration, cleanliness, branch-reachability, and non-force guards
+  around it.
+- An advisory shared-runtime lock primitive for the `database-reset`,
+  `runtime-smoke`, and `smoke-provisioning` operation names, with exclusive
+  acquisition, stale and PID-reuse detection, and no automatic stealing of a
+  live lock. This milestone defines and inspects it: `agent:worktree` reports a
+  held lock and refuses worktree removal while one is live. No destructive
+  runtime command acquires it yet, so it does not currently serialise database
+  resets; wiring acquisition into `verify:runtime`, the smoke wrappers, and
+  provisioning is deferred to Automation PR 2-B2.
 - Documentation of the Automation PR 2-A1/2-A2 split. Verification tiers are
-  delivered in PR 2-A2; worktree and PR lifecycle automation remain PR 2-B.
+  delivered in PR 2-A2; agent worktrees in PR 2-B1; PR lifecycle automation remains PR 2-B2.
 - `npm run doctor`: read-only local environment diagnostic covering Git state,
   toolchain, Docker, Supabase, port ownership, local configuration, key class,
   Auth health, smoke-user linkage, and competing processes. It finishes with
@@ -49,6 +68,30 @@ snapshot has been deployed: no production deployment pipeline exists yet.
   protection, Dependabot alerts, merge strategy, and GitHub Pages governance.
 
 ### Changed
+
+- `verify:release` no longer runs `npm run check:migrations` twice. Migration
+  governance runs once as a PR-gate stage; the duplicate release stage was
+  removed.
+- Release artifact comparison, validation, and secret-shape scanning now
+  revalidate workspace ownership before reading, closing the window between
+  build and scan.
+- `npm run smoke` reports a stopped local Supabase as a configuration blocker
+  (exit 2) with the destructive checks `Skipped`, instead of reporting them as
+  required failures (exit 1). Without `-AllowDatabaseReset` but with Supabase
+  reachable, it still refuses with exit 1.
+- Documentation now states that the destructive reset wait is unbounded and
+  that Windows delivers Ctrl+C to the whole console process group, so the
+  verifier cannot guarantee an interrupt never reaches the child.
+- `agent:worktree` now derives the shared runtime-lock directory from the
+  resolved worktree parent in `create`, `list`, and `remove` alike. Previously
+  `remove` looked only under the default `<repository-parent>\.worktrees\`, so a
+  live lock held for a custom `--parent` was invisible to it and a worktree
+  could be removed while a destructive runtime operation was running.
+- Documentation no longer describes the worktree ownership marker as proof of
+  ownership. It is an accident guard: a well-formed marker written by hand can
+  make automation treat a foreign worktree as its own, and the guards that keep
+  that recoverable are documented explicitly in ADR-011 and
+  `docs/developer-toolchain.md`.
 
 - Project-status Main SHA validation now accepts any reachable ancestor of
   verified main, reports commitsBehindMain, and blocks unreachable or

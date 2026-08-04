@@ -221,3 +221,67 @@ hotfix and documentation merges do not require status-only follow-ups.
 PR #26's secure main-resolution work is retained unchanged: synchronized main
 refs are preferred, CI fetches origin/main, and the detached pull-request
 fallback remains provenance-gated and fails closed when its evidence is absent.
+
+## Accepted Automation PR 2-A2 (PR #29) review follow-ups
+
+Status: Partially closed 2026-08-04 by Automation PR 2-B1. Items 2, 3, 4, 5, 6,
+7, and 8 are closed. Item 1 remains Open and is scoped to Automation PR 2-B2.
+Recorded from the independent adversarial review of PR #29; none of these
+blocked that merge.
+
+Closed by Automation PR 2-B1:
+
+2. **Duplicate release migration governance — closed.** `verify:release` ran
+   `npm run check:migrations` twice under two stage ids. The redundant
+   `release-migration-governance` stage was removed, and the release happy-path
+   test now asserts that no command is executed twice on the tier.
+3. **Weakened smoke opt-in refusal test — closed.** The single test that
+   accepted exit 1 or 2 and any non-passing status was replaced by two tests
+   that prove the configuration blocker (exit 2, `Skipped`) and the no-opt-in
+   refusal (exit 1, `Failed`, mentioning `-AllowDatabaseReset`) separately,
+   each against the real wrapper with a stubbed `npx.cmd` on PATH.
+4. **Overstated destructive-wait documentation — closed.** The toolchain
+   document now states that the destructive wait is unbounded and that Windows
+   delivers Ctrl+C to the whole console group, so the verifier cannot guarantee
+   an interrupt never reaches the child.
+5. **`NPM_EXECUTABLE_UNAVAILABLE` coverage — closed.** Five behavioral cases
+   prove the Windows runner never spawns an untrusted npm CLI, plus one case
+   proving the tier result is a blocked exit 2 with later stages skipped.
+6. **Source-regex assertions — closed.** The PowerShell timeout-policy
+   assertions that matched wrapper source text were removed; the behaviour is
+   covered by the real-process tests in `tests/developer-toolchain.test.cjs`.
+7. **Release workspace ownership revalidation — closed.** `compare`,
+   `validate`, and `scan` now revalidate workspace ownership before reading,
+   closing the window between build and scan.
+8. **Changelog — closed.** The smoke exit-code reclassification and the
+   verification changes above are recorded in CHANGELOG.md.
+
+Still Open, deferred to Automation PR 2-B2:
+
+1. Run the JavaScript test suite on `windows-latest` in CI. `npm test` runs only
+   on `ubuntu-latest`, so the Windows-only guard tests in
+   `tests/developer-toolchain.test.cjs` and `tests/agent-worktree.test.cjs` are
+   skipped in CI and are currently proven only by local Windows runs.
+
+## Accepted Automation PR 2-B1 limitations
+
+Status: Open, accepted 2026-08-04 as documented scope, not defects.
+
+- Review worktrees are read-only by convention only. Git will not move a branch
+  in a detached worktree, but no filesystem permission prevents edits.
+- The shared runtime lock is defined and inspected, not yet acquired. The
+  primitive, its exclusivity, and its staleness rules ship here, and
+  `agent:worktree` reports a held lock and refuses removal while one is live,
+  but no destructive runtime command takes it. `verify:runtime`, the smoke
+  wrappers, and provisioning acquire nothing today, so concurrent database
+  resets are still possible; wiring acquisition into those call sites is
+  Automation PR 2-B2 work. The lock is advisory even then and cannot constrain a
+  process that ignores it.
+- The ownership marker is an accident guard, not an authenticator. It lives
+  inside the directory it describes and holds no secret, so a well-formed marker
+  written by hand can make automation treat a foreign worktree as its own. See
+  ADR-011 for the guards that keep such a removal recoverable.
+- Worktree removal has no force mode by design. Legitimate manual edits inside a
+  worktree require manual cleanup.
+- Process start identity for PID-reuse defence is resolved through PowerShell
+  and is therefore Windows-only; on other platforms a live PID is trusted.

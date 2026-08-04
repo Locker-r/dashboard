@@ -7,17 +7,17 @@ a roadmap or a command log.
 ## Canonical status
 
 Project: Dashboard Latam
-Current milestone: Developer Automation PR 2-A2
+Current milestone: Developer Automation PR 2-B1
 Milestone status: in-progress
-Main SHA: f90c9187c884416e09f3a9a8228fc7ae4ed24ece
-Last merged PR: #25
-Current open PR: none
+Main SHA: 0efe42f82edc520a5bb1293a5996407811fba77d
+Last merged PR: #29
+Current open PR: #30
 Active blockers: none
-Approved decisions: ADR-001 through ADR-010 in docs/decisions.md
-Next task: Review and merge Automation PR 2-A2
-Deferred work: Automation PR 2-B worktrees, PR preparation, merge, and post-merge automation; D2-B; D2-C; anonymous boot error
+Approved decisions: ADR-001 through ADR-011 in docs/decisions.md
+Next task: Review and merge Automation PR 2-B1, then implement Automation PR 2-B2
+Deferred work: Automation PR 2-B2 review packages, PR preparation, merge-readiness, post-merge validation, branch cleanup, and Windows CI for the JavaScript suite; D2-B; D2-C; anonymous boot error
 Technical debt references: docs/tech-debt.md
-Last updated: 2026-08-04T12:40:20.7905392+05:00
+Last updated: 2026-08-04T17:45:00.0000000+05:00
 
 ## Update contract
 

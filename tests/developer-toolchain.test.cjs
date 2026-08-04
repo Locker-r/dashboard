@@ -59,7 +59,48 @@ test('guarded local reset refuses a stopped Supabase race without starting or re
     assert.notEqual(result.status,0);const invoked=fs.readFileSync(calls,'utf8');assert.match(invoked,/supabase status -o env/);assert.doesNotMatch(invoked,/supabase start|db reset/);
   } finally { fs.rmSync(directory,{recursive:true,force:true}); }
 });
-test('smoke plan refuses reset-dependent runtime without opt-in',()=>{const r=run('smoke.ps1',['-Json']);assert.ok([1,2].includes(r.status));const v=JSON.parse(r.stdout);assert.equal(v.Passed,false);assert.ok(v.Plan.some(x=>x.Classification==='destructive-local'));assert.ok(v.Results.some(x=>x.Name==='Base runtime smoke'&&x.Status!=='Passed'));});
+// The two refusal branches are proven separately. Accepting either outcome
+// interchangeably would let an implementation that always reports a
+// configuration blocker pass without ever proving the opt-in refusal.
+function smokeWithFakeNpx(exitCode,extraEnv={}){
+  const directory=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'toolchain-smoke-branch-'));
+  const calls=path.join(directory,'calls.txt');
+  fs.writeFileSync(path.join(directory,'npx.cmd'),`@echo off\r\necho %*>>"${calls}"\r\nexit /b ${exitCode}\r\n`);
+  const env={...process.env,PATH:`${directory};${process.env.PATH}`,...extraEnv};
+  const result=spawnSync(shell,['-NoProfile','-ExecutionPolicy','Bypass','-File',path.join(dev,'smoke.ps1'),'-Json'],{cwd:root,encoding:'utf8',timeout:180000,env});
+  return {result,calls,directory,invoked:fs.existsSync(calls)?fs.readFileSync(calls,'utf8'):''};
+}
+test('smoke reports a configuration blocker when local Supabase status fails',{skip:process.platform!=='win32'},()=>{
+  const {result,invoked,directory}=smokeWithFakeNpx(1);
+  try {
+    assert.equal(result.status,2,'a stopped local Supabase is exit 2, not a validation failure');
+    const payload=JSON.parse(result.stdout);
+    assert.equal(payload.Passed,false);
+    assert.equal(payload.ExitCode,2);
+    const base=payload.Results.find(x=>x.Name==='Base runtime smoke');
+    assert.equal(base.Status,'Skipped');
+    assert.match(base.Details,/destructive checks were not started/);
+    assert.doesNotMatch(invoked,/db reset|supabase start/,'no destructive or starting command may run');
+  } finally { fs.rmSync(directory,{recursive:true,force:true}); }
+});
+test('smoke refuses reset-dependent runtime without opt-in when Supabase is available',{skip:process.platform!=='win32'},()=>{
+  const {result,invoked,directory}=smokeWithFakeNpx(0);
+  try {
+    assert.equal(result.status,1,'a reachable Supabase without opt-in is a required failure, not a blocker');
+    const payload=JSON.parse(result.stdout);
+    assert.equal(payload.Passed,false);
+    assert.equal(payload.ExitCode,1);
+    assert.ok(payload.Plan.some(x=>x.Classification==='destructive-local'));
+    for (const name of ['Base runtime smoke','Team/runtime concurrency smoke']) {
+      const entry=payload.Results.find(x=>x.Name===name);
+      assert.equal(entry.Status,'Failed',`${name} must be an explicit refusal`);
+      assert.match(entry.Details,/-AllowDatabaseReset/);
+    }
+    // Windows PowerShell 5.1 quotes each argument individually.
+    assert.match(invoked,/"?supabase"? +"?status"?/);
+    assert.doesNotMatch(invoked,/db reset|"db" "reset"|supabase" "start|supabase start/,'refusal must not run a reset or start Supabase');
+  } finally { fs.rmSync(directory,{recursive:true,force:true}); }
+});
 test('preflight source implements JSON reports and required failure propagation',()=>{const s=read('preflight.ps1');assert.match(s,/ConvertTo-Json/);assert.match(s,/Write-ToolchainReport/);assert.match(s,/Get-ToolchainExitCode/);assert.match(s,/Supabase status/);});
 test('smoke renders the execution plan stage in non-JSON mode',()=>{
   const r=run('smoke.ps1');

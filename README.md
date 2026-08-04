@@ -51,8 +51,41 @@ fabricates production values, and blocks rather than skipping its dependency aud
 artifact-cleanup contracts are documented in
 [`docs/developer-toolchain.md`](docs/developer-toolchain.md).
 
-Worktrees, PR preparation, merge, and post-merge automation remain deferred to
-Automation PR 2-B.
+## Agent worktrees
+
+Give each AI agent its own Git worktree instead of sharing one checkout:
+
+```powershell
+npm.cmd run agent:worktree -- create --name claude --branch feature/example --create-branch
+npm.cmd run agent:worktree -- create --name codex --branch feature/example-review --create-branch
+npm.cmd run agent:worktree -- create --name review --ref <sha> --read-only
+npm.cmd run agent:worktree -- list
+npm.cmd run agent:worktree -- inspect --name claude --json
+npm.cmd run agent:worktree -- remove --name claude
+```
+
+Worktrees are created beside the repository, never inside it, at
+`..\.worktrees\dashboard\<name>`. Implementation worktrees require a
+`feature/`, `fix/`, or `docs/` branch; `main` and `master` are refused. Review
+worktrees check out a detached SHA so no branch can move underneath a review.
+
+`--read-only` is a documented convention, not a filesystem permission: Git will
+not update a branch in a detached review worktree, but nothing stops a local
+edit there.
+
+Removal refuses anything the tool cannot recognise as its own, and anything
+dirty, untracked, ignored-by-an-unknown-process, or ahead of `main`. The
+ownership marker is an accident guard, not an authentication mechanism — see
+`docs/developer-toolchain.md` for what actually bounds a removal. It never
+force-removes and never deletes a branch — branch deletion stays a separate,
+explicit operation. All worktrees of this repository share one local Docker,
+Supabase, and port runtime; this milestone defines and inspects an advisory
+shared-runtime lock for that contention, and `remove` refuses while a live lock
+is visible. No destructive runtime command acquires it yet, so it does not stop
+two agents from resetting the same database today.
+
+PR preparation, review packages, merge-readiness, post-merge validation, branch
+cleanup, and runtime-lock acquisition remain deferred to Automation PR 2-B2.
 
 ## Local development
 
