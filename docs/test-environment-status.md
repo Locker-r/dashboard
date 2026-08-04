@@ -175,10 +175,31 @@ No P0 findings. Every P0-class attack path tested at runtime was refused.
 
 ## Local environment left behind
 
-The local Supabase stack is running and holds synthetic data only: 3 smoke
-accounts, 2 leftover invited agent profiles from earlier smoke runs, and 10
-synthetic leads (9 `assigned`, 1 `success`). No real personal data was created at
-any point. The `npm run dev:local` static server was stopped.
+The `npm run dev:local` static server was stopped, and the local Supabase stack
+was stopped with `npx supabase stop` (`backup: true`, so the database volume is
+retained). Docker Desktop was started by this session and is left running.
+
+The retained database holds synthetic data only: 3 smoke accounts, 2 leftover
+invited agent profiles from earlier smoke runs, and 10 synthetic leads
+(9 `assigned`, 1 `success`). No real personal data was created at any point.
+
+To reproduce the verified local environment:
+
+```powershell
+npx supabase start
+npm run doctor
+$env:SMOKE_TEST_ADMIN_PASSWORD   = '<choose a local-only password>'
+$env:SMOKE_TEST_AGENT_A_PASSWORD = '<choose a local-only password>'
+$env:SMOKE_TEST_AGENT_B_PASSWORD = '<choose a local-only password>'
+npm run dev:local
+```
+
+`dev:local` re-provisions the three `smoke_test_*@local.invalid` accounts with
+the passwords supplied in that shell, then serves the dashboard at
+`http://127.0.0.1:3100`. Stop it with `npm run dev:local -- --stop`.
+
+The passwords used during this session were generated per run, kept in the
+session shell only, and are not recorded anywhere. Choose new ones.
 
 ## Exact next actions for the Product Owner
 
