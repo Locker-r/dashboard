@@ -1,0 +1,14 @@
+phone,email,contact
++59171000101,ana.rivas@example.com,@ana_rivas_test
++59171000102,bruno.melo@example.com,@bruno_melo_test
++59171000103,carla.ponce@example.com,@carla_ponce_test
++59171000104,diego.ferrer@example.com,@diego_ferrer_test
++59171000105,elena.sosa@example.com,@elena_sosa_test
++59171000106,favio.duran@example.com,@favio_duran_test
++59171000107,gabriela.rojas@example.org,@gabriela_rojas_test
++59171000108,hugo.paredes@example.org,@hugo_paredes_test
++59171000109,irene.valdez@example.org,@irene_valdez_test
++59171000110,julio.montes@example.org,@julio_montes_test
++59171000101,ana.rivas@example.com,@ana_rivas_test
++59171000111,not-an-email,@kevin_ortiz_test
+,,
