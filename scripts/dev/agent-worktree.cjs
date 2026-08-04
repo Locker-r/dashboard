@@ -3,7 +3,11 @@
 // Safe Git worktree management for AI implementation and review agents.
 //
 // Every command is read-only by default except create and remove, and both of
-// those refuse anything the tool cannot prove it owns. This module never
+// those refuse anything the tool does not recognise as its own. The ownership
+// marker is an accident guard rather than an authenticator: it lives inside the
+// directory it describes and holds no secret, so the guards that actually bound
+// a removal are Git registration, cleanliness, branch reachability, and the
+// non-forced git worktree remove. See ADR-011. This module never
 // launches an AI client, never deletes a foreign or dirty directory, never
 // force-removes a worktree, and never deletes a branch.
 
@@ -127,8 +131,20 @@ function resolveWorktreePath(deps, parent, name) {
   return target;
 }
 
-function familyRoot(deps, repositoryRoot, override) {
-  return override ? path.resolve(override) : path.join(path.dirname(repositoryRoot), WORKTREE_PARENT);
+// The shared runtime lock is held for the whole repository family, so it lives
+// beside the worktree parent rather than inside any single worktree. Every
+// command must derive it from the same resolved parent: a family root computed
+// one way by create and another way by remove would make a live lock invisible
+// to the command that has to refuse because of it.
+function familyRoot(deps, worktreeParent) {
+  const parent = path.dirname(path.resolve(worktreeParent));
+  try {
+    return core.canonicalDirectory(deps, parent, 'WORKTREE_FAMILY_UNSAFE');
+  } catch {
+    // The family root does not exist yet, which simply means no lock can be
+    // held there. The resolved path is the right answer for reporting.
+    return parent;
+  }
 }
 
 /* ==================== repository context ==================== */
@@ -330,7 +346,7 @@ function createWorktree(deps, options) {
     detached: target.kind === 'detached', head: verification.state.head,
     createdBranch: Boolean(target.create),
     readOnlyConvention: verification.marker.readOnly,
-    runtimeLocks: runtimeLockReport(deps, familyRoot(deps, repository.root, options.parent ? path.dirname(canonicalParent) : null))
+    runtimeLocks: runtimeLockReport(deps, familyRoot(deps, canonicalParent))
   });
 }
 
@@ -372,7 +388,7 @@ function removeWorktree(deps, options) {
   });
   if (!match) {
     throw new AutomationError('WORKTREE_NOT_OWNED',
-      `No owned worktree named ${core.quoteUntrusted(name)} was found. Automation removes only worktrees it created and can still prove it owns.`,
+      `No owned worktree named ${core.quoteUntrusted(name)} was found. Automation removes only worktrees carrying a valid ownership marker it can revalidate.`,
       EXIT_BLOCKED);
   }
   if (core.samePath(match.path, repository.root, deps.platform)) {
@@ -416,7 +432,9 @@ function removeWorktree(deps, options) {
       { remediation: 'Inspect and remove them yourself, then retry.' });
   }
 
-  const family = familyRoot(deps, repository.root, null);
+  // Resolved from the same --parent the worktree was created under, so a lock
+  // held for a custom worktree parent is seen here too.
+  const family = familyRoot(deps, resolveWorktreeParent(deps, repository.root, options.parent));
   const heldLocks = runtimeLockReport(deps, family).filter(lock => lock.live);
   if (heldLocks.length) {
     throw new AutomationError('RUNTIME_LOCK_HELD',
@@ -474,11 +492,12 @@ function listWorktreeRecords(deps, options) {
   const repository = resolveRepository(deps);
   const worktrees = core.listWorktrees(deps, repository.root);
   const records = worktrees.map(entry => describeWorktree(deps, repository, entry, { withState: true }));
+  const parent = resolveWorktreeParent(deps, repository.root, options.parent);
   return Object.freeze({
     repository: repository.root,
-    parent: resolveWorktreeParent(deps, repository.root, options.parent),
+    parent,
     worktrees: Object.freeze(records),
-    runtimeLocks: runtimeLockReport(deps, familyRoot(deps, repository.root, null))
+    runtimeLocks: runtimeLockReport(deps, familyRoot(deps, parent))
   });
 }
 
@@ -531,8 +550,13 @@ function pruneWorktrees(deps, options) {
 
 /* ==================== presentation ==================== */
 
+// Reporting only. No destructive runtime command acquires these locks yet, so
+// "none held" means nothing announced a runtime operation, not that none is
+// running. Acquisition is deferred to PR 2-B2.
 function describeLocks(locks) {
-  if (!locks || !locks.length) return ['Shared runtime locks: none held.'];
+  if (!locks || !locks.length) {
+    return ['Shared runtime locks: none held. Runtime commands do not claim this lock yet, so this is not proof that no reset is running.'];
+  }
   return ['Shared runtime locks:'].concat(locks.map(lock =>
     `  - ${lock.operation}: ${lock.live ? 'HELD by a live process' : 'stale claim'}${lock.pid ? ` (pid ${lock.pid})` : ''}`));
 }

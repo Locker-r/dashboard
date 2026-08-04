@@ -269,8 +269,18 @@ Status: Open, accepted 2026-08-04 as documented scope, not defects.
 
 - Review worktrees are read-only by convention only. Git will not move a branch
   in a detached worktree, but no filesystem permission prevents edits.
-- The shared runtime lock is advisory. It coordinates this repository's commands
-  and cannot constrain a process that ignores it.
+- The shared runtime lock is defined and inspected, not yet acquired. The
+  primitive, its exclusivity, and its staleness rules ship here, and
+  `agent:worktree` reports a held lock and refuses removal while one is live,
+  but no destructive runtime command takes it. `verify:runtime`, the smoke
+  wrappers, and provisioning acquire nothing today, so concurrent database
+  resets are still possible; wiring acquisition into those call sites is
+  Automation PR 2-B2 work. The lock is advisory even then and cannot constrain a
+  process that ignores it.
+- The ownership marker is an accident guard, not an authenticator. It lives
+  inside the directory it describes and holds no secret, so a well-formed marker
+  written by hand can make automation treat a foreign worktree as its own. See
+  ADR-011 for the guards that keep such a removal recoverable.
 - Worktree removal has no force mode by design. Legitimate manual edits inside a
   worktree require manual cleanup.
 - Process start identity for PID-reuse defence is resolved through PowerShell

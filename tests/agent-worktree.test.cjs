@@ -399,7 +399,12 @@ test('an unknown name is refused rather than guessed', () => {
 test('list and inspect report ownership, state, and JSON without reading file contents', () => {
   const fixture = createFixture();
   const created = createClaude(fixture);
-  fs.writeFileSync(path.join(created.payload.path, 'scratch.txt'), 'x\n');
+  // Planted here and asserted below: both the name and the body of an untracked
+  // file must stay out of every output. The commands may count untracked paths
+  // but must never echo what an agent left in the worktree.
+  const plantedName = 'agent-scratch-notes.txt';
+  const plantedBody = 'UNREVIEWED AGENT DRAFT rev-7742 do-not-echo';
+  fs.writeFileSync(path.join(created.payload.path, plantedName), `${plantedBody}\n`);
 
   const listing = runJson(fixture, ['list', '--parent', fixture.parent]);
   assert.equal(listing.code, core.EXIT_OK);
@@ -416,7 +421,21 @@ test('list and inspect report ownership, state, and JSON without reading file co
   const inspected = runJson(fixture, ['inspect', '--name', 'claude', '--parent', fixture.parent]);
   assert.equal(inspected.payload.worktree.name, 'claude');
   assert.equal(inspected.payload.worktree.owned, true);
-  assert.equal(JSON.stringify(inspected.payload).includes('unsaved agent work'), false);
+  assert.equal(inspected.payload.worktree.untrackedCount, 1, 'the count is reported');
+
+  // The planted values are the ones actually on disk, so these fail if any
+  // command starts echoing untracked path names or file contents.
+  const humanListing = run(fixture, ['list', '--parent', fixture.parent]);
+  const humanInspect = run(fixture, ['inspect', '--name', 'claude', '--parent', fixture.parent]);
+  for (const [label, text] of [
+    ['list JSON', listing.stdout],
+    ['inspect JSON', inspected.stdout],
+    ['list human', humanListing.stdout],
+    ['inspect human', humanInspect.stdout]
+  ]) {
+    assert.equal(text.includes(plantedBody), false, `${label} must not echo untracked file contents`);
+    assert.equal(text.includes(plantedName), false, `${label} must not echo untracked path names`);
+  }
 
   const missing = runJson(fixture, ['inspect', '--name', 'ghost', '--parent', fixture.parent]);
   assert.equal(missing.code, core.EXIT_BLOCKED);
@@ -470,7 +489,14 @@ test('the shared runtime lock is exclusive, refuses a second owner, and preserve
   assert.equal(held.held, true);
   assert.equal(held.live, true);
   assert.equal(held.ownerWorktree, 'claude');
-  assert.equal(JSON.stringify(held).includes('password'), false);
+
+  // The token is the lock's release credential. It is written to the lock file
+  // and must never travel back out through an inspection result, so assert
+  // against the real token rather than a value the fixture never contained.
+  assert.match(lock.token, /^[A-Za-z0-9_-]{16,128}$/, 'the fixture must hold a real token');
+  assert.ok(fs.readFileSync(lock.path, 'utf8').includes(lock.token), 'the token is genuinely on disk');
+  assert.equal(JSON.stringify(held).includes(lock.token), false, 'inspection must not return the release token');
+  assert.equal(Object.hasOwn(held, 'token'), false);
 
   // A different token must never release someone else's lock.
   const foreign = core.releaseRuntimeLock(deps, family, { path: lock.path, token: 'someone-elses-token-value' });
@@ -516,24 +542,72 @@ test('a dead PID is reported stale and a reused PID is not trusted as live', () 
 
 test('worktree commands report a held shared runtime lock and removal refuses while it is live', () => {
   const fixture = createFixture();
-  const created = createClaude(fixture);
+  // The default worktree parent, so the family root under test is the default
+  // <repository-parent>/.worktrees one.
+  const created = runJson(fixture, ['create', '--name', 'claude', '--branch', 'feature/agent-work', '--create-branch']);
+  assert.equal(created.code, core.EXIT_OK);
   const family = path.join(path.dirname(fixture.repository), '.worktrees');
   const deps = core.createDeps(overridesFor(fixture));
   const lock = core.acquireRuntimeLock(deps, family, 'database-reset', { ownerWorktree: 'codex' });
   try {
-    const listing = runJson(fixture, ['list', '--parent', fixture.parent]);
+    const listing = runJson(fixture, ['list']);
     assert.equal(listing.payload.runtimeLocks.length, 1);
     assert.equal(listing.payload.runtimeLocks[0].operation, 'database-reset');
     assert.equal(listing.payload.runtimeLocks[0].live, true);
     assert.match(listing.stdout, /"live": true/);
 
-    const removal = runJson(fixture, ['remove', '--name', 'claude', '--parent', fixture.parent]);
+    // The held lock is reported, but its release token must not reach either
+    // output form. Asserted against the token actually written to the lock file.
+    const humanListing = run(fixture, ['list']);
+    assert.match(humanListing.stdout, /database-reset: HELD by a live process/);
+    assert.equal(listing.stdout.includes(lock.token), false, 'JSON output must not carry the lock token');
+    assert.equal(humanListing.stdout.includes(lock.token), false, 'human output must not carry the lock token');
+
+    const removal = runJson(fixture, ['remove', '--name', 'claude']);
     assert.equal(removal.code, core.EXIT_BLOCKED);
     assert.equal(removal.payload.failureCode, 'RUNTIME_LOCK_HELD');
     assert.equal(fs.existsSync(created.payload.path), true);
   } finally {
     core.releaseRuntimeLock(deps, family, lock);
   }
+});
+
+// Regression: create, list, and remove must resolve the shared family root from
+// the same worktree parent. Deriving it from the repository root in remove while
+// create derived it from --parent made a live lock invisible to the only command
+// that has to refuse because of it, and the worktree was removed mid-reset.
+test('a live runtime lock under a custom worktree parent is seen by create, list, and remove', () => {
+  const fixture = createFixture();
+  const created = createClaude(fixture);
+  assert.equal(created.code, core.EXIT_OK);
+  const deps = core.createDeps(overridesFor(fixture));
+  const customFamily = path.dirname(fixture.parent);
+  const defaultFamily = path.join(path.dirname(fixture.repository), '.worktrees');
+  assert.notEqual(customFamily, defaultFamily, 'the fixture must exercise a non-default family root');
+
+  const lock = core.acquireRuntimeLock(deps, customFamily, 'database-reset', { ownerWorktree: 'codex' });
+  try {
+    const listing = runJson(fixture, ['list', '--parent', fixture.parent]);
+    assert.deepEqual(listing.payload.runtimeLocks.map(entry => entry.operation), ['database-reset']);
+    assert.equal(listing.payload.runtimeLocks[0].live, true);
+
+    const removal = runJson(fixture, ['remove', '--name', 'claude', '--parent', fixture.parent]);
+    assert.equal(removal.code, core.EXIT_BLOCKED);
+    assert.equal(removal.payload.failureCode, 'RUNTIME_LOCK_HELD');
+    assert.equal(fs.existsSync(created.payload.path), true, 'the worktree must survive a live shared lock');
+
+    const second = runJson(fixture, ['create', '--name', 'codex', '--branch', 'feature/second', '--create-branch', '--parent', fixture.parent]);
+    assert.equal(second.code, core.EXIT_OK);
+    assert.deepEqual(second.payload.runtimeLocks.map(entry => entry.operation), ['database-reset'],
+      'create must report the same family root that remove enforces');
+  } finally {
+    core.releaseRuntimeLock(deps, customFamily, lock);
+  }
+
+  // Released: the same removal now succeeds through the same code path.
+  const after = runJson(fixture, ['remove', '--name', 'claude', '--parent', fixture.parent]);
+  assert.equal(after.code, core.EXIT_OK);
+  assert.equal(fs.existsSync(created.payload.path), false);
 });
 
 /* ==================== injection and redaction ==================== */

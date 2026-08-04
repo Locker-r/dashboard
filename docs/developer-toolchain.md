@@ -548,18 +548,38 @@ reviewers, not a permission boundary.
 ### Ownership
 
 Every created worktree receives `.automation-owner.json` containing a random
-token, the repository identity, the logical name and role, the path, the branch
-or ref, and the creation time. Creation uses exclusive write and never adopts an
-existing directory: a pre-existing path is refused and preserved.
+correlation token, the repository identity, the logical name and role, the path,
+the branch or ref, and the creation time. Creation uses exclusive write and never
+adopts an existing directory: a pre-existing path is refused and preserved.
 
-`remove` refuses unless it can still prove ownership. It refuses a missing,
-malformed, or tampered marker; a repository or path mismatch; a dirty tracked
-tree; any untracked path other than the marker; ignored files created by an
-unknown process; a locked worktree; an in-progress Git operation; a live shared
-runtime lock; and a branch with commits not reachable from `main`. It never uses
-`--force`, never deletes untracked files, and never deletes a branch. Branch
-deletion is deliberately a separate, explicit, manual operation in this
-milestone.
+**The marker is an accident guard, not an authentication mechanism.** It lives
+inside the directory it describes, so anything that can write to that directory
+can also write the marker, and every field it holds is public or derivable: the
+repository identity is a hash of the package name and the root commit, and the
+path and name are visible on disk. The token is a correlation value, not a
+secret — nothing verifies it against a value stored outside the guarded
+directory, so a marker whose token is replaced with another well-formed value
+still validates. Read the marker as "automation believes it created this",
+never as "automation proved it created this". A hand-written marker can make
+automation treat a foreign worktree as its own.
+
+What actually bounds the damage is everything else `remove` requires, and none
+of it can be satisfied by writing a file. Git must already register the path as
+a worktree of this repository; the tree must be clean, with no untracked path
+other than the marker and no ignored file from an unknown process; the branch
+must be reachable from `main`; no shared runtime lock may be live; and the
+removal itself is always a non-forced `git worktree remove`, which independently
+refuses anything that became dirty since the check. A worktree that passes all
+of those is fully recoverable from Git, which is why a forged marker is a
+correctness problem rather than a data-loss one.
+
+`remove` therefore refuses a missing, malformed, or tampered marker; a
+repository or path mismatch; a dirty tracked tree; any untracked path other than
+the marker; ignored files created by an unknown process; a locked worktree; an
+in-progress Git operation; a live shared runtime lock; and a branch with commits
+not reachable from `main`. It never uses `--force`, never deletes untracked
+files, and never deletes a branch. Branch deletion is deliberately a separate,
+explicit, manual operation in this milestone.
 
 The marker is deleted immediately before `git worktree remove`, because Git
 refuses to remove a worktree that still contains untracked files. If the Git
@@ -576,11 +596,29 @@ directory disappeared unexpectedly and deserves inspection.
 ### Shared local runtime
 
 Every worktree of this repository shares one Docker daemon, one local Supabase
-instance, and the same ports. An advisory lock under
-`<repository-parent>\.worktrees\.automation-locks\` coordinates the destructive
-operations: `database-reset`, `runtime-smoke`, and `smoke-provisioning`. It
-records the operation, owning worktree, PID, process start identity where
-available, timestamp, and a token, and contains no secrets.
+instance, and the same ports. This milestone **defines and inspects** an
+advisory lock under `<repository-parent>\.worktrees\.automation-locks\` for
+three destructive operation names — `database-reset`, `runtime-smoke`, and
+`smoke-provisioning`. A lock file records the operation, owning worktree, PID,
+process start identity where available, timestamp, and a token, and contains no
+secrets.
+
+**No destructive runtime command acquires the lock yet.** The primitive, its
+exclusivity, and its staleness rules are implemented and tested, and
+`agent:worktree` reads it: `create`, `list`, and `inspect` report any held lock,
+and `remove` refuses while a relevant live lock is visible. But `verify:runtime`,
+the smoke wrappers, and provisioning do not currently take it, so today a lock
+exists only if something wrote one deliberately. Acquisition from those call
+sites is deferred to Automation PR 2-B2. Until then the lock does not protect
+you from two concurrent database resets — it only lets a worktree removal notice
+a reset that some other tool has already announced.
+
+The lock directory is always derived from the resolved worktree parent, so
+`create`, `list`, and `remove` agree on one location for a given `--parent`.
+With the default parent that is `<repository-parent>\.worktrees\`; with an
+explicit `--parent <path>` it is the parent of that path. Pass the same
+`--parent` to every command, or a lock held for one location will simply not be
+visible from another.
 
 Acquisition is exclusive. A second owner is refused rather than queued.
 Automation never steals a live lock and never deletes a lock it does not hold;
@@ -588,9 +626,11 @@ a dead PID is reported stale for a human to clear. A live PID whose recorded
 start identity no longer matches is treated as PID reuse and reported stale
 rather than live.
 
-**The lock is advisory.** It coordinates the commands in this repository. It
-cannot stop a local process that ignores it, so do not run two database resets
-concurrently on the strength of the lock alone.
+**The lock is advisory, and currently unwired.** Even once runtime tooling
+acquires it, it will only coordinate commands that choose to consult it and
+cannot stop a local process that ignores it. Today no destructive command takes
+it at all. Never run two database resets concurrently on the strength of the
+lock alone.
 
 ### Exit codes and output
 
@@ -606,15 +646,21 @@ they cannot inject headings or newlines into output.
 
 Automation never launches Claude, Codex, or any other AI client — `create`
 prints the `cd` command for you to run yourself. PR preparation, review-package
-generation, merge-readiness verification, post-merge validation, and branch
-cleanup are deferred to Automation PR 2-B2 and are not available yet.
+generation, merge-readiness verification, post-merge validation, branch cleanup,
+and runtime-lock acquisition from the destructive runtime commands are deferred
+to Automation PR 2-B2 and are not available yet.
 
 ## Known limitations
 
 - Diff classification requires human interpretation.
 - Review worktrees are read-only by convention only; nothing enforces it.
-- The shared runtime lock is advisory and cannot constrain a process that
-  ignores it.
+- The ownership marker guards against accidents, not against a local adversary.
+  It cannot authenticate anything, because it lives inside the directory it
+  describes and holds no value that is secret from whoever can write there.
+- The shared runtime lock is defined and inspected but not yet acquired by any
+  destructive runtime command; wiring it into `verify:runtime`, the smoke
+  wrappers, and provisioning is Automation PR 2-B2 work. It is advisory in any
+  case and cannot constrain a process that ignores it.
 - Worktree removal deliberately refuses more often than strictly necessary; the
   documented remediation is manual inspection, not a force flag.
 - Static checks do not prove live runtime behavior.

@@ -73,15 +73,19 @@ worktrees check out a detached SHA so no branch can move underneath a review.
 not update a branch in a detached review worktree, but nothing stops a local
 edit there.
 
-Removal refuses anything the tool cannot prove it owns and created, and anything
-dirty, untracked, ignored-by-an-unknown-process, or ahead of `main`. It never
+Removal refuses anything the tool cannot recognise as its own, and anything
+dirty, untracked, ignored-by-an-unknown-process, or ahead of `main`. The
+ownership marker is an accident guard, not an authentication mechanism — see
+`docs/developer-toolchain.md` for what actually bounds a removal. It never
 force-removes and never deletes a branch — branch deletion stays a separate,
 explicit operation. All worktrees of this repository share one local Docker,
-Supabase, and port runtime; the commands report an advisory shared-runtime lock
-so two agents do not reset the same database at once.
+Supabase, and port runtime; this milestone defines and inspects an advisory
+shared-runtime lock for that contention, and `remove` refuses while a live lock
+is visible. No destructive runtime command acquires it yet, so it does not stop
+two agents from resetting the same database today.
 
-PR preparation, review packages, merge-readiness, post-merge validation, and
-branch cleanup remain deferred to Automation PR 2-B2.
+PR preparation, review packages, merge-readiness, post-merge validation, branch
+cleanup, and runtime-lock acquisition remain deferred to Automation PR 2-B2.
 
 ## Local development
 

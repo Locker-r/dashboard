@@ -122,14 +122,14 @@ Rejected alternatives: One automation monolith; removing required safety control
 Consequences: Later automation remains explicitly deferred and no unimplemented command is documented as available.
 Related milestone: Developer Automation PR 2-A and PR 2-B
 
-## ADR-011 — Prove worktree ownership with a marker, never by path convention
+## ADR-011 — Mark automation-created worktrees, and treat the marker as an accident guard
 
 Decision ID: ADR-011
 Date: 2026-08-04
 Status: accepted
-Context: Automation that deletes worktrees must distinguish directories it created from operator directories that merely share a name or location.
-Decision: Record an exclusive `.automation-owner.json` marker holding a random token, repository identity, name, role, path, and ref; refuse every destructive worktree operation that cannot revalidate it, and never adopt or force-remove a path.
-Rejected alternatives: Trust the managed parent path; trust the directory name; offer a `--force` removal mode.
-Consequences: Automation refuses more often, including after legitimate manual edits, and the documented remedy is human inspection rather than a bypass flag.
+Context: Automation that deletes worktrees must distinguish directories it created from operator directories that merely share a name or location. The marker file necessarily lives inside the directory it describes, and every field it can hold is either public or derivable, so it can record an intent but cannot authenticate one.
+Decision: Record an exclusive `.automation-owner.json` marker holding a random correlation token, repository identity, name, role, path, and ref; refuse every destructive worktree operation that cannot revalidate it, and never adopt or force-remove a path. Treat the marker as a guard against acting on a directory automation did not create, not as proof of authorship: the guards that actually bound the blast radius are that Git must already register the path as a worktree of this repository, that the tree must be clean with no untracked or unknown ignored files, that the branch must be reachable from main, and that removal is always delegated to a non-forced `git worktree remove`.
+Rejected alternatives: Trust the managed parent path; trust the directory name; offer a `--force` removal mode; present the token as an authentication secret when nothing verifies it against a value held outside the guarded directory.
+Consequences: A hand-written marker can make automation treat a foreign worktree as its own, so the marker is never the last line of defence and must not be described as one; the cleanliness, reachability, and non-force guards are what keep such a removal recoverable. Automation also refuses more often, including after legitimate manual edits, and the documented remedy is human inspection rather than a bypass flag.
 Related milestone: Developer Automation PR 2-B1
 Evidence: scripts/dev/automation-core.cjs, tests/agent-worktree.test.cjs
