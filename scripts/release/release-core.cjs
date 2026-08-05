@@ -277,6 +277,68 @@ const GIT_LOCAL_WRITE_SUBCOMMANDS = new Set([
 const GIT_PUSH_VALUE_FLAGS = new Set(['-o', '--push-option', '--repo', '--receive-pack', '--exec']);
 const GIT_PUSH_PROTECTED_REFS = new Set(['main', 'master', 'head']);
 
+// Explicit, narrow authorization: creating and linking exactly one named
+// staging project in exactly one named organization. Nothing else about
+// `supabase projects`/`link` is widened by this — a different name, a
+// different org, or any flag outside this allow-list still refuses. Extending
+// this to a second project or organization requires a new, equally explicit
+// scoped authorization, not a loosened pattern.
+const SUPABASE_STAGING_PROJECT_NAME = 'dashboard-latam-staging';
+const SUPABASE_STAGING_ORG_ID = 'iivhkhxodnoypvfeucob';
+// The existing, already-provisioned project. Never a valid `link` target under
+// this authorization, named explicitly rather than inferred, so removing it
+// from Supabase does not silently reopen this path for some other project.
+const SUPABASE_EXISTING_PROJECT_REF = 'hywpwutykwrxkddnofrh';
+// Every flag `projects create` may carry under this authorization: naming the
+// org, the database password (by reference, never a literal value — see
+// scripts/release/provision-staging-project.cjs), and the region a free
+// project still requires. Anything else — size, plan, add-ons, a custom
+// domain — is refused by not being on this list, not by trying to name every
+// paid flag Supabase might ever add.
+const SUPABASE_PROJECTS_CREATE_ALLOWED_FLAGS = new Set([
+  '--org-id', '--db-password', '--region', '--output', '-o'
+]);
+
+function classifySupabaseProjectsCreate(rest, words) {
+  // `words` still carries original case for the name comparison; Supabase
+  // project names are not case-normalized the way flags and org ids are.
+  const flags = rest.filter(argument => argument.startsWith('-'));
+  for (const flag of flags) {
+    const bare = flag.split('=')[0];
+    if (!SUPABASE_PROJECTS_CREATE_ALLOWED_FLAGS.has(bare)) {
+      return { classification: PRODUCTION, rule: 'SUPABASE_PROJECT_CREATE_DISALLOWED_FLAG' };
+    }
+  }
+  const nameIndex = words.findIndex(word => word.toLowerCase() === 'create') + 1;
+  const name = nameIndex > 0 ? String(words[nameIndex] || '') : '';
+  if (name !== SUPABASE_STAGING_PROJECT_NAME) {
+    return { classification: PRODUCTION, rule: 'SUPABASE_PROJECT_CREATE_NAME_MISMATCH' };
+  }
+  const orgInline = rest.find(argument => argument.startsWith('--org-id='));
+  const orgFlagIndex = rest.findIndex(argument => argument === '--org-id');
+  const org = orgInline ? orgInline.slice('--org-id='.length) : (orgFlagIndex >= 0 ? String(rest[orgFlagIndex + 1] || '') : '');
+  if (org !== SUPABASE_STAGING_ORG_ID) {
+    return { classification: PRODUCTION, rule: 'SUPABASE_PROJECT_CREATE_ORG_MISMATCH' };
+  }
+  return { classification: LOCAL_WRITE, rule: 'SUPABASE_STAGING_PROJECT_CREATE' };
+}
+
+function classifySupabaseLink(rest) {
+  const refInline = rest.find(argument => argument.startsWith('--project-ref='));
+  const refFlagIndex = rest.findIndex(argument => argument === '--project-ref' || argument === '-p');
+  const ref = refInline ? refInline.slice('--project-ref='.length) : (refFlagIndex >= 0 ? String(rest[refFlagIndex + 1] || '') : '');
+  if (!ref) return { classification: PRODUCTION, rule: 'SUPABASE_LINK_AMBIGUOUS_TARGET' };
+  if (ref === SUPABASE_EXISTING_PROJECT_REF) {
+    return { classification: PRODUCTION, rule: 'SUPABASE_LINK_EXISTING_PROJECT_BLOCKED' };
+  }
+  // The classifier cannot see which ref Supabase actually assigned the new
+  // project — refs are opaque, not derivable from the name. Confirming the
+  // linked project's name and organization before running this is a
+  // procedural step the operator/agent performs, the same limitation
+  // documented for `gh pr merge` and live CI state.
+  return { classification: LOCAL_WRITE, rule: 'SUPABASE_LINK_UNVERIFIED_TARGET' };
+}
+
 // `git push` is not one action; it ranges from "update my feature branch" to
 // "force-rewrite main". Only an explicit, unambiguous push of one ordinary
 // branch to `origin` is allowed. Everything else — no target, a URL or remote
@@ -475,12 +537,19 @@ function classifySegment(unwrapped) {
   }
 
   if (name === 'supabase') {
+    // Never destructive, never a mutation, never worth refusing: printing
+    // usage is how this scoped policy itself gets verified without guessing
+    // at CLI syntax.
+    if (has('--help') || has('-h')) return { classification: READ_ONLY, rule: 'SUPABASE_HELP' };
     if (mentions('db', 'push')) return { classification: PRODUCTION, rule: 'SUPABASE_DB_PUSH' };
     if (mentions('db', 'reset')) return { classification: DESTRUCTIVE, rule: 'SUPABASE_DB_RESET' };
     if (mentions('functions', 'deploy')) return { classification: PRODUCTION, rule: 'SUPABASE_FUNCTIONS_DEPLOY' };
     if (mentions('secrets', 'set') || mentions('secrets', 'unset')) return { classification: PRODUCTION, rule: 'SUPABASE_SECRETS_MUTATION' };
-    if (mentions('link') || mentions('login')) return { classification: PRODUCTION, rule: 'SUPABASE_PROJECT_AUTHORITY' };
-    if (mentions('projects', 'create') || mentions('projects', 'delete') || mentions('branches')) {
+    if (mentions('login')) return { classification: PRODUCTION, rule: 'SUPABASE_PROJECT_AUTHORITY' };
+    if (mentions('link')) return classifySupabaseLink(rest);
+    if (mentions('projects', 'create')) return classifySupabaseProjectsCreate(rest, words);
+    if (mentions('projects', 'delete') || mentions('projects', 'pause') || mentions('projects', 'restore')
+      || mentions('projects', 'transfer') || mentions('branches')) {
       return { classification: PRODUCTION, rule: 'SUPABASE_PROJECT_MUTATION' };
     }
     if (mentions('status') || mentions('projects', 'list') || mentions('migration', 'list')) {

@@ -257,9 +257,16 @@ test('production commands are classified as production', () => {
     'supabase db push',
     'npx supabase db push',
     'npx.cmd supabase functions deploy team-management',
-    'supabase link --project-ref abcd',
+    'supabase link --project-ref hywpwutykwrxkddnofrh',
+    'supabase link',
     'supabase login',
     'supabase secrets set FOO=bar',
+    'supabase projects create some-other-name --org-id iivhkhxodnoypvfeucob --db-password x --region eu-west-3',
+    'supabase projects create dashboard-latam-staging --org-id some-other-org --db-password x --region eu-west-3',
+    'supabase projects create dashboard-latam-staging --org-id iivhkhxodnoypvfeucob --db-password x --region eu-west-3 --plan pro',
+    'supabase projects delete abcdefghijklmnopqrst',
+    'supabase projects pause abcdefghijklmnopqrst',
+    'supabase projects restore abcdefghijklmnopqrst',
     'npm publish',
     'docker push registry/image:tag',
     'vercel --prod',
@@ -444,6 +451,56 @@ test('PR status checks and CI monitoring are read-only; re-running or cancelling
     assert.equal(core.classifyCommand(command).classification, core.PRODUCTION, command);
     assert.equal(guard.evaluate(bashEvent(command), {}).decision, 'deny', command);
   }
+});
+
+test('creating and linking exactly the named staging project is allowed; nothing else is', () => {
+  const allowed = [
+    'supabase projects create dashboard-latam-staging --org-id iivhkhxodnoypvfeucob --db-password x --region eu-west-3',
+    'supabase projects create dashboard-latam-staging --org-id=iivhkhxodnoypvfeucob --db-password x --region eu-west-3',
+    'supabase projects create dashboard-latam-staging --org-id iivhkhxodnoypvfeucob',
+    'supabase link --project-ref abcdefghijklmnopqrst',
+    'supabase link -p abcdefghijklmnopqrst'
+  ];
+  for (const command of allowed) {
+    const outcome = core.classifyCommand(command);
+    assert.equal(outcome.classification, core.LOCAL_WRITE, `${command} => ${outcome.classification} (${outcome.rule})`);
+    assert.equal(guard.evaluate(bashEvent(command), {}).decision, 'defer', command);
+  }
+
+  const stillBlocked = [
+    ['supabase projects create not-staging --org-id iivhkhxodnoypvfeucob --db-password x --region eu-west-3', 'SUPABASE_PROJECT_CREATE_NAME_MISMATCH'],
+    ['supabase projects create dashboard-latam-staging --org-id wrong-org --db-password x --region eu-west-3', 'SUPABASE_PROJECT_CREATE_ORG_MISMATCH'],
+    ['supabase projects create dashboard-latam-staging --org-id iivhkhxodnoypvfeucob --db-password x --region eu-west-3 --plan pro', 'SUPABASE_PROJECT_CREATE_DISALLOWED_FLAG'],
+    ['supabase projects create dashboard-latam-staging --org-id iivhkhxodnoypvfeucob --db-password x --region eu-west-3 --size small', 'SUPABASE_PROJECT_CREATE_DISALLOWED_FLAG'],
+    ['supabase projects create dashboard-latam-staging --org-id iivhkhxodnoypvfeucob --db-password x --region eu-west-3 --custom-domain x.com', 'SUPABASE_PROJECT_CREATE_DISALLOWED_FLAG'],
+    ['supabase projects create hywpwutykwrxkddnofrh --org-id iivhkhxodnoypvfeucob --db-password x --region eu-west-3', 'SUPABASE_PROJECT_CREATE_NAME_MISMATCH'],
+    ['supabase link --project-ref hywpwutykwrxkddnofrh', 'SUPABASE_LINK_EXISTING_PROJECT_BLOCKED'],
+    ['supabase link -p hywpwutykwrxkddnofrh', 'SUPABASE_LINK_EXISTING_PROJECT_BLOCKED'],
+    ['supabase link', 'SUPABASE_LINK_AMBIGUOUS_TARGET'],
+    ['supabase projects delete abcdefghijklmnopqrst', 'SUPABASE_PROJECT_MUTATION'],
+    ['supabase projects pause abcdefghijklmnopqrst', 'SUPABASE_PROJECT_MUTATION'],
+    ['supabase projects restore abcdefghijklmnopqrst', 'SUPABASE_PROJECT_MUTATION'],
+    ['supabase projects transfer abcdefghijklmnopqrst', 'SUPABASE_PROJECT_MUTATION'],
+    ['supabase login', 'SUPABASE_PROJECT_AUTHORITY'],
+    ['supabase db reset --linked', null]
+  ];
+  for (const [command, rule] of stillBlocked) {
+    const outcome = core.classifyCommand(command);
+    assert.notEqual(outcome.classification, core.LOCAL_WRITE, `${command} was wrongly allowed`);
+    assert.notEqual(outcome.classification, core.READ_ONLY, `${command} was wrongly allowed`);
+    if (rule) assert.equal(outcome.rule, rule, command);
+    assert.equal(guard.evaluate(bashEvent(command), {}).decision, 'deny', command);
+  }
+
+  // --help never creates anything; it prints usage.
+  for (const command of ['supabase projects create --help', 'supabase link --help', 'supabase projects create -h']) {
+    assert.equal(core.classifyCommand(command).classification, core.READ_ONLY, command);
+    assert.equal(guard.evaluate(bashEvent(command), {}).decision, 'defer', command);
+  }
+
+  // A wrapper does not widen or narrow the exception.
+  assert.equal(core.classifyCommand('bash -c "supabase projects create dashboard-latam-staging --org-id iivhkhxodnoypvfeucob --db-password x --region eu-west-3"').classification, core.LOCAL_WRITE);
+  assert.equal(core.classifyCommand('bash -c "supabase link --project-ref hywpwutykwrxkddnofrh"').classification, core.PRODUCTION);
 });
 
 test('an approval record cannot be reached through a wrapped or indirect shell command', () => {
@@ -933,7 +990,13 @@ test('the guard refuses every dangerous operation the release policy names', () 
     ['cloud database reset', bashEvent('npx supabase db reset --linked')],
     ['production deploy', bashEvent('npx supabase functions deploy team-management')],
     ['production migration push', bashEvent('npx supabase db push')],
-    ['project link', bashEvent('npx supabase link --project-ref abcd')],
+    ['link to the existing project', bashEvent('npx supabase link --project-ref hywpwutykwrxkddnofrh')],
+    ['link with no target', bashEvent('npx supabase link')],
+    ['create a differently named project', bashEvent('npx supabase projects create not-staging --org-id iivhkhxodnoypvfeucob --db-password x --region eu-west-3')],
+    ['create in a different org', bashEvent('npx supabase projects create dashboard-latam-staging --org-id wrong-org --db-password x --region eu-west-3')],
+    ['create with a paid plan flag', bashEvent('npx supabase projects create dashboard-latam-staging --org-id iivhkhxodnoypvfeucob --db-password x --region eu-west-3 --plan pro')],
+    ['delete a project', bashEvent('npx supabase projects delete abcdefghijklmnopqrst')],
+    ['pause a project', bashEvent('npx supabase projects pause abcdefghijklmnopqrst')],
     ['tag and release', bashEvent('git tag -a v1.0.0 -m v1.0.0')],
     ['hosting publish', bashEvent('vercel --prod')],
     ['rls off via sql client', bashEvent(`psql -c "${rlsOff}"`)],
@@ -1124,13 +1187,20 @@ test('project settings deny the production families and wire both hooks', () => 
   for (const fragment of [
     'git push origin main', 'git push origin master', 'git push --force',
     'git push --all', 'git push --mirror', 'git push --tags', 'git push --delete',
-    'gh pr merge*--admin', 'gh pr merge*--force', 'gh run cancel', 'gh run rerun'
+    'gh pr merge*--admin', 'gh pr merge*--force', 'gh run cancel', 'gh run rerun',
+    'hywpwutykwrxkddnofrh', 'supabase projects delete', 'supabase projects pause',
+    'supabase projects restore', 'supabase projects transfer',
+    'supabase projects create*--plan', 'supabase projects create*--size'
   ]) {
     assert.ok(deny.includes(fragment), `settings.json does not deny ${fragment}`);
   }
   assert.equal(deny.includes('Bash(git push:*)'), false, 'the blanket git-push deny must be replaced by targeted rules, not merely supplemented');
+  assert.equal(deny.includes('Bash(supabase link:*)'), false, 'the blanket supabase-link deny must be replaced by a targeted rule, not merely supplemented');
   const allow = settings.permissions.allow.join('\n');
-  for (const fragment of ['git push origin feat/', 'gh pr create', 'gh pr checks', 'gh pr merge', 'gh run list', 'gh run view']) {
+  for (const fragment of [
+    'git push origin feat/', 'gh pr create', 'gh pr checks', 'gh pr merge', 'gh run list', 'gh run view',
+    'supabase projects create dashboard-latam-staging --org-id iivhkhxodnoypvfeucob'
+  ]) {
     assert.ok(allow.includes(fragment), `settings.json does not allow ${fragment}`);
   }
   const hookCommands = []

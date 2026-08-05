@@ -176,7 +176,7 @@ The halt does not depend on the approval record. An approval authorizes a
 `classifyCommand` recognises these families. The list is enforced in code and
 tested in `tests/release-harness.test.cjs`.
 
-**Production:** `git push` to `main`/`master`/`HEAD`, a remote other than `origin`, or with no explicit target; `git push --force|-f|--force-with-lease|--force-if-includes`, `--all|--mirror|--prune`, `--tags|--follow-tags`, `--delete|-d`, `--no-verify`, or a `+`/`:`-prefixed refspec; any refspec whose destination is `refs/tags/…` or version-shaped (`v1.2.0`); `git tag` (except `--list`); `git remote add|set-url|remove|rename`; `gh release|workflow|secret|variable` mutations; `gh auth login|logout|refresh|setup-git`; `gh pr close|edit|comment|review|ready`; `gh pr merge` with `--admin`, `--force`, `--merge`, or `--rebase`, or with no method flag at all; `gh run cancel|rerun|delete`; `gh repo delete|edit|archive|rename|create|fork|clone`; `gh gist create|delete|edit|rename`; `gh issue create|close|edit|comment|delete`; `gh api` with a mutating method (`-X`/`--method`, either form) or field; `supabase db push`; `supabase functions deploy`; `supabase secrets set|unset`; `supabase link`; `supabase login`; `supabase projects create|delete`; `npm publish|unpublish|deploy|dist-tag|owner|access|token`; `docker push`; `terraform apply|destroy|import|taint`; and the hosting CLIs `vercel`, `netlify`, `wrangler`, `firebase`, `fly`, `gcloud`, `aws`, `az`, `heroku`, `kubectl`, `helm`, `surge`, `railway`, `render`, `pulumi`, `serverless`.
+**Production:** `git push` to `main`/`master`/`HEAD`, a remote other than `origin`, or with no explicit target; `git push --force|-f|--force-with-lease|--force-if-includes`, `--all|--mirror|--prune`, `--tags|--follow-tags`, `--delete|-d`, `--no-verify`, or a `+`/`:`-prefixed refspec; any refspec whose destination is `refs/tags/…` or version-shaped (`v1.2.0`); `git tag` (except `--list`); `git remote add|set-url|remove|rename`; `gh release|workflow|secret|variable` mutations; `gh auth login|logout|refresh|setup-git`; `gh pr close|edit|comment|review|ready`; `gh pr merge` with `--admin`, `--force`, `--merge`, or `--rebase`, or with no method flag at all; `gh run cancel|rerun|delete`; `gh repo delete|edit|archive|rename|create|fork|clone`; `gh gist create|delete|edit|rename`; `gh issue create|close|edit|comment|delete`; `gh api` with a mutating method (`-X`/`--method`, either form) or field; `supabase db push`; `supabase functions deploy`; `supabase secrets set|unset`; `supabase login`; `supabase projects delete|pause|restore|transfer`; `supabase link` or `supabase projects create` outside the one scoped exception below; `npm publish|unpublish|deploy|dist-tag|owner|access|token`; `docker push`; `terraform apply|destroy|import|taint`; and the hosting CLIs `vercel`, `netlify`, `wrangler`, `firebase`, `fly`, `gcloud`, `aws`, `az`, `heroku`, `kubectl`, `helm`, `surge`, `railway`, `render`, `pulumi`, `serverless`.
 
 **Destructive:** `git reset --hard`; `git clean`; `git filter-branch|filter-repo`; `supabase db reset`; `npm run smoke`; `npm run verify:runtime -- --allow-reset`; `rmdir`; and `rm`/`del`/`Remove-Item` in their sweeping forms — recursive, wildcard, or directory targets. Removing one named file is `local-write`, because a guard that refuses routine cleanup gets switched off and then protects nothing.
 
@@ -186,6 +186,29 @@ test && git push origin main"` is `production`, as is the same command inside
 `cmd /c`, `powershell -Command`, a pipeline, after an environment-variable
 prefix, behind `npx --yes`, `sudo -u root`, or `nice -n 10`, and with a global
 flag between the command and its subcommand (`supabase --workdir . db push`).
+
+## The one scoped exception: staging project provisioning
+
+`supabase projects create` and `supabase link` are allowed, but only for
+exactly one project: name `dashboard-latam-staging` in organization
+`iivhkhxodnoypvfeucob`, with no flag outside
+`--org-id`/`--db-password`/`--region`/`--output`/`-o`/`--help` — no `--plan`,
+`--size`, `--custom-domain`, or add-on flag. A different name, a different
+org, or any other flag falls back to `production`
+(`SUPABASE_PROJECT_CREATE_NAME_MISMATCH`, `_ORG_MISMATCH`,
+`_DISALLOWED_FLAG`). `supabase link --project-ref hywpwutykwrxkddnofrh` — the
+one existing, already-provisioned project — stays `production`
+(`SUPABASE_LINK_EXISTING_PROJECT_BLOCKED`) by name, not by inference; a bare
+`supabase link` with no ref is `SUPABASE_LINK_AMBIGUOUS_TARGET`.
+
+The classifier cannot see which ref Supabase actually assigns the new
+project — refs are opaque, not derivable from the name — so linking to any
+*other* ref classifies `local-write`. Confirming the created project's
+returned name and organization before running `link` is a procedural step the
+operator performs, the same limitation already documented above for `gh pr
+merge` and live CI state. Extending this exception to a second project or
+organization needs a new, equally explicit scoped authorization — not a
+loosened pattern.
 
 ## What push and PR automation are actually allowed
 
