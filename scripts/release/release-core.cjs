@@ -173,8 +173,17 @@ function splitSegments(tokens) {
 }
 
 const SHELL_WRAPPERS = new Set(['cmd', 'powershell', 'pwsh', 'bash', 'sh', 'zsh', 'dash']);
-const TRANSPARENT_WRAPPERS = new Set(['sudo', 'doas', 'env', 'command', 'nice', 'time', 'npx', 'pnpx', 'bunx', 'winpty', 'stdbuf']);
+const TRANSPARENT_WRAPPERS = new Set(['sudo', 'doas', 'env', 'command', 'nice', 'time', 'npx', 'pnpx', 'bunx', 'winpty', 'stdbuf', 'xargs']);
 const POWERSHELL_VALUE_FLAGS = new Set(['-executionpolicy', '-inputformat', '-outputformat', '-windowstyle', '-version', '-configurationname']);
+// Flags that consume the following token, so skipping the flag alone would
+// leave its value looking like the command (`sudo -u root git push`).
+const TRANSPARENT_VALUE_FLAGS = Object.freeze({
+  sudo: new Set(['-u', '-g', '-p', '-h', '-c', '-r', '-t', '--user', '--group', '--host', '--prompt']),
+  doas: new Set(['-u', '-C']),
+  env: new Set(['-u', '-s', '-c', '--unset', '--chdir']),
+  nice: new Set(['-n', '--adjustment']),
+  xargs: new Set(['-n', '-i', '-i{}', '-l', '-p', '-s', '-d', '-e', '-a'])
+});
 
 function baseCommand(token) {
   const raw = String(token || '').replace(/\\/g, '/');
@@ -182,17 +191,34 @@ function baseCommand(token) {
   return name.replace(/\.(?:exe|cmd|bat|ps1)$/i, '');
 }
 
-// Peels wrappers until the tokens describe the command that will really run.
+// Peels wrappers until the tokens describe the commands that will really run.
+//
+// Returns an ARRAY of segments, never one. A wrapper payload can hold a whole
+// pipeline (`bash -c "npm test && git push"`), and classifying only its first
+// command is how a production action gets in wearing a read-only coat. Every
+// segment of an expanded payload is classified, and the caller takes the worst.
+//
 // Depth-limited: a pathological nest is reported rather than followed forever.
-function unwrapSegment(tokens, depth = 0) {
-  if (depth > 4) return tokens.map(String);
+function expandSegment(tokens, depth = 0) {
+  const list = tokens.map(String).map(token => token.replace(/^[{(]+/, '').replace(/[})]+$/, '')).filter(Boolean);
+  if (depth > 4) return [list];
   let index = 0;
-  const list = tokens.map(String);
   while (index < list.length) {
     const token = list[index];
+    if (token === '&' || token === '.' && list[index + 1]) { index += 1; continue; }
     if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) { index += 1; continue; }
     const name = baseCommand(token);
-    if (TRANSPARENT_WRAPPERS.has(name)) { index += 1; continue; }
+    if (TRANSPARENT_WRAPPERS.has(name)) {
+      const valueFlags = TRANSPARENT_VALUE_FLAGS[name];
+      index += 1;
+      while (index < list.length) {
+        const flag = String(list[index]).toLowerCase();
+        if (valueFlags && valueFlags.has(flag)) { index += 2; continue; }
+        if (flag.startsWith('-')) { index += 1; continue; }
+        break;
+      }
+      continue;
+    }
     if (SHELL_WRAPPERS.has(name)) {
       index += 1;
       while (index < list.length) {
@@ -207,10 +233,11 @@ function unwrapSegment(tokens, depth = 0) {
     break;
   }
   const remaining = list.slice(index);
-  if (remaining.length === 1 && /\s/.test(remaining[0])) {
-    return unwrapSegment(splitSegments(tokenize(remaining[0]))[0] || [], depth + 1);
+  if (remaining.length === 1 && /[\s;|&]/.test(remaining[0])) {
+    const inner = splitSegments(tokenize(remaining[0]));
+    return inner.flatMap(segment => expandSegment(segment, depth + 1));
   }
-  return remaining;
+  return [remaining];
 }
 
 // Git global options carry a value or are inert; drop them so `git -C x push`
@@ -261,8 +288,7 @@ const PRODUCTION_CLI = new Set([
   'render', 'pulumi', 'serverless', 'sls'
 ]);
 
-function classifySegment(tokens) {
-  const unwrapped = unwrapSegment(tokens);
+function classifySegment(unwrapped) {
   if (!unwrapped.length) return { classification: READ_ONLY, rule: 'EMPTY_SEGMENT' };
   const words = unwrapped.map(String);
   const name = baseCommand(words[0]);
@@ -317,51 +343,71 @@ function classifySegment(tokens) {
     return { classification: UNKNOWN, rule: 'GIT_UNCLASSIFIED' };
   }
 
+  // Positional words only: a global flag and its value must not be mistaken for
+  // the subcommand (`supabase --workdir . db push`, `npm --prefix . publish`).
+  const words_ = rest.filter(argument => !argument.startsWith('-'));
+  const positional = words_.join(' ');
+  const mentions = (...sequence) => positional.split(' ').some((_, index) => sequence.every((word, offset) => words_[index + offset] === word));
+
   if (name === 'gh') {
-    const subcommand = rest[0] || '';
-    if (subcommand === 'release' || subcommand === 'workflow' || subcommand === 'secret' || subcommand === 'variable') {
-      const reading = ['list', 'view', 'download'].includes(rest[1] || '');
+    const subcommand = words_[0] || '';
+    if (['release', 'workflow', 'secret', 'variable', 'ssh-key', 'gpg-key'].includes(subcommand)) {
+      const reading = ['list', 'view', 'download'].includes(words_[1] || '');
       return reading ? { classification: READ_ONLY, rule: 'GH_READ' } : { classification: PRODUCTION, rule: 'GH_MUTATION' };
     }
-    if (subcommand === 'pr' && ['merge', 'close', 'ready', 'create', 'edit', 'comment', 'review'].includes(rest[1] || '')) {
+    if (subcommand === 'auth' && ['login', 'logout', 'refresh', 'setup-git'].includes(words_[1] || '')) {
+      // Grants durable credentials, exactly like supabase login.
+      return { classification: PRODUCTION, rule: 'GH_AUTH_MUTATION' };
+    }
+    if (subcommand === 'pr' && ['merge', 'close', 'ready', 'create', 'edit', 'comment', 'review'].includes(words_[1] || '')) {
       return { classification: PRODUCTION, rule: 'GH_PR_MUTATION' };
     }
-    if (subcommand === 'repo' && ['delete', 'edit', 'archive', 'rename', 'sync'].includes(rest[1] || '')) {
+    if (subcommand === 'repo' && ['delete', 'edit', 'archive', 'rename', 'sync', 'create', 'fork', 'clone'].includes(words_[1] || '')) {
       return { classification: PRODUCTION, rule: 'GH_REPO_MUTATION' };
     }
+    if (subcommand === 'gist' && ['create', 'delete', 'edit', 'rename'].includes(words_[1] || '')) {
+      return { classification: PRODUCTION, rule: 'GH_GIST_MUTATION' };
+    }
+    if (subcommand === 'issue' && ['create', 'close', 'edit', 'comment', 'delete'].includes(words_[1] || '')) {
+      return { classification: PRODUCTION, rule: 'GH_ISSUE_MUTATION' };
+    }
     if (subcommand === 'api') {
-      const methodIndex = rest.findIndex(argument => argument === '-x' || argument === '--method');
-      const method = methodIndex >= 0 ? String(rest[methodIndex + 1] || '').toUpperCase() : 'GET';
-      const mutating = method !== 'GET' || has('-f') || has('--field') || has('--input') || has('--raw-field');
+      // Both `-X DELETE` and `--method=DELETE` have to be seen.
+      const flagIndex = rest.findIndex(argument => argument === '-x' || argument === '--method');
+      const inline = rest.find(argument => argument.startsWith('--method='));
+      const method = inline
+        ? inline.slice('--method='.length).toUpperCase()
+        : (flagIndex >= 0 ? String(rest[flagIndex + 1] || '').toUpperCase() : 'GET');
+      const mutating = method !== 'GET' || has('-f') || has('--field') || has('--input') || has('--raw-field')
+        || rest.some(argument => argument.startsWith('-f') || argument.startsWith('--field=') || argument.startsWith('--raw-field='));
       return mutating ? { classification: PRODUCTION, rule: 'GH_API_MUTATION' } : { classification: READ_ONLY, rule: 'GH_API_READ' };
     }
     return { classification: READ_ONLY, rule: 'GH_READ' };
   }
 
   if (name === 'supabase') {
-    const joined = rest.filter(argument => !argument.startsWith('-')).join(' ');
-    if (joined.startsWith('db push')) return { classification: PRODUCTION, rule: 'SUPABASE_DB_PUSH' };
-    if (joined.startsWith('db reset')) return { classification: DESTRUCTIVE, rule: 'SUPABASE_DB_RESET' };
-    if (joined.startsWith('functions deploy')) return { classification: PRODUCTION, rule: 'SUPABASE_FUNCTIONS_DEPLOY' };
-    if (joined.startsWith('secrets set') || joined.startsWith('secrets unset')) return { classification: PRODUCTION, rule: 'SUPABASE_SECRETS_MUTATION' };
-    if (joined.startsWith('link') || joined.startsWith('login')) return { classification: PRODUCTION, rule: 'SUPABASE_PROJECT_AUTHORITY' };
-    if (joined.startsWith('projects create') || joined.startsWith('projects delete') || joined.startsWith('branches')) {
+    if (mentions('db', 'push')) return { classification: PRODUCTION, rule: 'SUPABASE_DB_PUSH' };
+    if (mentions('db', 'reset')) return { classification: DESTRUCTIVE, rule: 'SUPABASE_DB_RESET' };
+    if (mentions('functions', 'deploy')) return { classification: PRODUCTION, rule: 'SUPABASE_FUNCTIONS_DEPLOY' };
+    if (mentions('secrets', 'set') || mentions('secrets', 'unset')) return { classification: PRODUCTION, rule: 'SUPABASE_SECRETS_MUTATION' };
+    if (mentions('link') || mentions('login')) return { classification: PRODUCTION, rule: 'SUPABASE_PROJECT_AUTHORITY' };
+    if (mentions('projects', 'create') || mentions('projects', 'delete') || mentions('branches')) {
       return { classification: PRODUCTION, rule: 'SUPABASE_PROJECT_MUTATION' };
     }
-    if (joined.startsWith('status') || joined.startsWith('projects list') || joined.startsWith('migration list')) {
+    if (mentions('status') || mentions('projects', 'list') || mentions('migration', 'list')) {
       return { classification: READ_ONLY, rule: 'SUPABASE_READ' };
     }
     return { classification: LOCAL_WRITE, rule: 'SUPABASE_LOCAL' };
   }
 
   if (name === 'npm') {
-    const subcommand = rest[0] || '';
-    if (subcommand === 'publish' || subcommand === 'deploy' || subcommand === 'unpublish' || subcommand === 'dist-tag' || subcommand === 'owner') {
+    const subcommand = words_[0] || '';
+    if (['publish', 'deploy', 'unpublish', 'dist-tag', 'owner', 'access', 'token'].some(word => mentions(word))) {
       return { classification: PRODUCTION, rule: 'NPM_REGISTRY_MUTATION' };
     }
     if (subcommand === 'test') return { classification: READ_ONLY, rule: 'NPM_TEST' };
     if (subcommand === 'run' || subcommand === 'run-script') {
-      const script = rest[1] || '';
+      const script = words_[1] || '';
       if (script === 'verify:runtime') {
         return rest.includes('--allow-reset')
           ? { classification: DESTRUCTIVE, rule: 'NPM_VERIFY_RUNTIME_RESET' }
@@ -397,13 +443,13 @@ function classifySegment(tokens) {
   }
 
   if (name === 'docker') {
-    if (rest[0] === 'push') return { classification: PRODUCTION, rule: 'DOCKER_PUSH' };
-    if (['ps', 'version', 'info', 'images', 'inspect', 'logs'].includes(rest[0] || '')) return { classification: READ_ONLY, rule: 'DOCKER_READ' };
+    if (mentions('push') || mentions('image', 'push') || mentions('compose', 'push')) return { classification: PRODUCTION, rule: 'DOCKER_PUSH' };
+    if (['ps', 'version', 'info', 'images', 'inspect', 'logs'].includes(words_[0] || '')) return { classification: READ_ONLY, rule: 'DOCKER_READ' };
     return { classification: LOCAL_WRITE, rule: 'DOCKER_LOCAL' };
   }
 
   if (name === 'terraform' || name === 'tofu') {
-    return ['apply', 'destroy', 'import', 'taint'].includes(rest[0] || '')
+    return ['apply', 'destroy', 'import', 'taint'].includes(words_[0] || '')
       ? { classification: PRODUCTION, rule: 'IAC_MUTATION' }
       : { classification: READ_ONLY, rule: 'IAC_READ' };
   }
@@ -446,7 +492,7 @@ const CLASSIFICATION_SEVERITY = Object.freeze({
 
 // A pipeline is only as safe as its least safe member.
 function classifyCommand(command) {
-  const segments = splitSegments(tokenize(command));
+  const segments = splitSegments(tokenize(command)).flatMap(segment => expandSegment(segment));
   if (!segments.length) return Object.freeze({ classification: READ_ONLY, rule: 'EMPTY_COMMAND', segments: Object.freeze([]) });
   const results = segments.map(segment => {
     const outcome = classifySegment(segment);
@@ -882,7 +928,16 @@ function readVerificationEvidence(deps, task, head, root, options = {}) {
   const unproven = [];
   for (const criterion of task.acceptanceCriteria) {
     const entry = recorded.get(criterion.id);
-    if (!entry || entry.status !== 'passed' || entry.exitCode !== 0) unproven.push(criterion.id);
+    if (!entry || entry.status !== 'passed' || entry.exitCode !== 0) { unproven.push(criterion.id); continue; }
+    // Bind the record to the criterion it claims to prove. Nothing here can
+    // stop a determined fabrication — only a re-run can — but a bare
+    // `{status: "passed"}` is an omission, and this makes it a statement.
+    const command = String(entry.command || '').trim();
+    const expected = criterion.command.trim();
+    const sameCommand = command === expected
+      || command.startsWith(expected.split(' <')[0])
+      || expected.startsWith(command.split(' <')[0]);
+    if (!command || !sameCommand || !String(entry.detail || '').trim()) unproven.push(criterion.id);
   }
   if (unproven.length) {
     return Object.freeze({ present: true, verified: false, code: 'ACCEPTANCE_CRITERIA_UNPROVEN', path: relative, unproven: Object.freeze(unproven) });
@@ -1183,6 +1238,22 @@ function evaluateAcceptance(gate, context) {
     const changed = String(diff.stdout || '').split(/\r?\n/).filter(Boolean);
     return changed.every(file => file.replace(/\\/g, '/').startsWith(`${VERIFICATION_RELATIVE}/`));
   };
+
+  // Commits are not the whole story: an uncommitted edit is code the evidence
+  // never saw. Tracked modifications outside release/verification/ invalidate
+  // it just as a differing commit does.
+  const dirty = context.ledger.run('git', ['status', '--porcelain=v1', '--untracked-files=no']);
+  const dirtyPaths = String(dirty && dirty.stdout || '')
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map(line => line.slice(3).replace(/\\/g, '/').split(' -> ').pop())
+    .filter(file => !file.startsWith(`${VERIFICATION_RELATIVE}/`));
+  if (dirtyPaths.length) {
+    return gateResult(gate, STATUS_BLOCKED, `${task.id} cannot be called verified while tracked files are modified but uncommitted: ${dirtyPaths.slice(0, 10).join(', ')}. The evidence attests to committed code.`, {
+      failureCode: 'ACCEPTANCE_WORKTREE_DIRTY',
+      dirtyPaths: Object.freeze(dirtyPaths)
+    });
+  }
   const evidence = readVerificationEvidence(context.deps, task, head, context.deps.repositoryRoot, { isCodeUnchangedSince });
   context.state.acceptance = evidence;
   const commands = task.acceptanceCriteria.map(criterion => Object.freeze({
@@ -1198,7 +1269,10 @@ function evaluateAcceptance(gate, context) {
       commands: Object.freeze(commands)
     });
   }
-  return gateResult(gate, STATUS_PASSED, `${task.id} is verified against ${head}: ${evidence.proven.length} acceptance criteria proven, recorded ${evidence.recordedAt}.`, {
+  const provenance = evidence.headSha === head
+    ? `against ${head}`
+    : `against ${evidence.headSha}, still current at ${head} because nothing outside ${VERIFICATION_RELATIVE}/ changed since`;
+  return gateResult(gate, STATUS_PASSED, `${task.id} is verified ${provenance}: ${evidence.proven.length} acceptance criteria proven, recorded ${evidence.recordedAt}.`, {
     evidencePath: evidence.path,
     commands: Object.freeze(commands)
   });
@@ -1416,7 +1490,9 @@ function runRelease(options, overrides = {}) {
     gates: Object.freeze(gates),
     executionPlan: Object.freeze(context.state.executionPlan || []),
     executedCommands: executed,
-    productionActionsExecuted: 0,
+    // Derived from the ledger, never asserted: this is the number the
+    // orchestrator cross-checks, so a literal 0 would make the check vacuous.
+    productionActionsExecuted: executed.filter(entry => entry.classification !== READ_ONLY).length,
     refusedProductionActions: production && production.refusedActions ? production.refusedActions : Object.freeze([]),
     haltedAtGate: production ? production.id : null,
     failureCode,

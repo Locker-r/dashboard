@@ -37,10 +37,20 @@ recorded against a different HEAD.
 }
 ```
 
-Every criterion listed in the backlog must appear with `status: "passed"` and
-`exitCode: 0`. A missing or failed criterion produces
-`ACCEPTANCE_CRITERIA_UNPROVEN`, and the run stops before the production gate is
-even discussed.
+Every criterion listed in the backlog must appear with `status: "passed"`,
+`exitCode: 0`, the criterion's own `command`, and a non-empty `detail`. A
+criterion that is missing, failed, or recorded without naming what proved it
+produces `ACCEPTANCE_CRITERIA_UNPROVEN`, and the run stops before the production
+gate is even discussed.
 
-Evidence stops applying the moment HEAD moves. That is intentional: a commit
-that was not tested has not been tested, however recently its predecessor was.
+Evidence stops applying when the code it attests to changes. It survives its own
+commit — otherwise the record could never be stored — but only while every path
+changed since the recorded commit is under `release/verification/`. Any other
+committed change makes it `ACCEPTANCE_EVIDENCE_STALE`, and any uncommitted
+tracked change outside this directory makes it `ACCEPTANCE_WORKTREE_DIRTY`.
+
+**What this file cannot do.** Nothing here re-runs a criterion. B1's decisive
+criterion needs a live Supabase stack, which the gate cannot start or observe.
+Recording a criterion you did not run is therefore possible, and it is a
+deliberate falsehood rather than an oversight — the format exists to make it
+one. Only re-running the commands proves anything.

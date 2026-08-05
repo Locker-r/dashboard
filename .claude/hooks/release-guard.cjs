@@ -24,12 +24,14 @@ const PATH_FIELDS = Object.freeze(['file_path', 'filePath', 'path', 'notebook_pa
 // Matches a reference to an approval record, or to the directory as a whole,
 // but not to the README that documents it.
 const APPROVAL_HINT = /release[\\/]+approvals(?![\\/]+README\.md\b)/i;
+const SHELL_WRAPPER = /\b(?:bash|sh|zsh|dash|pwsh|powershell(?:\.exe)?|cmd(?:\.exe)?)\b\s+(?:-[a-z]+\s+)*(?:-c|\/c|-command)\b/i;
+const ENCODED_COMMAND = /-e(?:nc|ncoded(?:command)?)?\s+[A-Za-z0-9+/=]{16,}|base64\s+(?:-d|--decode)/i;
 // Shell forms that create or replace a file without ever being a "command"
 // the classifier would flag on its own. The redirect pattern excludes `=>`,
 // `->`, `>=`, and `>>=` so ordinary code in a command line is not mistaken for
 // one — a guard that cries wolf gets worked around.
 const REDIRECT = /(?<![-=<>!])>{1,2}(?!=)/;
-const COPY_OR_CREATE = /\|\s*tee\b|\b(?:cp|copy|mv|move|touch|new-item|set-content|add-content|out-file|copy-item|move-item)\b/i;
+const COPY_OR_CREATE = /\|\s*tee\b|\b(?:cp|copy|mv|move|touch|new-item|set-content|add-content|out-file|copy-item|move-item|rm|del|erase|remove-item|unlink|truncate|install|dd)\b|\bsed\b[^|;]*\s-i|\bperl\b[^|;]*\s-i|\bpython\b[^|;]*\bopen\s*\(/i;
 
 function releaseRunActive(env) {
   const mode = String((env && env.RELEASE_HARNESS_MODE) || '').trim().toLowerCase();
@@ -64,6 +66,16 @@ function evaluateBash(command, env) {
   if (outcome.classification === core.DESTRUCTIVE) {
     return deny(`Refused: this is a destructive action (${outcome.rule}). It discards local state that is not trivially recoverable, and needs explicit per-run authorization from the operator.`);
   }
+  // An unrecognised command is ordinarily allowed — refusing everything unknown
+  // would make the guard unusable. But an unrecognised command *inside a shell
+  // wrapper* is the exact shape of a smuggling attempt, and an encoded one
+  // cannot be read at all. Those fail closed.
+  if (ENCODED_COMMAND.test(command)) {
+    return deny('Refused: an encoded shell payload cannot be classified, and the guard does not approve what it cannot read.');
+  }
+  if (outcome.classification === core.UNKNOWN && SHELL_WRAPPER.test(command)) {
+    return deny(`Refused: a wrapped command that the classifier could not resolve (${outcome.rule}). Run it without the shell wrapper so it can be classified, or ask the operator.`);
+  }
   return defer();
 }
 
@@ -79,7 +91,12 @@ function evaluateWrite(toolInput, env) {
   // Content rules apply in every mode. Disabling RLS, publishing the proof
   // bucket, or embedding an elevated key is never in scope for an agent,
   // release run or not.
-  const proposed = [toolInput.content, toolInput.new_string, toolInput.newString, toolInput.new_source]
+  // MultiEdit carries its payload inside edits[], so reading only the top-level
+  // fields would let the same content through the tool next door.
+  const nested = Array.isArray(toolInput.edits)
+    ? toolInput.edits.flatMap(edit => [edit && edit.new_string, edit && edit.newString, edit && edit.content])
+    : [];
+  const proposed = [toolInput.content, toolInput.new_string, toolInput.newString, toolInput.new_source, ...nested]
     .filter(value => typeof value === 'string')
     .join('\n');
   const findings = core.classifySecurityContent(target, proposed);

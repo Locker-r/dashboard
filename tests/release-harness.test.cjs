@@ -27,7 +27,7 @@ function evidenceFor(taskId, overrides = {}) {
     headSha: HEAD,
     recordedAt: '2026-08-05T00:00:00.000Z',
     criteria: task.acceptanceCriteria.map(criterion => ({
-      id: criterion.id, status: 'passed', exitCode: 0, command: criterion.command
+      id: criterion.id, status: 'passed', exitCode: 0, command: criterion.command, detail: 'observed in this run'
     })),
     ...overrides
   });
@@ -292,6 +292,99 @@ test('wrappers do not hide a production command', () => {
   }
 });
 
+test('a wrapper payload is classified by all of its commands, not just the first', () => {
+  // The hole this closes: unwrapping returned only the first segment of a
+  // quoted payload, so anything after `&&`, `;`, `|` or `&` was never seen and
+  // `bash -c "npm test && git push"` classified as read-only.
+  const smuggled = [
+    'sh -c "npm test && git push"',
+    'bash -c "git status && git push origin main"',
+    'bash -c "echo start; supabase db push"',
+    'powershell -NoProfile -Command "npm test; supabase db push"',
+    'cmd /c "type file.txt & supabase functions deploy team-management"',
+    'cmd /c "echo hi & npm publish"',
+    'bash -c "ls; npm run check:js; gh release create v1"',
+    'powershell -Command "& {git push}"',
+    'cd repo && git push'
+  ];
+  for (const command of smuggled) {
+    const outcome = core.classifyCommand(command);
+    assert.equal(outcome.classification, core.PRODUCTION, `${command} => ${outcome.classification} (${outcome.rule})`);
+    assert.equal(guard.evaluate(bashEvent(command), {}).decision, 'deny', command);
+  }
+  assert.equal(core.classifyCommand('bash -c "ls && rm -rf ."').classification, core.DESTRUCTIVE);
+});
+
+test('a wrapped command the classifier cannot resolve is refused, not waved through', () => {
+  // Refusing every unknown command would make the guard unusable, so unknown
+  // is allowed in general — but not when it is hiding inside a shell wrapper
+  // or an encoded payload, which is the shape of a smuggling attempt.
+  for (const command of [
+    'bash -c "bash -c \\"git push\\""',
+    'sh -c "$(printf %s Z2l0IHB1c2g= | base64 -d)"',
+    'powershell -EncodedCommand ZwBpAHQAIABwAHUAcwBoAA=='
+  ]) {
+    assert.equal(guard.evaluate(bashEvent(command), {}).decision, 'deny', command);
+  }
+  // A plain unrecognised command stays allowed.
+  assert.equal(core.classifyCommand('curl https://example.com').classification, core.UNKNOWN);
+  assert.equal(guard.evaluate(bashEvent('curl https://example.com'), {}).decision, 'defer');
+});
+
+test('a global flag and its value are not mistaken for the subcommand', () => {
+  const disguised = [
+    ['npx --yes supabase db push', core.PRODUCTION],
+    ['npx -y supabase db push', core.PRODUCTION],
+    ['supabase --workdir . db push', core.PRODUCTION],
+    ['npm --prefix . publish', core.PRODUCTION],
+    ['sudo -u root git push', core.PRODUCTION],
+    ['nice -n 10 git push', core.PRODUCTION],
+    ['terraform -chdir=. apply', core.PRODUCTION],
+    ['docker image push registry/x', core.PRODUCTION],
+    ['gh api --method=DELETE /repos/o/r', core.PRODUCTION],
+    ['gh api --method DELETE /repos/o/r', core.PRODUCTION],
+    ['gh auth login', core.PRODUCTION],
+    ['gh repo create foo --public', core.PRODUCTION],
+    ['gh gist create secrets.txt', core.PRODUCTION]
+  ];
+  for (const [command, expected] of disguised) {
+    const outcome = core.classifyCommand(command);
+    assert.equal(outcome.classification, expected, `${command} => ${outcome.classification} (${outcome.rule})`);
+  }
+  // Reads through the same flag shapes stay read-only.
+  assert.equal(core.classifyCommand('gh api /repos/o/r').classification, core.READ_ONLY);
+  assert.equal(core.classifyCommand('gh api --method=GET /repos/o/r').classification, core.READ_ONLY);
+  assert.equal(core.classifyCommand('supabase --workdir . status').classification, core.READ_ONLY);
+});
+
+test('an approval record cannot be reached through a wrapped or indirect shell command', () => {
+  const attempts = [
+    'bash -c "ls && rm release/approvals/B1.approval.json"',
+    'bash -c "echo hi; sed -i s/a/b/ release/approvals/B1.approval.json"',
+    'rm release/approvals/B1.approval.json',
+    'sed -i "s/x/y/" release/approvals/B1.approval.json',
+    'cmd /c "copy nul release\\approvals\\B1.approval.json"',
+    'sh -c "truncate -s 0 release/approvals/B1.approval.json"'
+  ];
+  for (const command of attempts) {
+    for (const env of [{}, { RELEASE_HARNESS_MODE: 'simulate' }]) {
+      assert.equal(guard.evaluate(bashEvent(command), env).decision, 'deny', command);
+    }
+  }
+});
+
+test('MultiEdit content is scanned like every other write', () => {
+  const secret = 'sb_' + 'secret_abcdefghijklmnop';
+  const multi = (file, newString) => ({
+    hook_event_name: 'PreToolUse',
+    tool_name: 'MultiEdit',
+    tool_input: { file_path: file, edits: [{ old_string: 'x', new_string: newString }] }
+  });
+  assert.equal(guard.evaluate(multi('src/config.js', `const k = "${secret}";`), {}).decision, 'deny');
+  assert.equal(guard.evaluate(multi('supabase/migrations/x.sql', 'alter table t ' + 'disable row level security;'), {}).decision, 'deny');
+  assert.equal(guard.evaluate(multi('docs/notes.md', 'ordinary prose'), {}).decision, 'defer');
+});
+
 test('destructive commands are classified as destructive', () => {
   for (const command of [
     'git reset --hard origin/main',
@@ -479,6 +572,65 @@ test('evidence survives being committed, but not a change to the code it attests
   const rejected = codeMoved.execution.result.gates.find(gate => gate.id === 'G5b-acceptance');
   assert.equal(rejected.failureCode, 'ACCEPTANCE_EVIDENCE_STALE');
   assert.equal(codeMoved.execution.exitCode, core.EXIT_BLOCKED);
+});
+
+test('acceptance evidence must name the criterion command and report a detail', () => {
+  const task = core.validateBacklog(realBacklog()).tasks.find(entry => entry.id === 'B1');
+  const bare = JSON.stringify({
+    schemaVersion: 1, taskId: 'B1', headSha: HEAD, recordedAt: '2026-08-05T00:00:00.000Z',
+    criteria: task.acceptanceCriteria.map(criterion => ({ id: criterion.id, status: 'passed', exitCode: 0 }))
+  });
+  const wrongCommand = JSON.stringify({
+    schemaVersion: 1, taskId: 'B1', headSha: HEAD, recordedAt: '2026-08-05T00:00:00.000Z',
+    criteria: task.acceptanceCriteria.map(criterion => ({ id: criterion.id, status: 'passed', exitCode: 0, command: 'echo ok', detail: 'ok' }))
+  });
+  for (const payload of [bare, wrongCommand]) {
+    const { execution } = simulate({ fs: fsStub({ [EVIDENCE_SUFFIX]: payload }) });
+    const gate = execution.result.gates.find(entry => entry.id === 'G5b-acceptance');
+    assert.equal(gate.failureCode, 'ACCEPTANCE_CRITERIA_UNPROVEN');
+    assert.equal(execution.exitCode, core.EXIT_BLOCKED);
+  }
+});
+
+test('uncommitted product changes invalidate acceptance evidence', () => {
+  // Evidence attests to committed code. An uncommitted edit is code it never
+  // saw, and comparing commits alone cannot see it.
+  const dirtyStub = (file, args) => {
+    const command = [file, ...args].join(' ');
+    if (command.startsWith('git status')) {
+      return { status: 0, stdout: ' M src/lead-proof.js\n', stderr: '', error: null };
+    }
+    return gitStub([])(file, args);
+  };
+  const { execution } = simulate({
+    fs: fsStub({ [EVIDENCE_SUFFIX]: evidenceFor('B1') }),
+    deps: { runCommand: dirtyStub }
+  });
+  const gate = execution.result.gates.find(entry => entry.id === 'G5b-acceptance');
+  assert.equal(gate.failureCode, 'ACCEPTANCE_WORKTREE_DIRTY');
+  assert.equal(execution.exitCode, core.EXIT_BLOCKED);
+
+  // A modified evidence file is the one exception.
+  const evidenceOnly = simulate({
+    fs: fsStub({ [EVIDENCE_SUFFIX]: evidenceFor('B1') }),
+    deps: {
+      runCommand: (file, args) => {
+        const command = [file, ...args].join(' ');
+        if (command.startsWith('git status')) return { status: 0, stdout: ' M release/verification/B1.evidence.json\n', stderr: '', error: null };
+        return gitStub([])(file, args);
+      }
+    }
+  });
+  assert.equal(evidenceOnly.execution.result.gates.find(entry => entry.id === 'G5b-acceptance').status, core.STATUS_PASSED);
+});
+
+test('productionActionsExecuted is derived from the ledger, not asserted', () => {
+  const { execution } = simulate({ fs: fsStub({ [EVIDENCE_SUFFIX]: evidenceFor('B1') }) });
+  const result = execution.result;
+  const expected = result.executedCommands.filter(entry => entry.classification !== core.READ_ONLY).length;
+  assert.equal(result.productionActionsExecuted, expected);
+  assert.equal(result.productionActionsExecuted, 0);
+  assert.ok(result.executedCommands.length > 0, 'the count must be over a non-empty ledger to mean anything');
 });
 
 test('a verified task with a valid approval is still not executed by the harness', () => {

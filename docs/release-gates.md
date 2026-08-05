@@ -23,7 +23,7 @@ only `read-only`.
 | `local-write` | Writes inside the working copy or a local service. | Operator |
 | `production` | Changes a shared or published system, or grants authority over one. | Operator only, after G7 |
 | `destructive` | Discards local state or data that is not trivially recoverable. | Operator only, with explicit per-run authorization |
-| `unknown` | The classifier does not recognise it. Treated as not read-only. | Nobody, until classified |
+| `unknown` | The classifier does not recognise it. Never executed by the harness or the orchestrator; the guard allows it interactively unless it is wrapped or encoded. | Operator |
 
 `unknown` failing closed is deliberate. A command the harness cannot reason
 about is not a command it may run.
@@ -61,8 +61,23 @@ verified. Refusal codes:
 | `ACCEPTANCE_EVIDENCE_ABSENT` | Nothing has been verified yet. This is the normal state of freshly landed work. |
 | `ACCEPTANCE_EVIDENCE_MALFORMED` | The file is not JSON. |
 | `ACCEPTANCE_EVIDENCE_INVALID` | Wrong schema version, or recorded for another task. |
-| `ACCEPTANCE_EVIDENCE_STALE` | Recorded against a different commit. A commit that was not tested has not been tested. |
-| `ACCEPTANCE_CRITERIA_UNPROVEN` | One or more stated criteria are missing or did not pass. |
+| `ACCEPTANCE_EVIDENCE_STALE` | Recorded against a different commit, and code changed since. |
+| `ACCEPTANCE_CRITERIA_UNPROVEN` | A stated criterion is missing, did not pass, does not name the criterion's command, or reports no detail. |
+| `ACCEPTANCE_WORKTREE_DIRTY` | Tracked files are modified but uncommitted. Evidence attests to committed code. |
+
+Evidence does **not** have to name the current HEAD exactly. It stays valid
+while the code it attests to has not moved: the gate accepts a different commit
+only when every path changed between the two is under `release/verification/`,
+and separately refuses any uncommitted tracked change outside that directory.
+Without that rule the record would be impossible to store, because committing
+the evidence itself moves HEAD.
+
+What the gate can and cannot do: it checks that each criterion is recorded as
+passed, with exit code 0, naming that criterion's command and a non-empty
+detail, against code that has not changed. It cannot re-run a criterion that
+needs a live Supabase stack, so it cannot detect a determined fabrication — only
+a re-run can. It converts a silent omission into an explicit written claim, and
+that is the honest limit of it.
 
 Unlike an approval, an agent **may** write evidence — because evidence is
 falsifiable. It names a commit and a set of commands, and anyone can re-run
@@ -91,6 +106,10 @@ or a quotation in `docs/` changes no database and ships to no browser, so the
 rules deliberately do not fire there — the same exemption the repository's own
 secret scan already makes. A rule that fires on its own documentation gets
 switched off by the first person it inconveniences.
+
+The rules read `content`, `new_string`, and `edits[].new_string`, so `Write`,
+`Edit`, and `MultiEdit` are covered alike; inline SQL passed to a client on the
+command line is scanned too.
 
 ## G6: the approval record
 
@@ -136,6 +155,16 @@ tested in `tests/release-harness.test.cjs`.
 
 **Production:** `git push`; `git tag` (except `--list`); `git remote add|set-url|remove|rename`; `gh release|workflow|secret|variable` mutations; `gh pr merge|create|edit|close|review`; `gh repo delete|edit|archive|rename`; `gh api` with a mutating method or field; `supabase db push`; `supabase functions deploy`; `supabase secrets set|unset`; `supabase link`; `supabase login`; `supabase projects create|delete`; `npm publish|unpublish|deploy|dist-tag|owner`; `docker push`; `terraform apply|destroy|import|taint`; and the hosting CLIs `vercel`, `netlify`, `wrangler`, `firebase`, `fly`, `gcloud`, `aws`, `az`, `heroku`, `kubectl`, `helm`, `surge`, `railway`, `render`, `pulumi`, `serverless`.
 
-**Destructive:** `git reset --hard`; `git clean`; `git filter-branch|filter-repo`; `supabase db reset`; `npm run smoke`; `npm run verify:runtime -- --allow-reset`; `rm`, `del`, `rmdir`, `Remove-Item`.
+**Destructive:** `git reset --hard`; `git clean`; `git filter-branch|filter-repo`; `supabase db reset`; `npm run smoke`; `npm run verify:runtime -- --allow-reset`; `rmdir`; and `rm`/`del`/`Remove-Item` in their sweeping forms — recursive, wildcard, or directory targets. Removing one named file is `local-write`, because a guard that refuses routine cleanup gets switched off and then protects nothing.
 
-Wrappers do not hide any of these. `powershell -NoProfile -Command "npx supabase db push"` classifies as `production` through `SUPABASE_DB_PUSH`, and so does the same command inside `cmd /c`, `bash -c`, a pipeline, or after an environment-variable prefix.
+Wrappers do not hide any of these. Every segment of a wrapper payload is
+classified, not just the first, and the least safe result wins: `bash -c "npm
+test && git push"` is `production`, as is the same command inside `cmd /c`,
+`powershell -Command`, a pipeline, after an environment-variable prefix, behind
+`npx --yes`, `sudo -u root`, or `nice -n 10`, and with a global flag between the
+command and its subcommand (`supabase --workdir . db push`).
+
+`unknown` is allowed for a plain unrecognised command — refusing everything the
+classifier does not know would make the guard unusable. It is refused when it
+appears **inside a shell wrapper** or an encoded payload, which is the shape of
+a smuggling attempt rather than of ordinary work.
