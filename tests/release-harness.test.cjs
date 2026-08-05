@@ -574,6 +574,92 @@ test('evidence survives being committed, but not a change to the code it attests
   assert.equal(codeMoved.execution.exitCode, core.EXIT_BLOCKED);
 });
 
+test('documentation and status-only changes do not invalidate acceptance evidence', () => {
+  const olderHead = 'c'.repeat(40);
+  const evidence = evidenceFor('B1', { headSha: olderHead });
+  const docsOnly = simulate({
+    fs: fsStub({ [EVIDENCE_SUFFIX]: evidence }),
+    deps: {
+      runCommand: (file, args) => {
+        const command = [file, ...args].join(' ');
+        if (command.startsWith('git diff --name-only')) {
+          return {
+            status: 0,
+            stdout: [
+              'docs/project-status.md',
+              'docs/release-plan.md',
+              'AGENTS.md',
+              'CLAUDE.md',
+              'README.md',
+              'CHANGELOG.md',
+              '.claude/settings.json',
+              'scripts/release/release-core.cjs',
+              'release/backlog.json',
+              ''
+            ].join('\n'),
+            stderr: '', error: null
+          };
+        }
+        return gitStub([])(file, args);
+      }
+    }
+  });
+  const gate = docsOnly.execution.result.gates.find(entry => entry.id === 'G5b-acceptance');
+  assert.equal(gate.status, core.STATUS_PASSED, gate.summary);
+  assert.equal(docsOnly.execution.exitCode, core.EXIT_HALTED);
+
+  // Confirm this is a real allow-list, not an accidental match-everything: one
+  // product-relevant path mixed into the same set still goes stale.
+  const oneRealChange = simulate({
+    fs: fsStub({ [EVIDENCE_SUFFIX]: evidence }),
+    deps: {
+      runCommand: (file, args) => {
+        const command = [file, ...args].join(' ');
+        if (command.startsWith('git diff --name-only')) {
+          return { status: 0, stdout: 'docs/project-status.md\nsrc/lead-proof.js\n', stderr: '', error: null };
+        }
+        return gitStub([])(file, args);
+      }
+    }
+  });
+  assert.equal(oneRealChange.execution.result.gates.find(entry => entry.id === 'G5b-acceptance').failureCode, 'ACCEPTANCE_EVIDENCE_STALE');
+});
+
+test('isEvidenceDriftAllowed is an allow-list: product paths are not on it', () => {
+  for (const path_ of ['docs/project-status.md', 'AGENTS.md', 'CLAUDE.md', 'README.md', 'CHANGELOG.md', '.claude/settings.json', 'scripts/release/release-core.cjs', 'release/backlog.json', 'release/verification/B1.evidence.json', 'release/approvals/B1.approval.json']) {
+    assert.equal(core.isEvidenceDriftAllowed(path_), true, path_);
+  }
+  for (const path_ of ['src/lead-proof.js', 'supabase/migrations/x.sql', 'index.html', 'package.json', 'tests/lead-proof.test.cjs', 'scripts/lead-proof-smoke.cjs', 'config/data-config.local.js']) {
+    assert.equal(core.isEvidenceDriftAllowed(path_), false, path_);
+  }
+});
+
+test('an uncommitted status-only edit does not dirty the acceptance gate, but an uncommitted product edit does', () => {
+  const statusDirty = simulate({
+    fs: fsStub({ [EVIDENCE_SUFFIX]: evidenceFor('B1') }),
+    deps: {
+      runCommand: (file, args) => {
+        const command = [file, ...args].join(' ');
+        if (command.startsWith('git status')) return { status: 0, stdout: ' M docs/project-status.md\n M AGENTS.md\n', stderr: '', error: null };
+        return gitStub([])(file, args);
+      }
+    }
+  });
+  assert.equal(statusDirty.execution.result.gates.find(entry => entry.id === 'G5b-acceptance').status, core.STATUS_PASSED);
+
+  const productDirty = simulate({
+    fs: fsStub({ [EVIDENCE_SUFFIX]: evidenceFor('B1') }),
+    deps: {
+      runCommand: (file, args) => {
+        const command = [file, ...args].join(' ');
+        if (command.startsWith('git status')) return { status: 0, stdout: ' M docs/project-status.md\n M src/lead-proof.js\n', stderr: '', error: null };
+        return gitStub([])(file, args);
+      }
+    }
+  });
+  assert.equal(productDirty.execution.result.gates.find(entry => entry.id === 'G5b-acceptance').failureCode, 'ACCEPTANCE_WORKTREE_DIRTY');
+});
+
 test('acceptance evidence must name the criterion command and report a detail', () => {
   const task = core.validateBacklog(realBacklog()).tasks.find(entry => entry.id === 'B1');
   const bare = JSON.stringify({

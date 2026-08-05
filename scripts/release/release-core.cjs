@@ -515,6 +515,24 @@ const PRODUCT_CODE_FILES = Object.freeze(['index.html', 'package.json', 'package
 const HARNESS_PREFIXES = Object.freeze(['.claude/', 'scripts/release/', '.github/']);
 const HARNESS_FILES = Object.freeze(['release/backlog.json', 'AGENTS.md', 'CLAUDE.md']);
 
+// Paths whose content has no bearing on what a recorded acceptance criterion
+// actually exercised: documentation, canonical status, release governance and
+// harness tooling, and the evidence/approval directories themselves. A commit
+// that touches only these — a status update, a harness fix, a backlog note —
+// does not invalidate acceptance evidence for otherwise-unchanged product code.
+// This is deliberately an allow-list, not a deny-list: anything not named here
+// (src/, supabase/, tests/, scripts/ other than scripts/release/, and so on)
+// is product-relevant by default and DOES invalidate evidence. Distinct from
+// classifyPath, which serves the write-protection guard rather than evidence
+// staleness — the two ask different questions about the same paths.
+const EVIDENCE_DRIFT_ALLOWED_PREFIXES = Object.freeze(['docs/', '.claude/', 'scripts/release/', '.github/', 'release/']);
+const EVIDENCE_DRIFT_ALLOWED_FILES = Object.freeze(['AGENTS.md', 'CLAUDE.md', 'README.md', 'CHANGELOG.md']);
+
+function isEvidenceDriftAllowed(relative) {
+  const text = String(relative || '').replace(/\\/g, '/');
+  return EVIDENCE_DRIFT_ALLOWED_FILES.includes(text) || EVIDENCE_DRIFT_ALLOWED_PREFIXES.some(prefix => text.startsWith(prefix));
+}
+
 function normalizeRepositoryPath(target, root = PROJECT_ROOT) {
   const text = String(target || '');
   if (!text.trim()) return null;
@@ -913,10 +931,11 @@ function readVerificationEvidence(deps, task, head, root, options = {}) {
   }
   const recordedHead = String(parsed.headSha || '').toLowerCase();
   if (head && recordedHead !== head) {
-    // Evidence attests to code, not to a commit id. Committing the evidence
-    // itself moves HEAD, and refusing it for that reason alone would make the
-    // record impossible to store. It stays valid only while nothing outside
-    // release/verification/ has changed since — anything else is stale.
+    // Evidence attests to product-relevant code, not to a commit id. Committing
+    // the evidence itself moves HEAD, and refusing it for that reason alone
+    // would make the record impossible to store. It stays valid while only
+    // documentation, status, or release-governance paths changed since —
+    // anything product-relevant makes it stale (isEvidenceDriftAllowed).
     const equivalent = typeof options.isCodeUnchangedSince === 'function' && options.isCodeUnchangedSince(recordedHead);
     if (!equivalent) {
       return Object.freeze({ present: true, verified: false, code: 'ACCEPTANCE_EVIDENCE_STALE', path: relative, headSha: recordedHead, unproven: Object.freeze([]) });
@@ -1229,25 +1248,27 @@ function evaluateAcceptance(gate, context) {
     return gateResult(gate, STATUS_PLANNED, `${task.id} states no acceptance criteria; there is nothing for this gate to prove.`, {});
   }
   const head = context.state.repository ? context.state.repository.head : null;
-  // Only release/verification/ may differ between the commit the evidence names
-  // and the commit being judged. Any other changed path makes it stale.
+  // Evidence is pinned to the product-relevant code tree, not to the literal
+  // commit id. Every path that differs between the recorded commit and the one
+  // being judged must be drift-allowed (documentation, status, harness,
+  // evidence storage) — any product-relevant path makes it stale.
   const isCodeUnchangedSince = recordedHead => {
     if (!/^[0-9a-f]{7,40}$/.test(recordedHead)) return false;
     const diff = context.ledger.run('git', ['diff', '--name-only', recordedHead, head]);
     if (!diff || diff.status !== 0) return false;
     const changed = String(diff.stdout || '').split(/\r?\n/).filter(Boolean);
-    return changed.every(file => file.replace(/\\/g, '/').startsWith(`${VERIFICATION_RELATIVE}/`));
+    return changed.every(file => isEvidenceDriftAllowed(file));
   };
 
   // Commits are not the whole story: an uncommitted edit is code the evidence
-  // never saw. Tracked modifications outside release/verification/ invalidate
-  // it just as a differing commit does.
+  // never saw. A tracked modification to a product-relevant path invalidates it
+  // just as a differing commit does; a drift-allowed path does not.
   const dirty = context.ledger.run('git', ['status', '--porcelain=v1', '--untracked-files=no']);
   const dirtyPaths = String(dirty && dirty.stdout || '')
     .split(/\r?\n/)
     .filter(Boolean)
     .map(line => line.slice(3).replace(/\\/g, '/').split(' -> ').pop())
-    .filter(file => !file.startsWith(`${VERIFICATION_RELATIVE}/`));
+    .filter(file => !isEvidenceDriftAllowed(file));
   if (dirtyPaths.length) {
     return gateResult(gate, STATUS_BLOCKED, `${task.id} cannot be called verified while tracked files are modified but uncommitted: ${dirtyPaths.slice(0, 10).join(', ')}. The evidence attests to committed code.`, {
       failureCode: 'ACCEPTANCE_WORKTREE_DIRTY',
@@ -1271,7 +1292,7 @@ function evaluateAcceptance(gate, context) {
   }
   const provenance = evidence.headSha === head
     ? `against ${head}`
-    : `against ${evidence.headSha}, still current at ${head} because nothing outside ${VERIFICATION_RELATIVE}/ changed since`;
+    : `against ${evidence.headSha}, still current at ${head} because only documentation, status, or release-governance paths changed since`;
   return gateResult(gate, STATUS_PASSED, `${task.id} is verified ${provenance}: ${evidence.proven.length} acceptance criteria proven, recorded ${evidence.recordedAt}.`, {
     evidencePath: evidence.path,
     commands: Object.freeze(commands)
@@ -1609,10 +1630,13 @@ module.exports = Object.freeze({
   STATUS_PLANNED,
   UNKNOWN,
   SECURITY_CONTENT_RULES,
+  EVIDENCE_DRIFT_ALLOWED_PREFIXES,
+  EVIDENCE_DRIFT_ALLOWED_FILES,
   classifyCommand,
   classifyPath,
   classifySecurityContent,
   isBrowserDelivered,
+  isEvidenceDriftAllowed,
   compareTasks,
   createDeps,
   createGateLadder,

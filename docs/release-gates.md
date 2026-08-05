@@ -61,16 +61,38 @@ verified. Refusal codes:
 | `ACCEPTANCE_EVIDENCE_ABSENT` | Nothing has been verified yet. This is the normal state of freshly landed work. |
 | `ACCEPTANCE_EVIDENCE_MALFORMED` | The file is not JSON. |
 | `ACCEPTANCE_EVIDENCE_INVALID` | Wrong schema version, or recorded for another task. |
-| `ACCEPTANCE_EVIDENCE_STALE` | Recorded against a different commit, and code changed since. |
+| `ACCEPTANCE_EVIDENCE_STALE` | Recorded against a different commit, and product-relevant code changed since. |
 | `ACCEPTANCE_CRITERIA_UNPROVEN` | A stated criterion is missing, did not pass, does not name the criterion's command, or reports no detail. |
-| `ACCEPTANCE_WORKTREE_DIRTY` | Tracked files are modified but uncommitted. Evidence attests to committed code. |
+| `ACCEPTANCE_WORKTREE_DIRTY` | A tracked, product-relevant file is modified but uncommitted. Evidence attests to committed code. |
 
-Evidence does **not** have to name the current HEAD exactly. It stays valid
-while the code it attests to has not moved: the gate accepts a different commit
-only when every path changed between the two is under `release/verification/`,
-and separately refuses any uncommitted tracked change outside that directory.
-Without that rule the record would be impossible to store, because committing
-the evidence itself moves HEAD.
+Evidence does **not** have to name the current HEAD exactly. It is pinned to
+the tested product code, not to the literal commit id: the gate accepts a
+different commit only when every path that changed between the two is
+**drift-allowed** — documentation, canonical status, release governance and
+harness tooling, or the evidence/approval directories themselves
+(`isEvidenceDriftAllowed` in `scripts/release/release-core.cjs`: `docs/`,
+`.claude/`, `scripts/release/`, `.github/`, `release/`, `AGENTS.md`,
+`CLAUDE.md`, `README.md`, `CHANGELOG.md`). This is an allow-list, not a
+deny-list — anything else (`src/`, `supabase/`, `tests/`, `scripts/` other than
+`scripts/release/`, and so on) is product-relevant by default and makes
+evidence stale. The same allow-list governs `ACCEPTANCE_WORKTREE_DIRTY`: an
+uncommitted edit to a drift-allowed path — a docs fix, a status update — does
+not dirty the gate; an uncommitted edit to product code does.
+
+A status-only commit — updating `docs/project-status.md`, fixing a typo in
+`docs/release-plan.md`, editing `AGENTS.md` — does not force B1 or B2 back into
+`ACCEPTANCE_EVIDENCE_STALE`. Evidence surviving its own commit (writes under
+`release/verification/`) is the special case of the same general rule, not a
+separate exception: without some such rule the record would be impossible to
+store, because committing the evidence itself moves HEAD.
+
+If a criterion's own command changes — someone edits
+`acceptanceCriteria[].command` in `release/backlog.json` — that is caught
+independently at the criterion level: the evidence's recorded `command` is
+compared against the **current** backlog's criterion command, not the one in
+force when the evidence was written, so a changed criterion reports
+`ACCEPTANCE_CRITERIA_UNPROVEN` regardless of what the commit-drift check
+decides.
 
 What the gate can and cannot do: it checks that each criterion is recorded as
 passed, with exit code 0, naming that criterion's command and a non-empty
