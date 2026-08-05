@@ -33,12 +33,21 @@ function clientWith(results, authOverrides = {}) {
 test('maps profiles to the Dashboard user model', async () => {
   const fixture = clientWith({ profiles: { data: [{
     id: 'profile-1', username: 'agent', name: 'Synthetic Agent', role: 'agent', lang: 'es',
-    is_active: false, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+    country: 'EC', is_active: false, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
   }], error: null } });
   assert.deepEqual(await new data.SupabaseDataService(fixture.client).loadUsers(), [{
-    id: 'profile-1', username: 'agent', name: 'Synthetic Agent', role: 'agent', lang: 'es', isActive: false,
-    createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-02T00:00:00Z'
+    id: 'profile-1', username: 'agent', name: 'Synthetic Agent', role: 'agent', lang: 'es', country: 'EC',
+    isActive: false, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-02T00:00:00Z'
   }]);
+});
+
+test('a profile with no country maps to an empty string, never null', async () => {
+  const fixture = clientWith({ profiles: { data: [{
+    id: 'profile-2', username: 'agent2', name: 'No Country', role: 'agent', lang: 'ru',
+    country: null, is_active: true, created_at: null, updated_at: null
+  }], error: null } });
+  const [user] = await new data.SupabaseDataService(fixture.client).loadUsers();
+  assert.equal(user.country, '');
 });
 
 test('maps players with comments and status history', async () => {

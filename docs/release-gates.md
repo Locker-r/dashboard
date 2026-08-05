@@ -1,0 +1,219 @@
+# Release gates
+
+The gate ladder the autonomous release harness walks, what each rung proves,
+who executes it, and where the ladder ends.
+
+Print the live ladder with:
+
+```bash
+node scripts/release/release.cjs gates
+```
+
+The ladder in `scripts/release/release-core.cjs` is authoritative. This
+document explains it; it does not define it.
+
+## Classification
+
+Every gate and every command carries one classification. The harness executes
+only `read-only`.
+
+| Classification | Meaning | Who may execute |
+| --- | --- | --- |
+| `read-only` | Observes state without changing it. | Harness, orchestrator, operator |
+| `local-write` | Writes inside the working copy or a local service. | Operator |
+| `production` | Changes a shared or published system, or grants authority over one. | Operator only, after G7 |
+| `destructive` | Discards local state or data that is not trivially recoverable. | Operator only, with explicit per-run authorization |
+| `unknown` | The classifier does not recognise it. Never executed by the harness or the orchestrator; the guard allows it interactively unless it is wrapped or encoded. | Operator |
+
+`unknown` failing closed is deliberate. A command the harness cannot reason
+about is not a command it may run.
+
+## The ladder
+
+| Gate | Name | Classification | Executor | Proves |
+| --- | --- | --- | --- | --- |
+| G0 | Repository context | read-only | harness | Package identity is `reactivation-desk-dashboard`; branch, HEAD, and working-tree state are known. |
+| G1 | Backlog validation and task selection | read-only | harness | `release/backlog.json` validates, and exactly one next task is selected with a recorded reason for every exclusion. |
+| G2 | Governance documents | read-only | harness | Every required governance document exists and is non-empty. |
+| G3 | Static and unit gates | read-only | orchestrator | `npm test`, `check:js`, `check:secrets`, `check:migrations`, `check:project-status` all exit 0. |
+| G4 | Deterministic artifact verification | local-write | operator | `npm run verify:release`: two byte-identical builds, independent validation, artifact secret scan. |
+| G5 | Local runtime verification | read-only | operator | `npm run verify:runtime` against a running local stack. Needs Docker; the harness never starts it. |
+| G5b | Acceptance evidence | read-only | harness | Every acceptance criterion of the selected task passed against this exact HEAD. |
+| G6 | Human production approval | read-only | harness | A valid approval record exists for the selected task and names the verified HEAD. |
+| G7 | Production gate | production | operator | Nothing. It halts. |
+
+G3 is executed by the PowerShell orchestrator in `-Mode Verify`, never by the
+Node planner. G4 and G5 are left to the operator: G4 writes into `artifacts/`,
+and G5 requires a runtime the harness is forbidden from starting.
+
+## G5b: acceptance evidence
+
+A task is `in-review` when its code exists and its claim does not. G5b is what
+keeps those two facts apart.
+
+It reads `release/verification/<taskId>.evidence.json` and passes only when
+every `acceptanceCriteria` entry in `release/backlog.json` appears there with
+`status: "passed"`, `exitCode: 0`, and a `headSha` equal to the HEAD that G0
+verified. Refusal codes:
+
+| Code | Meaning |
+| --- | --- |
+| `ACCEPTANCE_EVIDENCE_ABSENT` | Nothing has been verified yet. This is the normal state of freshly landed work. |
+| `ACCEPTANCE_EVIDENCE_MALFORMED` | The file is not JSON. |
+| `ACCEPTANCE_EVIDENCE_INVALID` | Wrong schema version, or recorded for another task. |
+| `ACCEPTANCE_EVIDENCE_STALE` | Recorded against a different commit, and product-relevant code changed since. |
+| `ACCEPTANCE_CRITERIA_UNPROVEN` | A stated criterion is missing, did not pass, does not name the criterion's command, or reports no detail. |
+| `ACCEPTANCE_WORKTREE_DIRTY` | A tracked, product-relevant file is modified but uncommitted. Evidence attests to committed code. |
+
+Evidence does **not** have to name the current HEAD exactly. It is pinned to
+the tested product code, not to the literal commit id: the gate accepts a
+different commit only when every path that changed between the two is
+**drift-allowed** — documentation, canonical status, release governance and
+harness tooling, or the evidence/approval directories themselves
+(`isEvidenceDriftAllowed` in `scripts/release/release-core.cjs`: `docs/`,
+`.claude/`, `scripts/release/`, `.github/`, `release/`, `AGENTS.md`,
+`CLAUDE.md`, `README.md`, `CHANGELOG.md`, and the harness's own
+`tests/release-harness.test.cjs`, which no backlog criterion runs). This is an allow-list, not a
+deny-list — anything else (`src/`, `supabase/`, `tests/`, `scripts/` other than
+`scripts/release/`, and so on) is product-relevant by default and makes
+evidence stale. The same allow-list governs `ACCEPTANCE_WORKTREE_DIRTY`: an
+uncommitted edit to a drift-allowed path — a docs fix, a status update — does
+not dirty the gate; an uncommitted edit to product code does.
+
+A status-only commit — updating `docs/project-status.md`, fixing a typo in
+`docs/release-plan.md`, editing `AGENTS.md` — does not force B1 or B2 back into
+`ACCEPTANCE_EVIDENCE_STALE`. Evidence surviving its own commit (writes under
+`release/verification/`) is the special case of the same general rule, not a
+separate exception: without some such rule the record would be impossible to
+store, because committing the evidence itself moves HEAD.
+
+If a criterion's own command changes — someone edits
+`acceptanceCriteria[].command` in `release/backlog.json` — that is caught
+independently at the criterion level: the evidence's recorded `command` is
+compared against the **current** backlog's criterion command, not the one in
+force when the evidence was written, so a changed criterion reports
+`ACCEPTANCE_CRITERIA_UNPROVEN` regardless of what the commit-drift check
+decides.
+
+What the gate can and cannot do: it checks that each criterion is recorded as
+passed, with exit code 0, naming that criterion's command and a non-empty
+detail, against code that has not changed. It cannot re-run a criterion that
+needs a live Supabase stack, so it cannot detect a determined fabrication — only
+a re-run can. It converts a silent omission into an explicit written claim, and
+that is the honest limit of it.
+
+Unlike an approval, an agent **may** write evidence — because evidence is
+falsifiable. It names a commit and a set of commands, and anyone can re-run
+them. An approval is a person accepting consequences, and no re-run can
+substitute for that. `release/verification/README.md` states the distinction in
+full.
+
+G5b blocking is not a defect. It means the next operation is verification, and
+the harness says so rather than proceeding.
+
+## Content rules: changes that are not commands
+
+Some dangerous changes are two words inside a migration rather than a command
+line. `classifySecurityContent` reads proposed file content and the guard hook
+refuses these in every mode, release run or not:
+
+| Code | Refuses | Applies to |
+| --- | --- | --- |
+| `RLS_DISABLED` | Turning row-level security off | `supabase/`, `*.sql`, inline SQL in a command |
+| `STORAGE_POLICY_DROPPED_WITHOUT_REPLACEMENT` | Dropping a `storage.objects` policy with no replacement | same |
+| `PUBLIC_PROOF_BUCKET` | Making a storage bucket public | same |
+| `SERVICE_ROLE_KEY_IN_BROWSER_CODE` | An elevated key value in browser-delivered code | `index.html`, `src/`, `config/`, `vendor/` |
+
+Each rule is scoped to where its text would take effect. A fixture in `tests/`
+or a quotation in `docs/` changes no database and ships to no browser, so the
+rules deliberately do not fire there — the same exemption the repository's own
+secret scan already makes. A rule that fires on its own documentation gets
+switched off by the first person it inconveniences.
+
+The rules read `content`, `new_string`, and `edits[].new_string`, so `Write`,
+`Edit`, and `MultiEdit` are covered alike; inline SQL passed to a client on the
+command line is scanned too.
+
+## G6: the approval record
+
+An approval lives at `release/approvals/<taskId>.approval.json` and is written
+by a human. `release/approval.example.json` is the template. Required fields:
+
+| Field | Meaning |
+| --- | --- |
+| `schemaVersion` | `1`. |
+| `taskId` | Must equal the selected task id. |
+| `approvedBy` | The person accepting responsibility. |
+| `approvedAt` | ISO-8601 timestamp. |
+| `scope` | What is authorized, in plain words. |
+| `headSha` | The exact commit the approval covers. A different HEAD invalidates it. |
+
+Absence is the normal state and produces `APPROVAL_ABSENT`. Malformed,
+incomplete, mismatched-task, and mismatched-HEAD records are refused with their
+own codes rather than being repaired.
+
+No agent may create, edit, or delete a file under `release/approvals/`. That
+denial is unconditional: it applies in every mode, with every flag, and is
+enforced independently by `.claude/settings.json` permissions and by
+`.claude/hooks/release-guard.cjs`.
+
+## G7: the production gate
+
+G7 always halts with `HALTED_AT_PRODUCTION_GATE`. It lists, without performing,
+the production actions that the selected task would eventually require. For the
+current backlog those are:
+
+- `npx supabase db push`
+- `npx supabase functions deploy team-management`
+- publishing `artifacts/pages-site/` to the chosen host
+- `git tag -a <version> -m <version>` and `git push origin <version>`
+
+The halt does not depend on the approval record. An approval authorizes a
+*human* to proceed; it never converts the harness into an executor.
+
+## Recognised production and destructive commands
+
+`classifyCommand` recognises these families. The list is enforced in code and
+tested in `tests/release-harness.test.cjs`.
+
+**Production:** `git push` to `main`/`master`/`HEAD`, a remote other than `origin`, or with no explicit target; `git push --force|-f|--force-with-lease|--force-if-includes`, `--all|--mirror|--prune`, `--tags|--follow-tags`, `--delete|-d`, `--no-verify`, or a `+`/`:`-prefixed refspec; any refspec whose destination is `refs/tags/…` or version-shaped (`v1.2.0`); `git tag` (except `--list`); `git remote add|set-url|remove|rename`; `gh release|workflow|secret|variable` mutations; `gh auth login|logout|refresh|setup-git`; `gh pr close|edit|comment|review|ready`; `gh pr merge` with `--admin`, `--force`, `--merge`, or `--rebase`, or with no method flag at all; `gh run cancel|rerun|delete`; `gh repo delete|edit|archive|rename|create|fork|clone`; `gh gist create|delete|edit|rename`; `gh issue create|close|edit|comment|delete`; `gh api` with a mutating method (`-X`/`--method`, either form) or field; `supabase db push`; `supabase functions deploy`; `supabase secrets set|unset`; `supabase link`; `supabase login`; `supabase projects create|delete`; `npm publish|unpublish|deploy|dist-tag|owner|access|token`; `docker push`; `terraform apply|destroy|import|taint`; and the hosting CLIs `vercel`, `netlify`, `wrangler`, `firebase`, `fly`, `gcloud`, `aws`, `az`, `heroku`, `kubectl`, `helm`, `surge`, `railway`, `render`, `pulumi`, `serverless`.
+
+**Destructive:** `git reset --hard`; `git clean`; `git filter-branch|filter-repo`; `supabase db reset`; `npm run smoke`; `npm run verify:runtime -- --allow-reset`; `rmdir`; and `rm`/`del`/`Remove-Item` in their sweeping forms — recursive, wildcard, or directory targets. Removing one named file is `local-write`, because a guard that refuses routine cleanup gets switched off and then protects nothing.
+
+Wrappers do not hide any of these. Every segment of a wrapper payload is
+classified, not just the first, and the least safe result wins: `bash -c "npm
+test && git push origin main"` is `production`, as is the same command inside
+`cmd /c`, `powershell -Command`, a pipeline, after an environment-variable
+prefix, behind `npx --yes`, `sudo -u root`, or `nice -n 10`, and with a global
+flag between the command and its subcommand (`supabase --workdir . db push`).
+
+## What push and PR automation are actually allowed
+
+`git push` is not one action; "update my feature branch" and "force-rewrite
+main" share a verb and nothing else. `classifyGitPush` in
+`scripts/release/release-core.cjs` allows exactly one shape: an explicit,
+unambiguous push of a single ordinary branch to the remote named `origin`,
+carrying none of the flags listed above as production. `git push origin
+feat/x`, `git push -u origin feat/x`, and `git push origin HEAD:feat/x` are
+`local-write`. A bare `git push`, a push with no refspec, or a push to any
+remote other than `origin` is refused as `GIT_PUSH_AMBIGUOUS_TARGET` — the
+classifier cannot verify an unnamed or non-`origin` destination is safe, so it
+does not guess.
+
+`gh pr create` is `local-write`: it opens a request for review and changes no
+branch. `gh pr merge` is `local-write` only with `--squash` and none of
+`--admin`, `--force`, `--merge`, `--rebase` — matching
+[`release-governance.md`](release-governance.md)'s "Squash merge. One pull
+request becomes one commit on `main`." **This classifier cannot see live CI
+state.** Whether the required checks named in
+[`quality-gates.yml`](../.github/workflows/quality-gates.yml) have actually
+passed is enforced by GitHub's branch protection on the server, not by this
+text-only guard — confirm with `gh pr checks` before merging. `gh pr checks`,
+`gh pr status`, `gh pr view`, `gh pr list`, and `gh run list|view|watch` are
+`read-only`. `gh run cancel|rerun|delete` are `production`: re-running or
+cancelling a workflow can re-trigger whatever that workflow does.
+
+`unknown` is allowed for a plain unrecognised command — refusing everything the
+classifier does not know would make the guard unusable. It is refused when it
+appears **inside a shell wrapper** or an encoded payload, which is the shape of
+a smuggling attempt rather than of ordinary work.

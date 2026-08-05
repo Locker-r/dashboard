@@ -185,6 +185,19 @@
   .detail-section h4{font-family:var(--font-display);font-size:13px;margin:0 0 8px;}
   .detail-section input[type=datetime-local]{width:100%;border:1px solid var(--line);border-radius:7px;padding:8px 10px;background:#fff;color:var(--text);}
   .detail-section textarea{min-height:68px;margin-bottom:7px;}
+.proof-status{font-size:12px;margin-bottom:6px;min-height:0;}
+.proof-status.neutral{color:var(--muted);}
+.proof-status.success{color:#0f7b55;}
+.proof-status.error{color:#b3261e;}
+.proof-name{font-size:12px;font-weight:600;word-break:break-all;}
+.proof-meta{display:block;font-size:11px;color:var(--muted);margin-top:2px;}
+.proof-hint{font-size:11px;color:var(--muted);margin-top:6px;}
+.team-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:10px;}
+.team-form input,.team-form select{border:1px solid var(--line);border-radius:7px;padding:8px 10px;background:#fff;font:inherit;}
+.team-msg{font-size:12px;margin:6px 0;min-height:0;}
+.team-msg.success{color:#0f7b55;}
+.team-msg.error{color:#b3261e;}
+.team-country{font-size:11px;color:var(--muted);}
   .activity-list{display:flex;flex-direction:column;gap:7px;max-height:190px;overflow:auto;}
   .activity-item{border-left:3px solid var(--line);padding:3px 0 3px 8px;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;}
   .activity-meta{display:block;color:var(--text-dim);font-size:10.5px;margin-top:2px;}
@@ -392,6 +405,7 @@
               <span class="drop-note" id="fileDropNote" data-i18n="file_drop_note">до 5 МБ и 10 000 строк</span>
               <button class="btn btn-ghost" id="fileImportBtn" type="button" data-i18n="file_import_btn">Выбрать файл</button>
               <input type="file" id="fileImportInput" accept=".csv,.xlsx" hidden>
+<input type="file" id="proofFileInput" accept="image/jpeg,image/png,image/webp,application/pdf" hidden>
             </div>
             <div class="file-status neutral" id="fileImportStatus" aria-live="polite" data-i18n="file_status_empty">Файл не выбран</div>
           </section>
@@ -458,6 +472,8 @@
 <script src="./src/auth.js"></script>
 <script src="./src/analytics.js"></script>
 <script src="./src/lead-import.js"></script>
+<script src="./src/lead-proof.js"></script>
+<script src="./src/team-admin.js"></script>
 <script src="./src/data/data-service.js"></script>
 <script src="./src/data/local-storage-data-service.js"></script>
 <script src="./src/data/supabase-data-service.js"></script>
@@ -526,6 +542,39 @@ ru:{
   access_title:'Доступы', access_sub:'Управляйте ролями команды и сбрасывайте пароли агентам',
   access_users_title:'Все аккаунты', access_users_sub:'Новые регистрации автоматически получают роль агента. Здесь можно выдать администраторский доступ или отозвать его.',
   access_make_agent:'Сделать агентом', access_make_admin:'Сделать админом', access_remove:'Удалить', access_you:'Это вы',
+  proof_title:'Подтверждение', proof_none:'Подтверждение не загружено', proof_upload:'Загрузить подтверждение',
+  proof_replace:'Заменить', proof_open:'Открыть', proof_uploading:'Загрузка…', proof_uploaded:'Подтверждение загружено',
+  proof_hint:'JPEG, PNG, WebP или PDF, до 10 МБ.',
+  proof_required:'Чтобы закрыть лид, загрузите подтверждение.', proof_required_hint:'Сначала загрузите подтверждение.',
+  proof_replace_confirm:'Заменить загруженное подтверждение?',
+  proof_invalid_type:'Такой тип файла не поддерживается.', proof_file_too_large:'Файл больше 10 МБ.',
+  proof_empty_file:'Файл пустой.', proof_missing_file:'Файл не выбран.',
+  proof_access_denied:'Нет доступа к этому подтверждению.', proof_not_ready:'Файл ещё не загружен полностью.',
+  proof_not_found:'Подтверждение не найдено.', proof_discarded:'Это подтверждение больше не действует.',
+  proof_locked_after_close:'После закрытия лида подтверждение изменить нельзя.',
+  proof_lead_not_in_work:'Лид должен быть в работе.', proof_id_conflict:'Повторите попытку.',
+  proof_inactive_profile:'Профиль отключён.', proof_upload_failed:'Не удалось загрузить подтверждение.',
+  team_email:'Email', team_name:'Имя', team_username:'Логин', team_country:'Страна', team_temp_password:'Временный пароль',
+  team_create:'Создать кассира', team_working:'Выполняется…', team_member_created:'Кассир создан',
+  team_activate:'Активировать', team_deactivate:'Деактивировать', team_inactive:'Отключён',
+  team_member_activated:'Кассир активирован', team_member_deactivated:'Кассир деактивирован',
+  team_change_country:'Сменить страну', team_country_updated:'Страна обновлена', team_country_unset:'страна не задана',
+  team_country_prompt:'Код страны из двух букв (например EC):',
+  team_country_warning:'У кассира {count} назначенных лидов. Смена страны их не переназначит. Продолжить?',
+  team_reassign_prompt:'У кассира {count} назначенных лидов. Укажите ID кассира для переназначения:',
+  team_no_destination:'Нет активного кассира для переназначения.', team_invalid_destination:'Некорректный получатель переназначения.',
+  team_invalid_email:'Некорректный email.', team_invalid_name:'Некорректное имя.',
+  team_invalid_username:'Некорректный логин.', team_invalid_country:'Некорректный код страны.',
+  team_invalid_password:'Пароль должен быть не короче 8 символов.', team_invalid_input:'Проверьте введённые данные.',
+  team_user_exists:'Такой пользователь уже существует.', team_username_exists:'Такой логин уже занят.',
+  team_member_not_found:'Кассир не найден.', team_last_admin:'Нельзя отключить последнего администратора.',
+  team_self_forbidden:'Это действие над собой запрещено.', team_reassignment_required:'Сначала переназначьте лиды.',
+  team_request_reuse:'Повторный запрос с другими данными.', team_create_user_failed:'Не удалось создать пользователя.',
+  team_create_profile_failed:'Не удалось создать профиль.',
+  team_create_orphan:'Профиль не создан, а пользователь не удалён. Обратитесь к администратору.',
+  team_admin_required:'Требуются права администратора.', team_auth_required:'Войдите заново.',
+  team_origin_forbidden:'Источник запроса не разрешён.', team_not_configured:'Управление командой не настроено.',
+  team_operation_failed:'Операция не выполнена.',
   access_reset_pw:'Сбросить пароль', access_reset_reveal:'Временный пароль для', access_reset_note:'Скопируйте и передайте агенту — после входа он сможет сменить его сам.', backup_btn:'Создать резервную копию', backup_done:'Резервная копия создана',
   copy_btn:'Скопировать', copied_toast:'Скопировано', dismiss_btn:'Скрыть',
   toast_status_updated:'Статус обновлён', toast_status_forbidden:'Этот переход статуса недоступен', toast_status_not_owner:'Нельзя изменить статус чужого игрока',
@@ -605,6 +654,39 @@ en:{
   access_title:'Access', access_sub:'Manage team roles and reset agent passwords',
   access_users_title:'All accounts', access_users_sub:'New registrations automatically get the agent role. Grant or revoke admin access here.',
   access_make_agent:'Make agent', access_make_admin:'Make admin', access_remove:'Remove', access_you:'This is you',
+  proof_title:'Proof', proof_none:'No proof uploaded', proof_upload:'Upload proof',
+  proof_replace:'Replace', proof_open:'Open', proof_uploading:'Uploading…', proof_uploaded:'Proof uploaded',
+  proof_hint:'JPEG, PNG, WebP or PDF, up to 10 MB.',
+  proof_required:'Upload a proof before closing this lead.', proof_required_hint:'Upload a proof first.',
+  proof_replace_confirm:'Replace the uploaded proof?',
+  proof_invalid_type:'That file type is not supported.', proof_file_too_large:'The file is larger than 10 MB.',
+  proof_empty_file:'The file is empty.', proof_missing_file:'No file selected.',
+  proof_access_denied:'You cannot access this proof.', proof_not_ready:'The file has not finished uploading.',
+  proof_not_found:'Proof not found.', proof_discarded:'This proof is no longer valid.',
+  proof_locked_after_close:'A closed lead’s proof cannot be changed.',
+  proof_lead_not_in_work:'The lead must be in progress.', proof_id_conflict:'Try again.',
+  proof_inactive_profile:'Profile is disabled.', proof_upload_failed:'Could not upload the proof.',
+  team_email:'Email', team_name:'Name', team_username:'Username', team_country:'Country', team_temp_password:'Temporary password',
+  team_create:'Create cashier', team_working:'Working…', team_member_created:'Cashier created',
+  team_activate:'Activate', team_deactivate:'Deactivate', team_inactive:'Disabled',
+  team_member_activated:'Cashier activated', team_member_deactivated:'Cashier deactivated',
+  team_change_country:'Change country', team_country_updated:'Country updated', team_country_unset:'no country set',
+  team_country_prompt:'Two-letter country code (for example EC):',
+  team_country_warning:'This cashier holds {count} leads. Changing the country does not reassign them. Continue?',
+  team_reassign_prompt:'This cashier holds {count} leads. Enter the id of the cashier to reassign them to:',
+  team_no_destination:'No active cashier is available for reassignment.', team_invalid_destination:'Invalid reassignment destination.',
+  team_invalid_email:'Invalid email.', team_invalid_name:'Invalid name.',
+  team_invalid_username:'Invalid username.', team_invalid_country:'Invalid country code.',
+  team_invalid_password:'The password must be at least 8 characters.', team_invalid_input:'Check the values you entered.',
+  team_user_exists:'That user already exists.', team_username_exists:'That username is taken.',
+  team_member_not_found:'Cashier not found.', team_last_admin:'The last administrator cannot be disabled.',
+  team_self_forbidden:'That action on your own account is not allowed.', team_reassignment_required:'Reassign the leads first.',
+  team_request_reuse:'The same request was replayed with different values.', team_create_user_failed:'Could not create the user.',
+  team_create_profile_failed:'Could not create the profile.',
+  team_create_orphan:'The profile was not created and the user was not removed. Contact an administrator.',
+  team_admin_required:'Administrator rights are required.', team_auth_required:'Sign in again.',
+  team_origin_forbidden:'Request origin is not allowed.', team_not_configured:'Team management is not configured.',
+  team_operation_failed:'The operation did not complete.',
   access_reset_pw:'Reset password', access_reset_reveal:'Temporary password for', access_reset_note:'Copy it and share it with the agent — they can change it themselves after logging in.', backup_btn:'Create backup', backup_done:'Backup created',
   copy_btn:'Copy', copied_toast:'Copied', dismiss_btn:'Dismiss',
   toast_status_updated:'Status updated', toast_status_forbidden:'This status transition is not available', toast_status_not_owner:'You cannot change another agent’s player',
@@ -684,6 +766,39 @@ es:{
   access_title:'Accesos', access_sub:'Gestiona los roles del equipo y restablece contraseñas de agentes',
   access_users_title:'Todas las cuentas', access_users_sub:'Los nuevos registros reciben automáticamente el rol de agente. Aquí puedes otorgar o quitar el acceso de administrador.',
   access_make_agent:'Hacer agente', access_make_admin:'Hacer admin', access_remove:'Eliminar', access_you:'Eres tú',
+  proof_title:'Comprobante', proof_none:'Sin comprobante', proof_upload:'Subir comprobante',
+  proof_replace:'Reemplazar', proof_open:'Abrir', proof_uploading:'Subiendo…', proof_uploaded:'Comprobante subido',
+  proof_hint:'JPEG, PNG, WebP o PDF, hasta 10 MB.',
+  proof_required:'Sube un comprobante antes de cerrar este contacto.', proof_required_hint:'Sube un comprobante primero.',
+  proof_replace_confirm:'¿Reemplazar el comprobante subido?',
+  proof_invalid_type:'Ese tipo de archivo no es compatible.', proof_file_too_large:'El archivo supera 10 MB.',
+  proof_empty_file:'El archivo está vacío.', proof_missing_file:'No se seleccionó ningún archivo.',
+  proof_access_denied:'No tienes acceso a este comprobante.', proof_not_ready:'El archivo aún no terminó de subir.',
+  proof_not_found:'Comprobante no encontrado.', proof_discarded:'Este comprobante ya no es válido.',
+  proof_locked_after_close:'No se puede cambiar el comprobante de un contacto cerrado.',
+  proof_lead_not_in_work:'El contacto debe estar en proceso.', proof_id_conflict:'Inténtalo de nuevo.',
+  proof_inactive_profile:'El perfil está desactivado.', proof_upload_failed:'No se pudo subir el comprobante.',
+  team_email:'Email', team_name:'Nombre', team_username:'Usuario', team_country:'País', team_temp_password:'Contraseña temporal',
+  team_create:'Crear cajero', team_working:'Procesando…', team_member_created:'Cajero creado',
+  team_activate:'Activar', team_deactivate:'Desactivar', team_inactive:'Desactivado',
+  team_member_activated:'Cajero activado', team_member_deactivated:'Cajero desactivado',
+  team_change_country:'Cambiar país', team_country_updated:'País actualizado', team_country_unset:'sin país',
+  team_country_prompt:'Código de país de dos letras (por ejemplo EC):',
+  team_country_warning:'Este cajero tiene {count} contactos asignados. Cambiar el país no los reasigna. ¿Continuar?',
+  team_reassign_prompt:'Este cajero tiene {count} contactos. Indica el id del cajero que los recibirá:',
+  team_no_destination:'No hay un cajero activo para la reasignación.', team_invalid_destination:'Destino de reasignación inválido.',
+  team_invalid_email:'Email inválido.', team_invalid_name:'Nombre inválido.',
+  team_invalid_username:'Usuario inválido.', team_invalid_country:'Código de país inválido.',
+  team_invalid_password:'La contraseña debe tener al menos 8 caracteres.', team_invalid_input:'Revisa los datos ingresados.',
+  team_user_exists:'Ese usuario ya existe.', team_username_exists:'Ese usuario ya está en uso.',
+  team_member_not_found:'Cajero no encontrado.', team_last_admin:'No se puede desactivar al último administrador.',
+  team_self_forbidden:'Esa acción sobre tu propia cuenta no está permitida.', team_reassignment_required:'Reasigna los contactos primero.',
+  team_request_reuse:'La misma solicitud se repitió con otros datos.', team_create_user_failed:'No se pudo crear el usuario.',
+  team_create_profile_failed:'No se pudo crear el perfil.',
+  team_create_orphan:'El perfil no se creó y el usuario no se eliminó. Contacta a un administrador.',
+  team_admin_required:'Se requieren permisos de administrador.', team_auth_required:'Inicia sesión de nuevo.',
+  team_origin_forbidden:'Origen de la solicitud no permitido.', team_not_configured:'La gestión de equipo no está configurada.',
+  team_operation_failed:'La operación no se completó.',
   access_reset_pw:'Restablecer contraseña', access_reset_reveal:'Contraseña temporal para', access_reset_note:'Cópiala y compártela con el agente — podrá cambiarla él mismo después de iniciar sesión.', backup_btn:'Crear copia de seguridad', backup_done:'Copia de seguridad creada',
   copy_btn:'Copiar', copied_toast:'Copiado', dismiss_btn:'Ocultar',
   toast_status_updated:'Estado actualizado', toast_status_forbidden:'Esta transición de estado no está disponible', toast_status_not_owner:'No puedes cambiar el estado de un jugador de otro agente',
@@ -758,6 +873,10 @@ const REGISTRATION_RULES = {
 /* ==================== State ==================== */
 let players = [];
 let users = [];
+let proofs = [];
+/* Ids of proof uploads in flight, so a double click cannot start two uploads or
+   two closes for the same lead. */
+const proofInFlight = new Set();
 let currentUser = null;
 let saveTimer = null, userSaveTimer = null;
 let lastResetInfo = null;
@@ -785,6 +904,12 @@ async function loadData(){
     dataService.loadPlayers(),
     dataService.loadUsers()
   ]);
+  /* Proof rows are RLS-scoped exactly like players: an admin sees all, an agent
+     sees only the proofs of leads assigned to them. Loading them separately keeps
+     the secure contact projection untouched. */
+  proofs = dataMode==='supabase' && typeof dataService.loadProofs === 'function'
+    ? await dataService.loadProofs().catch(()=>[])
+    : [];
   /* A revealed contact must never outlive the grounds on which it was disclosed: reassignment, a status
      change out of in_work, deletion or losing the active-agent role all drop the entry here. */
   revealStore.revalidate(players, currentUser);
@@ -1412,15 +1537,148 @@ function nextActionButtons(p){
   const safeId = escapeHtml(p.id);
   if(p.status==='assigned') btns.push(`<button class="btn btn-ghost btn-sm act" data-id="${safeId}" data-status="in_work">${t('act_take')}</button>`);
   if(p.status==='in_work'){
-    btns.push(`<button class="btn btn-teal btn-sm act" data-id="${safeId}" data-status="success">${t('act_success')}</button>`);
+    /* Closing needs evidence. The disabled state is a convenience only:
+       change_player_status_atomic raises PROOF_REQUIRED for the same two
+       transitions, so re-enabling the button in devtools changes nothing. */
+    const closable = proofRequirementMet(p);
+    const closeAttrs = closable ? '' : ` disabled title="${escapeHtml(t('proof_required_hint'))}"`;
+    btns.push(`<button class="btn btn-teal btn-sm act" data-id="${safeId}" data-status="success"${closeAttrs}>${t('act_success')}</button>`);
     btns.push(`<button class="btn btn-ghost btn-sm act" data-id="${safeId}" data-status="no_answer">${t('act_no_answer')}</button>`);
-    btns.push(`<button class="btn btn-danger btn-sm act" data-id="${safeId}" data-status="failed">${t('act_failed')}</button>`);
+    btns.push(`<button class="btn btn-danger btn-sm act" data-id="${safeId}" data-status="failed"${closeAttrs}>${t('act_failed')}</button>`);
   }
   if(p.status==='no_answer') btns.push(`<button class="btn btn-ghost btn-sm act" data-id="${safeId}" data-status="assigned">${t('act_retry')}</button>`);
   if(['success','failed'].includes(p.status) && currentUser && currentUser.role==='admin'){
     btns.push(`<button class="btn btn-ghost btn-sm act" data-id="${safeId}" data-status="in_work">${t('act_return')}</button>`);
   }
   return btns.join(' ');
+}
+
+/* ==================== Proof ==================== */
+const proofApi = window.ReactivationLeadProof;
+
+function activeProofFor(playerId){
+  return proofApi.activeProofFor(proofs, playerId);
+}
+
+/* Local mode has no Storage and no server, so it keeps its existing behaviour;
+   the proof requirement is a Supabase-mode rule enforced by the database. */
+function proofRequirementMet(player){
+  if(dataMode!=='supabase') return true;
+  return Boolean(activeProofFor(player.id));
+}
+
+function proofErrorMessage(error){
+  return t(proofApi.proofErrorReason(error));
+}
+
+function renderProofSection(player){
+  if(dataMode!=='supabase') return '';
+  const safeId = escapeHtml(player.id);
+  const proof = activeProofFor(player.id);
+  const canUpload = player.status==='in_work' && window.ReactivationDomain.canUserManagePlayer(currentUser, player);
+  const busy = proofInFlight.has(player.id);
+  let body;
+  if(proof){
+    body = `<div class="proof-current">
+      <span class="proof-name mono">${escapeHtml(proof.originalFilename||'proof')}</span>
+      <span class="proof-meta">${escapeHtml(proofApi.formatFileSize(proof.fileSize))} · ${escapeHtml(formatLocalDateTime(proof.confirmedAt||proof.createdAt))} · ${escapeHtml(userDisplayName(proof.uploadedBy))}</span>
+      <div class="row" style="gap:6px;margin-top:7px;">
+        <button class="btn btn-ghost btn-sm proof-open" data-id="${safeId}">${t('proof_open')}</button>
+        ${canUpload && !busy ? `<button class="btn btn-ghost btn-sm proof-replace" data-id="${safeId}">${t('proof_replace')}</button>` : ''}
+      </div>
+    </div>`;
+  }else if(canUpload){
+    body = `<div class="proof-empty-state">
+      <span class="detail-empty">${t('proof_none')}</span>
+      <div class="row" style="gap:6px;margin-top:7px;">
+        <button class="btn btn-teal btn-sm proof-pick" data-id="${safeId}" ${busy?'disabled':''}>${busy?t('proof_uploading'):t('proof_upload')}</button>
+      </div>
+      <div class="proof-hint">${escapeHtml(t('proof_hint'))}</div>
+    </div>`;
+  }else{
+    body = `<span class="detail-empty">${t('proof_none')}</span>`;
+  }
+  return `<section class="detail-section">
+    <h4>${t('proof_title')}</h4>
+    <div class="proof-status" data-proof-status="${safeId}"></div>
+    ${body}
+  </section>`;
+}
+
+function setProofStatus(playerId, kind, message){
+  const node = document.querySelector(`[data-proof-status="${CSS.escape(playerId)}"]`);
+  if(node){ node.className = `proof-status ${kind}`; node.textContent = message; }
+}
+
+/* The three-step upload. The server authorises first and returns the only path
+   it will accept, the bytes go to the private bucket, then the server re-reads
+   the stored object and activates the proof. A failure at any step leaves the
+   lead un-closable rather than half-proved. */
+async function uploadProofFor(playerId, file){
+  const player = players.find(item=>item.id===playerId);
+  if(!player || !canManagePlayerOrNotify(player)) return false;
+  if(proofInFlight.has(playerId)) return false;
+  const check = proofApi.validateProofFile(file);
+  if(!check.ok){ setProofStatus(playerId,'error',t(check.reason)); showToast(t(check.reason)); return false; }
+
+  proofInFlight.add(playerId);
+  renderWorklist();
+  setProofStatus(playerId,'neutral',t('proof_uploading'));
+  const proofId = (globalThis.crypto && globalThis.crypto.randomUUID) ? globalThis.crypto.randomUUID() : null;
+  if(!proofId){ proofInFlight.delete(playerId); showToast(t('proof_upload_failed')); return false; }
+
+  let granted = null;
+  try{
+    granted = await dataService.requestProofUpload(playerId, proofId, check.filename, check.mimeType, check.fileSize);
+    await dataService.uploadProofObject(granted, file);
+    await dataService.confirmProof(proofId);
+  }catch(error){
+    /* A pending proof that never became active would block nothing, but leaving
+       it behind would keep a stale row against the lead. Best effort cleanup. */
+    if(granted){ try { await dataService.discardProof(proofId); } catch(_ignored){} }
+    proofInFlight.delete(playerId);
+    await loadData();
+    render();
+    const message = proofErrorMessage(error);
+    setProofStatus(playerId,'error',message);
+    showToast(message);
+    return false;
+  }
+  proofInFlight.delete(playerId);
+  await loadData();
+  render();
+  setProofStatus(playerId,'success',t('proof_uploaded'));
+  showToast(t('proof_uploaded'));
+  return true;
+}
+
+async function openProof(playerId){
+  const proof = activeProofFor(playerId);
+  if(!proof){ showToast(t('proof_none')); return; }
+  try{
+    /* Signed URLs are minted on demand with a short life and never stored. An
+       expired link is simply requested again on the next click. */
+    const url = await dataService.createProofUrl(proof, 120);
+    window.open(url, '_blank', 'noopener');
+  }catch(error){
+    showToast(proofErrorMessage(error));
+  }
+}
+
+async function replaceProof(playerId){
+  const proof = activeProofFor(playerId);
+  if(!proof) return;
+  if(!confirm(t('proof_replace_confirm'))) return;
+  pickProofFile(playerId);
+}
+
+/* One hidden input is reused for every lead; the target id is carried on the
+   element so a stale handler cannot upload against the wrong lead. */
+function pickProofFile(playerId){
+  const input = document.getElementById('proofFileInput');
+  input.value = '';
+  input.dataset.playerId = playerId;
+  input.click();
 }
 
 function statusTransitionErrorMessage(reason){
@@ -1442,6 +1700,12 @@ async function requestPlayerStatusTransition(playerId, nextStatus){
     showToast(statusTransitionErrorMessage(decision.reason));
     return false;
   }
+  /* Client-side pre-check so the cashier sees why, not a generic save error.
+     The database refuses the same transition independently. */
+  if(proofApi.isClosingStatus(nextStatus) && !proofRequirementMet(player)){
+    showToast(t('proof_required'));
+    return false;
+  }
   const changedAt = Date.now();
   const prepared = window.ReactivationDomain.prepareStatusTransition(currentUser, player, nextStatus, {
     ...transitionOptions, historyId:uid('h'), changedAt
@@ -1449,7 +1713,15 @@ async function requestPlayerStatusTransition(playerId, nextStatus){
   if(!prepared.allowed) return false;
   if(dataMode==='supabase'){
     try { await dataService.changePlayerStatus(playerId,nextStatus,prepared.historyEntry.id,transitionOptions); }
-    catch(_error){ showToast(t('toast_save_error')); return false; }
+    catch(error){
+      /* PROOF_REQUIRED is a business outcome, not a save failure: it is the
+         server refusing a close that the UI believed was allowed, which is
+         exactly what happens when the button state is bypassed. */
+      const code = String(error && (error.message||error.code) || '');
+      showToast(code==='PROOF_REQUIRED' ? t('proof_required') : t('toast_save_error'));
+      await loadData(); render();
+      return false;
+    }
     /* Confirmed transition out of in_work: drop the revealed copy immediately rather than waiting for the
        reload to revalidate it. */
     if(nextStatus!=='in_work') revealStore.forget(playerId);
@@ -1513,6 +1785,7 @@ function renderPlayerDetails(player){
       <button class="btn btn-ghost btn-sm comment-add" data-id="${safeId}">${t('comment_add')}</button>
       <div class="activity-list" style="margin-top:9px;">${commentItems}</div>
     </section>
+    ${renderProofSection(player)}
     <section class="detail-section">
       <h4>${t('history_title')}</h4>
       <div class="activity-list">${historyItems}</div>
@@ -1676,6 +1949,15 @@ function renderWorklist(){
   });
   wrap.querySelectorAll('.followup-clear').forEach(btn=>{
     btn.addEventListener('click', ()=>savePlayerFollowUp(btn.dataset.id, '', true));
+  });
+  wrap.querySelectorAll('.proof-pick').forEach(btn=>{
+    btn.addEventListener('click', ()=>pickProofFile(btn.dataset.id));
+  });
+  wrap.querySelectorAll('.proof-replace').forEach(btn=>{
+    btn.addEventListener('click', ()=>replaceProof(btn.dataset.id));
+  });
+  wrap.querySelectorAll('.proof-open').forEach(btn=>{
+    btn.addEventListener('click', ()=>openProof(btn.dataset.id));
   });
   wrap.querySelectorAll('.comment-add').forEach(btn=>{
     btn.addEventListener('click', ()=>{
@@ -1860,6 +2142,15 @@ async function handleImportFile(file){
 }
 fileImportInput.addEventListener('change', ()=>handleImportFile(fileImportInput.files&&fileImportInput.files[0]));
 
+const proofFileInput = document.getElementById('proofFileInput');
+proofFileInput.addEventListener('change', ()=>{
+  const playerId = proofFileInput.dataset.playerId;
+  const file = proofFileInput.files && proofFileInput.files[0];
+  proofFileInput.value = '';
+  delete proofFileInput.dataset.playerId;
+  if(playerId && file) uploadProofFor(playerId, file);
+});
+
 document.getElementById('singleAddBtn').addEventListener('click', async ()=>{
   const phone = document.getElementById('singlePhone').value.trim();
   const email = document.getElementById('singleEmail').value.trim();
@@ -1890,8 +2181,157 @@ function renderResetRevealBox(){
   document.getElementById('dismissResetPw').addEventListener('click', ()=>{ lastResetInfo = null; renderResetRevealBox(); });
 }
 
+/* ==================== Team management (Supabase mode) ==================== */
+const teamApi = window.ReactivationTeamAdmin;
+let teamClient = null;
+let teamBusy = false;
+
+function ensureTeamClient(){
+  if(teamClient) return teamClient;
+  const projectUrl = String((window.REACTIVATION_SUPABASE_CONFIG||{}).projectUrl||'').replace(/\/+$/,'');
+  if(!projectUrl) return null;
+  teamClient = teamApi.createTeamAdminClient({
+    functionsUrl: `${projectUrl}/functions/v1`,
+    /* The token comes from the live session every call, so a rotated or expired
+       session cannot be replayed from a captured value. */
+    getAccessToken: async ()=>{
+      const result = await authService.client.auth.getSession();
+      return result && result.data && result.data.session ? result.data.session.access_token : null;
+    },
+    fetch: (...args)=>window.fetch(...args)
+  });
+  return teamClient;
+}
+
+function setTeamMessage(kind, message){
+  const node = document.getElementById('teamMessage');
+  if(node){ node.className = `team-msg ${kind}`; node.textContent = message; }
+}
+
+function setTeamBusy(busy){
+  teamBusy = busy;
+  document.querySelectorAll('#accessView button').forEach(btn=>{ btn.disabled = busy; });
+}
+
+/* Every server-backed action funnels through here so there is exactly one place
+   where a success message can be produced, and it is only reached after the
+   Edge Function returned ok:true. A thrown error can never render a success. */
+async function runTeamOperation(operation, successKey){
+  const client = ensureTeamClient();
+  if(!client){ setTeamMessage('error', t('team_not_configured')); return false; }
+  if(teamBusy) return false;
+  setTeamBusy(true);
+  setTeamMessage('neutral', t('team_working'));
+  try{
+    await operation(client);
+  }catch(error){
+    setTeamBusy(false);
+    setTeamMessage('error', t(teamApi.teamErrorReason(error && (error.code||error.message))));
+    return false;
+  }
+  await loadData();
+  setTeamBusy(false);
+  render();
+  setTeamMessage('success', t(successKey));
+  showToast(t(successKey));
+  return true;
+}
+
+async function submitNewMember(){
+  const form = {
+    email: document.getElementById('newMemberEmail').value,
+    name: document.getElementById('newMemberName').value,
+    username: document.getElementById('newMemberUsername').value,
+    country: document.getElementById('newMemberCountry').value,
+    temporaryPassword: document.getElementById('newMemberPassword').value
+  };
+  const validated = teamApi.validateMemberForm(form);
+  if(!validated.ok){ setTeamMessage('error', t(validated.reason)); return false; }
+  const done = await runTeamOperation(client=>client.createMember(validated.value), 'team_member_created');
+  if(done){
+    ['newMemberEmail','newMemberName','newMemberUsername','newMemberPassword'].forEach(id=>{
+      document.getElementById(id).value = '';
+    });
+  }
+  return done;
+}
+
+function renderTeamView(){
+  const wrap = document.getElementById('allUsersList');
+  const members = users.slice().sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
+  wrap.innerHTML = `
+    <div class="team-form">
+      <input id="newMemberEmail" type="email" autocomplete="off" placeholder="${escapeHtml(t('team_email'))}">
+      <input id="newMemberName" type="text" autocomplete="off" placeholder="${escapeHtml(t('team_name'))}">
+      <input id="newMemberUsername" type="text" autocomplete="off" placeholder="${escapeHtml(t('team_username'))}">
+      <input id="newMemberCountry" type="text" maxlength="2" autocomplete="off" placeholder="${escapeHtml(t('team_country'))}" value="EC">
+      <input id="newMemberPassword" type="password" autocomplete="new-password" placeholder="${escapeHtml(t('team_temp_password'))}">
+      <button class="btn btn-primary btn-sm" id="createMemberBtn">${t('team_create')}</button>
+    </div>
+    <div class="team-msg" id="teamMessage"></div>
+    ${members.map(u=>{
+      const safeId = escapeHtml(u.id);
+      const safeRole = u.role==='admin' ? 'admin' : 'agent';
+      const isSelf = u.id === currentUser.id;
+      const cnt = players.filter(p=>p.agentId===u.id).length;
+      return `<div class="user-row">
+        <div class="who">
+          <span class="name">${escapeHtml(u.name)} <span class="badge ${safeRole==='admin'?'b-admin':'b-agent'}"><span class="dot"></span>${escapeHtml(t('role_'+safeRole))}</span>${u.isActive===false?` <span class="badge b-new"><span class="dot"></span>${escapeHtml(t('team_inactive'))}</span>`:''}</span>
+          <span class="uname">@${escapeHtml(u.username)}${cnt?' · '+cnt:''} <span class="team-country">${escapeHtml(u.country||t('team_country_unset'))}</span></span>
+        </div>
+        <div class="actions">
+          ${isSelf ? `<span class="sub" style="margin:0;">${t('access_you')}</span>` : `
+            <button class="btn btn-ghost btn-sm team-country-btn" data-id="${safeId}">${t('team_change_country')}</button>
+            ${u.isActive===false
+              ? `<button class="btn btn-teal btn-sm team-activate" data-id="${safeId}">${t('team_activate')}</button>`
+              : `<button class="btn btn-danger btn-sm team-deactivate" data-id="${safeId}" data-count="${cnt}">${t('team_deactivate')}</button>`}
+          `}
+        </div>
+      </div>`;
+    }).join('')}`;
+
+  document.getElementById('createMemberBtn').addEventListener('click', submitNewMember);
+  wrap.querySelectorAll('.team-country-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const member = users.find(u=>u.id===btn.dataset.id);
+      const next = prompt(t('team_country_prompt'), (member && member.country) || '');
+      if(next===null) return;
+      const country = teamApi.normalizeCountry(next);
+      if(!teamApi.COUNTRY_PATTERN.test(country)){ setTeamMessage('error', t('team_invalid_country')); return; }
+      const assigned = players.filter(p=>p.agentId===btn.dataset.id).length;
+      /* Country changes never move existing leads; the admin is told so rather
+         than the system silently reassigning anyone. */
+      if(assigned && !confirm(t('team_country_warning').replace('{count}', assigned))) return;
+      runTeamOperation(client=>client.updateMemberCountry(btn.dataset.id, country), 'team_country_updated');
+    });
+  });
+  wrap.querySelectorAll('.team-activate').forEach(btn=>{
+    btn.addEventListener('click', ()=>runTeamOperation(client=>client.setMemberActive(btn.dataset.id, true), 'team_member_activated'));
+  });
+  wrap.querySelectorAll('.team-deactivate').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const held = Number(btn.dataset.count)||0;
+      let reassignTo;
+      if(held){
+        const destinations = users.filter(u=>u.id!==btn.dataset.id && u.role==='agent' && u.isActive!==false);
+        if(!destinations.length){ setTeamMessage('error', t('team_no_destination')); return; }
+        const answer = prompt(t('team_reassign_prompt').replace('{count}', held) + '\n' +
+          destinations.map(d=>`${d.username} = ${d.id}`).join('\n'), destinations[0].id);
+        if(answer===null) return;
+        reassignTo = String(answer).trim();
+        if(!destinations.some(d=>d.id===reassignTo)){ setTeamMessage('error', t('team_invalid_destination')); return; }
+      }
+      runTeamOperation(client=>client.setMemberActive(btn.dataset.id, false, reassignTo), 'team_member_deactivated');
+    });
+  });
+}
+
 function renderAccessView(){
   if(currentUser.role !== 'admin') return;
+  /* Supabase mode manages real Auth users through the Edge Function. The
+     local-storage screen below stays for local/test mode only; the two paths are
+     kept fully separate so neither can silently fall back to the other. */
+  if(dataMode==='supabase'){ renderTeamView(); return; }
   renderResetRevealBox();
   const allWrap = document.getElementById('allUsersList');
   allWrap.innerHTML = users.map(u=>{

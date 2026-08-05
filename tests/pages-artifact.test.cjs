@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -257,7 +257,7 @@ async function exerciseLinkedSourceAncestors(t, linkType) {
   }));
 }
 
-test('the fixed contract contains exactly the approved 17 files and four directories', () => {
+test('the fixed contract contains exactly the approved 19 files and four directories', () => {
   assert.deepEqual(builder.ARTIFACT_FILES, [
     '.nojekyll',
     'config/runtime-config.js',
@@ -272,8 +272,10 @@ test('the fixed contract contains exactly the approved 17 files and four directo
     'src/data/supabase-data-service.js',
     'src/domain.js',
     'src/lead-import.js',
+    'src/lead-proof.js',
     'src/migration-preflight.js',
     'src/supabase-auth-service.js',
+    'src/team-admin.js',
     'src/test-data-cleanup.js',
     'vendor/supabase.js'
   ]);
@@ -287,6 +289,8 @@ test('the fixed contract contains exactly the approved 17 files and four directo
     'src/auth.js',
     'src/analytics.js',
     'src/lead-import.js',
+    'src/lead-proof.js',
+    'src/team-admin.js',
     'src/data/data-service.js',
     'src/data/local-storage-data-service.js',
     'src/data/supabase-data-service.js',
@@ -303,6 +307,8 @@ test('the fixed contract contains exactly the approved 17 files and four directo
     './src/auth.js',
     './src/analytics.js',
     './src/lead-import.js',
+    './src/lead-proof.js',
+    './src/team-admin.js',
     './src/data/data-service.js',
     './src/data/local-storage-data-service.js',
     './src/data/supabase-data-service.js',
@@ -313,13 +319,13 @@ test('the fixed contract contains exactly the approved 17 files and four directo
     'https://fonts.googleapis.com',
     'https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap'
   ]);
-  assert.equal(builder.SOURCE_FILES.length, 14);
+  assert.equal(builder.SOURCE_FILES.length, 16);
 });
 
 test('a valid build emits and independently validates the exact canonical artifact', () => {
   withFixture(fixture => {
     const result = builder.buildPagesArtifact(validBuildOptions(fixture));
-    assert.equal(result.fileCount, 17);
+    assert.equal(result.fileCount, 19);
     assert.match(result.manifestDigest, /^[a-f0-9]{64}$/);
     assert.equal(result.cleanupWarning, null);
     assert.deepEqual(listTree(fixture.outputDirectory), {
@@ -360,7 +366,7 @@ test('BOM, mixed line endings, bare CR, and multibyte text canonicalize determin
   const variant = createFixture();
   try {
     for (const fixture of [canonical, variant]) {
-      fs.appendFileSync(path.join(fixture.sourceRoot, 'src', 'auth.js'), '// Multibyte: Привет, мир\n', 'utf8');
+      fs.appendFileSync(path.join(fixture.sourceRoot, 'src', 'auth.js'), '// Multibyte: РџСЂРёРІРµС‚, РјРёСЂ\n', 'utf8');
     }
     const packagePath = path.join(variant.sourceRoot, 'package.json');
     fs.writeFileSync(packagePath, `\uFEFF${fs.readFileSync(packagePath, 'utf8').replace(/\n/g, '\r')}`, 'utf8');
@@ -559,7 +565,7 @@ test('artifact credential scanning covers every file and permits only the genera
       path.join(fixture.sourceRoot, 'vendor', 'supabase.js'),
       `const documentedMarker = ${JSON.stringify('sb_' + 'secret_')};\n`
     );
-    assert.equal(builder.buildPagesArtifact(validBuildOptions(fixture)).fileCount, 17);
+    assert.equal(builder.buildPagesArtifact(validBuildOptions(fixture)).fileCount, 19);
   }));
 });
 
@@ -1314,7 +1320,7 @@ test('CLI builds and validates with synthetic public values without logging them
       cwd: path.join(__dirname, '..'), encoding: 'utf8', timeout: 30000, env: environment
     });
     assert.equal(build.status, 0, `${build.stdout}\n${build.stderr}`);
-    assert.match(build.stdout, /build passed \(17 files, manifest [a-f0-9]{64}\)/);
+    assert.match(build.stdout, /build passed \(19 files, manifest [a-f0-9]{64}\)/);
     assert.equal(`${build.stdout}\n${build.stderr}`.includes(VALID_URL), false);
     assert.equal(`${build.stdout}\n${build.stderr}`.includes(VALID_KEY), false);
 
@@ -1323,7 +1329,7 @@ test('CLI builds and validates with synthetic public values without logging them
       cwd: path.join(__dirname, '..'), encoding: 'utf8', timeout: 30000, env: environment
     });
     assert.equal(validation.status, 0, `${validation.stdout}\n${validation.stderr}`);
-    assert.match(validation.stdout, /validation passed \(17 files, manifest [a-f0-9]{64}\)/);
+    assert.match(validation.stdout, /validation passed \(19 files, manifest [a-f0-9]{64}\)/);
     assert.equal(`${validation.stdout}\n${validation.stderr}`.includes(VALID_URL), false);
     assert.equal(`${validation.stdout}\n${validation.stderr}`.includes(VALID_KEY), false);
     assert.deepEqual(snapshotFiles(fixture.outputDirectory), beforeValidation);
@@ -1348,7 +1354,7 @@ test('ordinary approved source ancestors remain valid', () => {
       assert.equal(info.isSymbolicLink(), false);
     }
     const result = builder.buildPagesArtifact(validBuildOptions(fixture));
-    assert.equal(result.fileCount, 17);
+    assert.equal(result.fileCount, 19);
     assert.equal(builder.validatePagesArtifact({
       ...validBuildOptions(fixture),
       artifactDirectory: fixture.outputDirectory
@@ -1593,7 +1599,7 @@ test('manifest is minimal, canonical, complete, sorted, and contains no supplied
     assert.equal(manifest.schemaVersion, 1);
     assert.equal(manifest.application, 'fixture-dashboard');
     assert.equal(manifest.version, '9.8.7');
-    assert.equal(manifest.files.length, 16);
+    assert.equal(manifest.files.length, 18);
     assert.deepEqual(manifest.files.map(entry => entry.path), builder.PAYLOAD_FILES);
     assert.deepEqual([...manifest.files].map(entry => entry.path).sort(), manifest.files.map(entry => entry.path));
     for (const entry of manifest.files) {
@@ -1853,7 +1859,7 @@ test('malformed encoded browser syntax fails closed while benign encodings remai
       'utf8'
     );
     const result = builder.buildPagesArtifact(validBuildOptions(fixture));
-    assert.equal(result.fileCount, 17);
+    assert.equal(result.fileCount, 19);
   }));
 });
 

@@ -1,0 +1,331 @@
+{
+  "schemaVersion": 1,
+  "title": "Dashboard Latam release backlog",
+  "updatedAt": "2026-08-05",
+  "orderingRules": [
+    "severity ascending (P0 before P1 before P2 before P3)",
+    "tasks without a documented workaround before tasks with one",
+    "explicit rank ascending",
+    "task id ascending"
+  ],
+  "nonTasks": [
+    {
+      "path": "supabase/snippets/",
+      "reason": "Untracked Supabase Studio scratch files that predate this work. An untracked working-tree directory is not a release task. Its disposition is recorded as blocker B8 (P3, decision pending) and is excluded from selection; it is never committed as part of a release change."
+    },
+    {
+      "path": "artifacts/",
+      "reason": "Ignored build and report output. Never a task, never committed."
+    }
+  ],
+  "sources": [
+    "docs/test-environment-status.md — release blocker table B1..B8",
+    "docs/test-environment-runbook.md — blocker table and operator sections",
+    "docs/project-status.md — canonical milestone, next task, deferred work",
+    "docs/tech-debt.md — accepted limitations and deferred items"
+  ],
+  "tasks": [
+    {
+      "id": "B1",
+      "rank": 1,
+      "title": "Proof upload end to end: storage bucket, storage RLS, proof column, upload UI, proof-required close",
+      "severity": "P1",
+      "kind": "release-blocker",
+      "actionability": "internal",
+      "status": "in-review",
+      "decision": "approved",
+      "decisionEvidence": "Product Owner instruction of 2026-08-05 directing this session to verify B1 and B2 rather than re-implement them. docs/test-environment-status.md still lists 'Decide on blocker B1' as an open Product Owner action and does NOT by itself record an approval; that document required a design and then an implementation as its own change, which exists unmerged at 6f9c7b6 and 3f7543b. The approval recorded here rests on the session instruction, not on the status document. If that instruction is not accepted as authoritative, this task reverts to decision 'pending' and the selector moves to B2.",
+      "releaseBlocking": true,
+      "workaround": null,
+      "implementation": {
+        "commits": ["6f9c7b6", "3f7543b", "aa236c0"],
+        "branch": "feat/proof-and-agent-management",
+        "merged": false
+      },
+      "acceptanceCriteria": [
+        {
+          "id": "proof-migration-governed",
+          "statement": "The proof migration ships with a matching rollback script and passes migration governance.",
+          "command": "npm run check:migrations"
+        },
+        {
+          "id": "proof-unit-tests",
+          "statement": "The proof domain, path scheme, and MIME/size rules are covered by unit tests.",
+          "command": "node --test tests/lead-proof.test.cjs"
+        },
+        {
+          "id": "proof-runtime-suite",
+          "statement": "Against a live local stack: a lead cannot close without a confirmed proof, the bucket is private, cross-agent proof access is refused, admin access works, and a deactivated agent loses proof access.",
+          "command": "node scripts/lead-proof-smoke.cjs"
+        },
+        {
+          "id": "proof-no-browser-secret",
+          "statement": "No tracked file delivered to the browser carries an elevated key.",
+          "command": "npm run check:secrets"
+        }
+      ],
+      "dependsOn": [],
+      "blocks": [
+        "docs/test-environment-smoke-test.md step B11",
+        "docs/test-environment-smoke-test.md step B12",
+        "docs/test-environment-smoke-test.md step C7",
+        "docs/test-environment-smoke-test.md step F3"
+      ],
+      "evidence": [
+        "docs/test-environment-status.md — blocker B1, severity P1",
+        "docs/test-environment-status.md — verification matrix rows Storage FAILED and Proof FAILED",
+        "docs/test-environment-runbook.md — blocker table row B1",
+        "docs/test-environment-smoke-test.md — steps B11 and B12 marked BLOCKED"
+      ],
+      "productionActions": [
+        "supabase db push (storage bucket, storage policies, proof column, proof-required check)",
+        "supabase functions deploy",
+        "publish the rebuilt Pages artifact to the chosen host",
+        "annotated tag and push per docs/release-governance.md"
+      ]
+    },
+    {
+      "id": "B2",
+      "rank": 2,
+      "title": "Admin cashier management from the UI in Supabase mode",
+      "severity": "P1",
+      "kind": "release-blocker",
+      "actionability": "internal",
+      "status": "in-review",
+      "decision": "approved",
+      "decisionEvidence": "Product Owner instruction of 2026-08-05 directing this session to verify B1 and B2 rather than re-implement them. Implemented on branch feat/proof-and-agent-management by commits 28b0bcf and 3f7543b. As with B1, the approval rests on the session instruction; docs/test-environment-status.md records the required action as provisioning through the dashboard or the Edge Function for the test environment, and calls wiring the Access screen a separate change.",
+      "releaseBlocking": true,
+      "workaround": "docs/test-environment-runbook.md section 5 — provision accounts through the Supabase dashboard or the team-management Edge Function.",
+      "implementation": {
+        "commits": ["28b0bcf", "3f7543b", "aa236c0"],
+        "branch": "feat/proof-and-agent-management",
+        "merged": false
+      },
+      "acceptanceCriteria": [
+        {
+          "id": "cashier-migration-governed",
+          "statement": "The agent-management migration ships with a matching rollback script and passes migration governance.",
+          "command": "npm run check:migrations"
+        },
+        {
+          "id": "cashier-unit-tests",
+          "statement": "The admin cashier screen and the team-management contract are covered by unit tests.",
+          "command": "node --test tests/team-admin.test.cjs tests/team-management.test.cjs"
+        },
+        {
+          "id": "cashier-structure",
+          "statement": "The Edge Function structural check passes.",
+          "command": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-team-management.ps1"
+        },
+        {
+          "id": "cashier-runtime-suite",
+          "statement": "Against a live local stack: an admin creates a cashier, duplicate email and username are refused without orphan Auth users, deactivate and reactivate work with the same token, an inactive agent loses access, and no frontend file carries a service-role key.",
+          "command": "node scripts/agent-management-smoke.cjs"
+        }
+      ],
+      "dependsOn": [],
+      "blocks": [],
+      "evidence": [
+        "docs/test-environment-status.md — blocker B2, severity P1",
+        "docs/test-environment-status.md — verification note that saveUsers() throws RPC_REQUIRED in Supabase mode"
+      ],
+      "productionActions": [
+        "supabase functions deploy team-management",
+        "publish the rebuilt Pages artifact to the chosen host"
+      ]
+    },
+    {
+      "id": "B3",
+      "rank": 3,
+      "title": "Create or nominate a cloud test Supabase project and authorize the CLI",
+      "severity": "P1",
+      "kind": "release-blocker",
+      "actionability": "external",
+      "status": "open",
+      "decision": "approved",
+      "decisionEvidence": "docs/test-environment-status.md records this as Product Owner action 1.",
+      "releaseBlocking": true,
+      "workaround": null,
+      "dependsOn": [],
+      "blocks": [],
+      "evidence": [
+        "docs/test-environment-status.md — blocker B3, severity P1 (external)",
+        "docs/test-environment-status.md — no access token, no project ref, CLI holds no session"
+      ],
+      "productionActions": [
+        "supabase login (interactive, operator only)",
+        "supabase link --project-ref <ref>"
+      ]
+    },
+    {
+      "id": "B4",
+      "rank": 4,
+      "title": "Choose and configure a static host for the frontend",
+      "severity": "P1",
+      "kind": "release-blocker",
+      "actionability": "external",
+      "status": "open",
+      "decision": "approved",
+      "decisionEvidence": "docs/test-environment-status.md records this as Product Owner action 3.",
+      "releaseBlocking": true,
+      "workaround": null,
+      "dependsOn": [],
+      "blocks": [],
+      "evidence": [
+        "docs/test-environment-status.md — blocker B4, severity P1 (external)",
+        "docs/release-governance.md — the release workflow deploys nothing"
+      ],
+      "productionActions": [
+        "create a hosting account and project",
+        "publish artifacts/pages-site/ to the chosen host"
+      ]
+    },
+    {
+      "id": "B5",
+      "rank": 5,
+      "title": "Stop the Access screen reporting success while the Supabase write fails",
+      "severity": "P2",
+      "kind": "release-blocker",
+      "actionability": "internal",
+      "status": "open",
+      "decision": "approved",
+      "decisionEvidence": "docs/test-environment-status.md records the required action as 'Fix together with B2'.",
+      "releaseBlocking": false,
+      "workaround": null,
+      "dependsOn": ["B2"],
+      "blocks": [],
+      "evidence": [
+        "docs/test-environment-status.md — blocker B5, severity P2, required action: fix together with B2"
+      ],
+      "productionActions": [
+        "publish the rebuilt Pages artifact to the chosen host"
+      ]
+    },
+    {
+      "id": "B6",
+      "rank": 6,
+      "title": "Reconcile admin contact reveal with the documented business rule",
+      "severity": "P2",
+      "kind": "release-blocker",
+      "actionability": "internal",
+      "status": "open",
+      "decision": "pending",
+      "decisionEvidence": "docs/test-environment-status.md — 'Product Owner: confirm which rule is authoritative'. No decision is recorded in docs/decisions.md.",
+      "releaseBlocking": false,
+      "workaround": null,
+      "dependsOn": [],
+      "blocks": [],
+      "evidence": [
+        "docs/test-environment-status.md — blocker B6, severity P2",
+        "docs/business-rules.md conflicts with the reveal RPC behaviour"
+      ],
+      "productionActions": [
+        "supabase db push (only if the RPC is changed)"
+      ]
+    },
+    {
+      "id": "B7",
+      "rank": 7,
+      "title": "Align supabase/config.toml redirect ports with the served dashboard port",
+      "severity": "P3",
+      "kind": "release-blocker",
+      "actionability": "internal",
+      "status": "open",
+      "decision": "approved",
+      "decisionEvidence": "docs/test-environment-status.md — 'Align when a redirect-based flow is introduced.'",
+      "releaseBlocking": false,
+      "workaround": "Password sign-in uses no redirect, so the mismatch is inert today.",
+      "dependsOn": [],
+      "blocks": [],
+      "evidence": [
+        "docs/test-environment-status.md — blocker B7, severity P3"
+      ],
+      "productionActions": []
+    },
+    {
+      "id": "B8",
+      "rank": 8,
+      "title": "Decide the disposition of the untracked Supabase Studio snippets",
+      "severity": "P3",
+      "kind": "release-blocker",
+      "actionability": "internal",
+      "status": "open",
+      "decision": "pending",
+      "decisionEvidence": "docs/test-environment-status.md — 'Owner decision to ignore the directory or delete the files. Not done automatically.'",
+      "releaseBlocking": false,
+      "workaround": "The directory is untracked and is already allow-listed by verify:fast and npm run doctor.",
+      "dependsOn": [],
+      "blocks": [],
+      "evidence": [
+        "docs/test-environment-status.md — blocker B8, severity P3",
+        "docs/tech-debt.md — already recorded",
+        "npm run doctor — SNIPPETS_MUTATING warning"
+      ],
+      "productionActions": []
+    },
+    {
+      "id": "M-2B2",
+      "rank": 9,
+      "title": "Automation PR 2-B2: review packages, PR preparation, merge readiness, post-merge validation, branch cleanup",
+      "severity": "P3",
+      "kind": "milestone",
+      "actionability": "internal",
+      "status": "open",
+      "decision": "approved",
+      "decisionEvidence": "docs/project-status.md — Next task and Deferred work; docs/decisions.md ADR-010.",
+      "releaseBlocking": false,
+      "workaround": "The manual flow in docs/developer-toolchain.md covers the same ground.",
+      "dependsOn": [],
+      "blocks": [],
+      "evidence": [
+        "docs/project-status.md — Next task: review and merge Automation PR 2-B1, then implement Automation PR 2-B2",
+        "CHANGELOG.md — PR lifecycle automation remains PR 2-B2"
+      ],
+      "productionActions": []
+    },
+    {
+      "id": "M-D2B",
+      "rank": 10,
+      "title": "D2-B: tag-driven publication of the Pages artifact",
+      "severity": "P3",
+      "kind": "milestone",
+      "actionability": "internal",
+      "status": "open",
+      "decision": "approved",
+      "decisionEvidence": "docs/decisions.md ADR-003 and ADR-005 defer release-driven deployment to D2 and later.",
+      "releaseBlocking": false,
+      "workaround": "Manual upload per docs/test-environment-runbook.md section 8.",
+      "dependsOn": ["B4"],
+      "blocks": [],
+      "evidence": [
+        "docs/project-status.md — Deferred work: D2-B",
+        "docs/release-governance.md — a tag does not mean deployed"
+      ],
+      "productionActions": [
+        "enable a publishing workflow with production credentials"
+      ]
+    },
+    {
+      "id": "M-D2C",
+      "rank": 11,
+      "title": "D2-C: deployment verification and rollback rehearsal",
+      "severity": "P3",
+      "kind": "milestone",
+      "actionability": "internal",
+      "status": "open",
+      "decision": "approved",
+      "decisionEvidence": "docs/project-status.md — Deferred work: D2-C.",
+      "releaseBlocking": false,
+      "workaround": null,
+      "dependsOn": ["M-D2B"],
+      "blocks": [],
+      "evidence": [
+        "docs/project-status.md — Deferred work: D2-C",
+        "docs/release-governance.md — rollback expectations"
+      ],
+      "productionActions": [
+        "rehearse rollback against a deployed environment"
+      ]
+    }
+  ]
+}

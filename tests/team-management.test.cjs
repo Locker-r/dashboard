@@ -61,8 +61,37 @@ test('edge verifies JWT and loads the caller profile instead of trusting actor i
   assert.match(edge, /!actor\.is_active \|\| actor\.role !== 'admin'/); assert.doesNotMatch(edge, /body\.actor|body\.actorId|body\.actorRole/);
 });
 test('edge exposes only the approved action allowlist', () => {
-  for (const action of ['list-members','invite-member','update-member-role','set-member-active','reassign-players']) assert.match(edge, new RegExp(`'${action}'`));
-  assert.doesNotMatch(edge, /delete-member|deleteUser|resend-invitation/);
+  for (const action of ['list-members','invite-member','create-member','update-member-role','set-member-active','reassign-players','update-member-country']) assert.match(edge, new RegExp(`'${action}'`));
+  assert.doesNotMatch(edge, /delete-member|resend-invitation/);
+  const actions = /const ACTIONS = new Set\(\[([^\]]*)\]\)/.exec(edge);
+  assert.ok(actions, 'action allowlist not found');
+  assert.doesNotMatch(actions[1], /delete|remove|destroy|purge/);
+});
+test('auth user deletion exists only as the create-member compensation, never as an operation', () => {
+  // Deleting an Auth user is allowed for exactly one reason: undoing an Auth
+  // user this same request created when its profile insert failed. Any second
+  // call site would be a reachable deletion capability, which the business rule
+  // (deactivate, never delete) forbids.
+  const calls = edge.match(/deleteUser/g) || [];
+  assert.ok(calls.length <= 1, `expected at most one deleteUser call site, found ${calls.length}`);
+  if (calls.length === 1) {
+    assert.match(edge, /const removal = await admin\.auth\.admin\.deleteUser\(createdUser\.id\);/);
+    const compensationAt = edge.indexOf('catch (profileError)');
+    assert.ok(compensationAt > -1 && edge.indexOf('deleteUser') > compensationAt, 'deleteUser is outside the compensation branch');
+  }
+});
+test('create-member forces the agent role server-side and never persists the temporary password', () => {
+  const startAt = edge.indexOf("action === 'create-member'");
+  const endAt = edge.indexOf("action === 'update-member-country'");
+  assert.ok(startAt > -1 && endAt > startAt, 'create-member branch not found');
+  const branch = edge.slice(startAt, endAt);
+  assert.match(branch, /p_country: memberCountry/);
+  // The role is chosen by team_register_member, so this branch must not forward
+  // any client-supplied role at all.
+  assert.doesNotMatch(branch, /p_role|body\.role/);
+  // The password may only travel to the Auth admin API.
+  assert.match(branch, /password: temporaryPassword/);
+  assert.doesNotMatch(branch, /temporaryPassword[^\n]*(?:p_username|p_name|details|profiles)/);
 });
 test('edge keeps elevated secrets server-side and returns safe errors', () => {
   assert.match(edge, /Deno\.env\.get\('SUPABASE_SERVICE_ROLE_KEY'\)/); assert.doesNotMatch(edge, /console\.(log|error)/);

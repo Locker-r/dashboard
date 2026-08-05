@@ -2,7 +2,10 @@ import { createClient } from 'npm:@supabase/supabase-js@2.53.0';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const ACTIONS = new Set(['list-members', 'invite-member', 'update-member-role', 'set-member-active', 'reassign-players']);
+const ACTIONS = new Set(['list-members', 'invite-member', 'create-member', 'update-member-role', 'set-member-active', 'reassign-players', 'update-member-country']);
+// ISO 3166-1 alpha-2. The database enforces the same shape; this is the early,
+// cheap rejection so a malformed value never reaches an Auth write.
+const COUNTRY = /^[A-Za-z]{2}$/;
 
 class ApiError extends Error {
   constructor(public status: number, public code: string, message = code) { super(message); }
@@ -24,6 +27,25 @@ function uuid(value: unknown, field: string) {
 }
 function role(value: unknown) {
   if (value !== 'admin' && value !== 'agent') throw new ApiError(400, 'INVALID_INPUT', 'Invalid role');
+  return value;
+}
+function country(value: unknown) {
+  if (typeof value !== 'string' || !COUNTRY.test(value.trim())) throw new ApiError(400, 'INVALID_COUNTRY', 'Invalid country');
+  return value.trim().toUpperCase();
+}
+function email(value: unknown) {
+  const normalized = text(value, 'email', 3, 320).toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) throw new ApiError(400, 'INVALID_EMAIL', 'Invalid email');
+  return normalized;
+}
+// A temporary password is optional. When absent the member is invited by email
+// instead. The value is read here, handed straight to the Auth admin API, and
+// never logged, echoed, or persisted to a profile.
+function optionalPassword(value: unknown) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string' || value.length < 8 || value.length > 200) {
+    throw new ApiError(400, 'INVALID_PASSWORD', 'Invalid temporary password');
+  }
   return value;
 }
 function optionalPlayerIds(value: unknown) {
@@ -102,6 +124,61 @@ Deno.serve(async request => {
       });
       if (error) throw error;
       result = data;
+    } else if (action === 'create-member') {
+      // Creates a cashier: one Auth user plus one profile, with the profile's
+      // role forced to `agent` inside the database function. The client cannot
+      // request any other role here or anywhere upstream.
+      const memberEmail = email(body.email);
+      const requestId = uuid(body.requestId, 'requestId');
+      const username = text(body.username, 'username', 2, 50);
+      const name = text(body.name, 'name', 1, 100);
+      const memberCountry = country(body.country);
+      const temporaryPassword = optionalPassword(body.temporaryPassword);
+
+      const existing = await findAuthUserByEmail(admin, memberEmail);
+      if (existing) {
+        // An Auth user already exists. Report it rather than adopting the
+        // account: silently attaching a profile to an unrelated identity is how
+        // an account takeover starts.
+        throw new ApiError(409, 'USER_ALREADY_EXISTS', 'USER_ALREADY_EXISTS');
+      }
+
+      const created = temporaryPassword
+        ? await admin.auth.admin.createUser({ email: memberEmail, password: temporaryPassword, email_confirm: true })
+        : await admin.auth.admin.inviteUserByEmail(memberEmail, { data: { invitation_source: 'dashboard_team' } });
+      if (created.error || !created.data.user) throw new ApiError(502, 'CREATE_USER_FAILED', 'CREATE_USER_FAILED');
+      const createdUser = created.data.user;
+
+      let profile;
+      try {
+        const { data, error } = await admin.rpc('team_register_member', {
+          p_actor_id: actor.id, p_target_id: createdUser.id, p_username: username,
+          p_name: name, p_country: memberCountry, p_request_id: requestId,
+        });
+        if (error) throw error;
+        profile = data;
+      } catch (profileError) {
+        // Compensation: this request created the Auth user, so this request
+        // removes it. Without this the account would exist with no profile and
+        // could never sign in, while the admin saw only an error.
+        const removal = await admin.auth.admin.deleteUser(createdUser.id);
+        const code = typeof profileError === 'object' && profileError && 'message' in profileError
+          ? String(profileError.message) : 'CREATE_PROFILE_FAILED';
+        const known = new Set(['PROFILE_ALREADY_EXISTS', 'USERNAME_ALREADY_EXISTS', 'INVALID_COUNTRY', 'INVALID_INVITATION', 'REQUEST_ID_REUSE', 'ACTIVE_ADMIN_REQUIRED']);
+        if (removal.error) {
+          // The orphan could not be cleaned up. Say so explicitly instead of
+          // returning a generic failure that hides recoverable state.
+          throw new ApiError(500, 'CREATE_PROFILE_FAILED_ORPHAN_USER', 'CREATE_PROFILE_FAILED_ORPHAN_USER');
+        }
+        throw new ApiError(known.has(code) ? 409 : 502, known.has(code) ? code : 'CREATE_PROFILE_FAILED');
+      }
+      result = { member: profile, invited: !temporaryPassword };
+    } else if (action === 'update-member-country') {
+      const { data, error } = await admin.rpc('team_update_member_country', {
+        p_actor_id: actor.id, p_target_id: uuid(body.memberId, 'memberId'),
+        p_country: country(body.country), p_request_id: uuid(body.requestId, 'requestId'),
+      });
+      if (error) throw error; result = data;
     } else if (action === 'update-member-role') {
       const { data, error } = await admin.rpc('team_update_member_role', {
         p_actor_id: actor.id, p_target_id: uuid(body.memberId, 'memberId'), p_role: role(body.role), p_request_id: uuid(body.requestId, 'requestId'),
@@ -125,7 +202,7 @@ Deno.serve(async request => {
   } catch (error) {
     if (error instanceof ApiError) return response(error.status, { ok: false, error: { code: error.code, message: error.message } }, corsOrigin);
     const code = typeof error === 'object' && error && 'message' in error ? String(error.message) : 'INTERNAL_ERROR';
-    const safeCodes = new Set(['SERVICE_ROLE_REQUIRED','ACTIVE_ADMIN_REQUIRED','SELF_PROMOTION_FORBIDDEN','LAST_ACTIVE_ADMIN','REASSIGNMENT_REQUIRED','INVALID_REASSIGNMENT_AGENT','MEMBER_NOT_FOUND','REQUEST_ID_REUSE','PROFILE_ALREADY_EXISTS','PLAYER_ASSIGNMENT_MISMATCH','REASSIGNMENT_COUNT_MISMATCH']);
+    const safeCodes = new Set(['SERVICE_ROLE_REQUIRED','ACTIVE_ADMIN_REQUIRED','SELF_PROMOTION_FORBIDDEN','LAST_ACTIVE_ADMIN','REASSIGNMENT_REQUIRED','INVALID_REASSIGNMENT_AGENT','MEMBER_NOT_FOUND','REQUEST_ID_REUSE','PROFILE_ALREADY_EXISTS','USERNAME_ALREADY_EXISTS','INVALID_COUNTRY','INVALID_COUNTRY_CHANGE','INACTIVE_AGENT_HAS_PLAYERS','PLAYER_ASSIGNMENT_MISMATCH','REASSIGNMENT_COUNT_MISMATCH']);
     const databaseCode = typeof error === 'object' && error && 'code' in error && /^[A-Z0-9]{5,12}$/.test(String(error.code)) ? `DATABASE_${String(error.code)}` : null;
     const safe = safeCodes.has(code) ? code : (databaseCode || 'INTERNAL_ERROR');
     return response(safeCodes.has(code) ? 409 : 500, { ok: false, error: { code: safe, message: safe } }, corsOrigin);

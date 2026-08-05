@@ -54,7 +54,7 @@ npm.cmd run build:pages -- --validate-only
 
 ## Exact artifact
 
-The artifact contains exactly 17 regular files:
+The artifact contains exactly 19 regular files:
 
 ```text
 pages-site/
@@ -69,8 +69,10 @@ pages-site/
 │   ├── contact-reveal.js
 │   ├── domain.js
 │   ├── lead-import.js
+│   ├── lead-proof.js
 │   ├── migration-preflight.js
 │   ├── supabase-auth-service.js
+│   ├── team-admin.js
 │   ├── test-data-cleanup.js
 │   └── data/
 │       ├── data-service-factory.js
