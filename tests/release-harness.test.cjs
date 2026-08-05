@@ -301,9 +301,23 @@ test('destructive commands are classified as destructive', () => {
     'npx supabase db reset',
     'npm run smoke',
     'npm run verify:runtime -- --allow-reset',
-    'rm -rf artifacts'
+    'rm -rf artifacts',
+    'rm -r src',
+    'rm *.cjs',
+    'rm -f build/',
+    'rmdir /s /q artifacts',
+    'Remove-Item -Recurse -Force artifacts'
   ]) {
     assert.equal(core.classifyCommand(command).classification, core.DESTRUCTIVE, command);
+  }
+});
+
+test('removing one named file is ordinary work, not a sweep', () => {
+  // A guard that refuses routine cleanup gets disabled, and then it protects
+  // nothing at all. Only the sweeping forms above are refused.
+  for (const command of ['rm scratch.cjs', 'rm -f scratch.cjs', 'del scratch.cjs']) {
+    assert.equal(core.classifyCommand(command).classification, core.LOCAL_WRITE, command);
+    assert.equal(guard.evaluate(bashEvent(command), {}).decision, 'defer', command);
   }
 });
 
@@ -362,7 +376,9 @@ test('the execution ledger refuses to run anything that is not read-only', () =>
 /* ==================== the simulation ==================== */
 
 test('an unverified task stops the run at acceptance, and still executes nothing', () => {
-  const { execution, recorded } = simulate();
+  // Pin the absence explicitly: the committed evidence file must not decide
+  // what this test observes.
+  const { execution, recorded } = simulate({ fs: fsStub({ [EVIDENCE_SUFFIX]: null }) });
   const result = execution.result;
   assert.equal(execution.exitCode, core.EXIT_BLOCKED);
   assert.equal(result.failureCode, 'ACCEPTANCE_EVIDENCE_ABSENT');
@@ -424,6 +440,45 @@ test('acceptance evidence is refused when it is stale, partial, or for another t
     assert.equal(execution.exitCode, core.EXIT_BLOCKED);
     assert.equal(execution.result.productionActionsExecuted, 0);
   }
+});
+
+test('evidence survives being committed, but not a change to the code it attests to', () => {
+  const olderHead = 'c'.repeat(40);
+  const evidence = evidenceFor('B1', { headSha: olderHead });
+
+  // Only release/verification/ changed since the recorded commit: still valid.
+  const onlyEvidenceMoved = simulate({
+    fs: fsStub({ [EVIDENCE_SUFFIX]: evidence }),
+    deps: {
+      runCommand: (file, args) => {
+        const command = [file, ...args].join(' ');
+        if (command.startsWith('git diff --name-only')) {
+          return { status: 0, stdout: 'release/verification/B1.evidence.json\n', stderr: '', error: null };
+        }
+        return gitStub([])(file, args);
+      }
+    }
+  });
+  const accepted = onlyEvidenceMoved.execution.result.gates.find(gate => gate.id === 'G5b-acceptance');
+  assert.equal(accepted.status, core.STATUS_PASSED);
+  assert.equal(onlyEvidenceMoved.execution.exitCode, core.EXIT_HALTED);
+
+  // Product code changed since the recorded commit: stale, and the run stops.
+  const codeMoved = simulate({
+    fs: fsStub({ [EVIDENCE_SUFFIX]: evidence }),
+    deps: {
+      runCommand: (file, args) => {
+        const command = [file, ...args].join(' ');
+        if (command.startsWith('git diff --name-only')) {
+          return { status: 0, stdout: 'release/verification/B1.evidence.json\nsrc/lead-proof.js\n', stderr: '', error: null };
+        }
+        return gitStub([])(file, args);
+      }
+    }
+  });
+  const rejected = codeMoved.execution.result.gates.find(gate => gate.id === 'G5b-acceptance');
+  assert.equal(rejected.failureCode, 'ACCEPTANCE_EVIDENCE_STALE');
+  assert.equal(codeMoved.execution.exitCode, core.EXIT_BLOCKED);
 });
 
 test('a verified task with a valid approval is still not executed by the harness', () => {

@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "taskId": "B2",
+  "headSha": "45cfa18e68c22463164c020f096a1d5d3c32056d",
+  "recordedAt": "2026-08-05T22:31:00.0000000+05:00",
+  "environment": "local Supabase stack dashboard-runtime-smoke, Postgres 17, API http://127.0.0.1:54321, edge runtime serving supabase/functions/team-management",
+  "criteria": [
+    {
+      "id": "cashier-migration-governed",
+      "status": "passed",
+      "exitCode": 0,
+      "command": "npm run check:migrations",
+      "detail": "10 migrations, 6 with rollback scripts. 20260805000200_agent_management.sql ships with a matching rollback script."
+    },
+    {
+      "id": "cashier-unit-tests",
+      "status": "passed",
+      "exitCode": 0,
+      "command": "node --test tests/team-admin.test.cjs tests/team-management.test.cjs",
+      "detail": "33 tests, 33 passed, 0 failed."
+    },
+    {
+      "id": "cashier-structure",
+      "status": "passed",
+      "exitCode": 0,
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-team-management.ps1",
+      "detail": "Team management SQL and Edge Function structure checks passed."
+    },
+    {
+      "id": "cashier-runtime-suite",
+      "status": "passed",
+      "exitCode": 0,
+      "command": "node scripts/agent-management-smoke.cjs <runId>",
+      "detail": "PASSED: agent management runtime security (0 failures). Against the live local stack, sections [1]-[12]: no token, a garbage token and an agent token are all refused; an agent cannot create a cashier, deactivate anyone, change a country or promote themselves; an unknown action is refused; malformed email, malformed country and a short temporary password are rejected before any Auth write and create no Auth user; an admin creates a cashier whose profile, role, uppercase country, active flag and Auth user id all line up; the new cashier signs in, reads only its own profile row, and cannot call the admin function; duplicate email and duplicate username are refused with stable codes and leave no orphan Auth user; a country change reports the previous value and retains the lead count; set-member-active(false) takes effect against an already-issued token, which then gets ACTIVE_PROFILE_REQUIRED; reactivation restores access on the same token with no second Auth user; an admin cannot promote themselves through the function; an agent cannot call the team RPC directly; an identical replay returns the recorded result while the same request id with different values is refused; no frontend file references a service role key or secret; audit rows cannot be deleted even by the service role, and the Auth user cannot be deleted while audit history references it."
+    }
+  ],
+  "notes": [
+    "The first attempt of cashier-runtime-suite failed with HTTP 500 on every Edge Function call. The cause was environmental, not a product defect: the supabase_edge_runtime container had exited with status 255 and was not restarted by supabase start. After docker start of that container the endpoint answered 401 to an unauthenticated request and the suite passed with zero failures. Recorded as finding H3."
+  ]
+}

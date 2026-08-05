@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "taskId": "B1",
+  "headSha": "45cfa18e68c22463164c020f096a1d5d3c32056d",
+  "recordedAt": "2026-08-05T22:31:00.0000000+05:00",
+  "environment": "local Supabase stack dashboard-runtime-smoke, Postgres 17, API http://127.0.0.1:54321, Docker 29.6.1",
+  "criteria": [
+    {
+      "id": "proof-migration-governed",
+      "status": "passed",
+      "exitCode": 0,
+      "command": "npm run check:migrations",
+      "detail": "10 migrations, 6 with rollback scripts, 4 legacy exemptions. 20260805000100_lead_proof.sql ships with a matching rollback script."
+    },
+    {
+      "id": "proof-unit-tests",
+      "status": "passed",
+      "exitCode": 0,
+      "command": "node --test tests/lead-proof.test.cjs",
+      "detail": "17 tests, 17 passed, 0 failed."
+    },
+    {
+      "id": "proof-runtime-suite",
+      "status": "passed",
+      "exitCode": 0,
+      "command": "node scripts/lead-proof-smoke.cjs <runId>",
+      "detail": "PASSED: lead proof runtime security (0 failures). Against the live local stack, sections [0]-[15]: closing as success or failed without a confirmed proof is refused with PROOF_REQUIRED for agent and admin alike; no_answer needs no proof; executable and text MIME types and oversized files are refused; direct INSERT into lead_proofs and direct UPDATE of players are refused; the storage path is two server-generated UUIDs; a pending unconfirmed proof does not permit closing; agent B cannot read, confirm, discard, download, overwrite or delete agent A's proof; anon reads no proof rows and cannot download or mint a signed URL; admin reads the row and can mint a short-lived signed URL; bucket lead-proofs is private and enforces the 10 MB limit and four approved MIME types; the unsigned public URL does not serve the object; closing succeeds with a confirmed proof and is audited with the real actor; evidence is immutable once the lead is closed; a deactivated agent loses proof access with a live token and regains it on reactivation."
+    },
+    {
+      "id": "proof-no-browser-secret",
+      "status": "passed",
+      "exitCode": 0,
+      "command": "npm run check:secrets",
+      "detail": "Tracked-file secret scan passed (169 files, including the 23 newly tracked harness files)."
+    }
+  ],
+  "supplementaryEvidence": [
+    {
+      "check": "browser pass of smoke-test steps B11 and B12",
+      "result": "passed",
+      "detail": "Served at http://127.0.0.1:3100 and driven as SMOKE_TEST_agent_a on a seeded in_work lead. B11: the Success and Could not reach buttons are disabled with title 'Upload a proof first.'; No answer stays enabled. B12: input#proofFileInput exists with accept='image/jpeg,image/png,image/webp,application/pdf', and the details panel shows a Proof section reading 'No proof uploaded' / 'Upload proof' / 'JPEG, PNG, WebP or PDF, up to 10 MB.' The runbook previously recorded that the only file inputs on the page were fileImportInput and migrationMapInput. Contacts stayed masked at assigned and at in_work behind an explicit Show contacts action. The seeded lead was removed with cleanup_smoke_test_run_atomic (players_deleted 1, history_deleted 1)."
+    },
+    {
+      "check": "schema drift",
+      "result": "passed",
+      "detail": "npx supabase db diff --local reported 'No schema changes found' across all 10 migrations."
+    }
+  ]
+}

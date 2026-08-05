@@ -411,7 +411,18 @@ function classifySegment(tokens) {
   if (PRODUCTION_CLI.has(name)) return { classification: PRODUCTION, rule: 'HOSTING_CLI' };
 
   if (name === 'rm' || name === 'remove-item' || name === 'del' || name === 'rd' || name === 'rmdir') {
-    return { classification: DESTRUCTIVE, rule: 'FILESYSTEM_REMOVAL' };
+    // A sweep is categorically different from deleting one named file. Blocking
+    // both drives people to disable the guard, so only the sweep is refused:
+    // recursion, wildcards, directory targets, and the bare-directory removers.
+    if (name === 'rd' || name === 'rmdir') return { classification: DESTRUCTIVE, rule: 'FILESYSTEM_REMOVAL' };
+    const targets = rest.filter(argument => !argument.startsWith('-') && !argument.startsWith('/'));
+    const recursive = rest.some(argument => /^-[a-z]*r/i.test(argument) || argument === '--recursive' || argument === '-recurse' || argument === '/s');
+    const wildcard = targets.some(target => /[*?]/.test(target));
+    const directoryish = targets.some(target => target === '.' || target === '..' || target === '/' || target.endsWith('/') || target.endsWith('\\'));
+    if (recursive || wildcard || directoryish || !targets.length) {
+      return { classification: DESTRUCTIVE, rule: 'FILESYSTEM_REMOVAL' };
+    }
+    return { classification: LOCAL_WRITE, rule: 'FILESYSTEM_REMOVE_FILE' };
   }
 
   if (['ls', 'dir', 'cat', 'type', 'head', 'tail', 'grep', 'rg', 'findstr', 'wc', 'echo', 'pwd', 'which', 'where', 'sort', 'uniq', 'diff', 'stat', 'file', 'sed'].includes(name)) {
@@ -836,7 +847,7 @@ function readApproval(deps, taskId, root) {
 // accepted only when it covers every stated criterion and names the HEAD that
 // is actually checked out: a record written for another commit proves nothing
 // about this one.
-function readVerificationEvidence(deps, task, head, root) {
+function readVerificationEvidence(deps, task, head, root, options = {}) {
   const relative = `${VERIFICATION_RELATIVE}/${task.id}.evidence.json`;
   const target = path.join(root || deps.repositoryRoot || PROJECT_ROOT, VERIFICATION_RELATIVE, `${task.id}.evidence.json`);
   let raw;
@@ -854,8 +865,16 @@ function readVerificationEvidence(deps, task, head, root) {
   if (!parsed || parsed.schemaVersion !== SCHEMA_VERSION || parsed.taskId !== task.id) {
     return Object.freeze({ present: true, verified: false, code: 'ACCEPTANCE_EVIDENCE_INVALID', path: relative, unproven: Object.freeze([]) });
   }
-  if (head && String(parsed.headSha || '').toLowerCase() !== head) {
-    return Object.freeze({ present: true, verified: false, code: 'ACCEPTANCE_EVIDENCE_STALE', path: relative, unproven: Object.freeze([]) });
+  const recordedHead = String(parsed.headSha || '').toLowerCase();
+  if (head && recordedHead !== head) {
+    // Evidence attests to code, not to a commit id. Committing the evidence
+    // itself moves HEAD, and refusing it for that reason alone would make the
+    // record impossible to store. It stays valid only while nothing outside
+    // release/verification/ has changed since — anything else is stale.
+    const equivalent = typeof options.isCodeUnchangedSince === 'function' && options.isCodeUnchangedSince(recordedHead);
+    if (!equivalent) {
+      return Object.freeze({ present: true, verified: false, code: 'ACCEPTANCE_EVIDENCE_STALE', path: relative, headSha: recordedHead, unproven: Object.freeze([]) });
+    }
   }
   const recorded = new Map((Array.isArray(parsed.criteria) ? parsed.criteria : [])
     .filter(entry => entry && typeof entry === 'object')
@@ -873,6 +892,7 @@ function readVerificationEvidence(deps, task, head, root) {
     verified: true,
     code: 'ACCEPTANCE_VERIFIED',
     path: relative,
+    headSha: recordedHead,
     recordedAt: String(parsed.recordedAt || ''),
     proven: Object.freeze(task.acceptanceCriteria.map(criterion => criterion.id)),
     unproven: Object.freeze([])
@@ -1154,7 +1174,16 @@ function evaluateAcceptance(gate, context) {
     return gateResult(gate, STATUS_PLANNED, `${task.id} states no acceptance criteria; there is nothing for this gate to prove.`, {});
   }
   const head = context.state.repository ? context.state.repository.head : null;
-  const evidence = readVerificationEvidence(context.deps, task, head, context.deps.repositoryRoot);
+  // Only release/verification/ may differ between the commit the evidence names
+  // and the commit being judged. Any other changed path makes it stale.
+  const isCodeUnchangedSince = recordedHead => {
+    if (!/^[0-9a-f]{7,40}$/.test(recordedHead)) return false;
+    const diff = context.ledger.run('git', ['diff', '--name-only', recordedHead, head]);
+    if (!diff || diff.status !== 0) return false;
+    const changed = String(diff.stdout || '').split(/\r?\n/).filter(Boolean);
+    return changed.every(file => file.replace(/\\/g, '/').startsWith(`${VERIFICATION_RELATIVE}/`));
+  };
+  const evidence = readVerificationEvidence(context.deps, task, head, context.deps.repositoryRoot, { isCodeUnchangedSince });
   context.state.acceptance = evidence;
   const commands = task.acceptanceCriteria.map(criterion => Object.freeze({
     command: criterion.command,
