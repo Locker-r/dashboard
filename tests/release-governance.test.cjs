@@ -1,4 +1,4 @@
-const test = require('node:test');
+﻿const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -45,7 +45,7 @@ const VALID_SQL = 'begin;\ncreate table if not exists public.example(id uuid pri
 test('migration governance check passes on the repository', () => {
   const result = runCheck();
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /Migration governance check passed \(8 migrations, 4 with rollback scripts, 4 legacy exemptions\)/);
+  assert.match(result.stdout, /Migration governance check passed \(10 migrations, 6 with rollback scripts, 4 legacy exemptions\)/);
 });
 
 test('a new migration without a rollback script fails', () => {
