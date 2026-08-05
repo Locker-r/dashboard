@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "check": "B3-resolution",
+  "blocker": "B3",
+  "resolvedAt": "2026-08-06T00:00:00.0000000+05:00",
+  "authorization": "Explicit, narrowly scoped Product Owner authorization: organization iivhkhxodnoypvfeucob, exact project name dashboard-latam-staging, environment classification staging, no paid size/add-ons/custom-domain/production-data/production-project-access.",
+  "policyChange": "scripts/release/release-core.cjs classifySupabaseProjectsCreate / classifySupabaseLink; docs/release-gates.md 'The one scoped exception: staging project provisioning'.",
+  "staging": {
+    "name": "dashboard-latam-staging",
+    "ref": "cjdxtakgmnzwixrajjry",
+    "organization_id": "iivhkhxodnoypvfeucob",
+    "region": "eu-west-3",
+    "status": "ACTIVE_HEALTHY",
+    "linked": true,
+    "createdVia": "supabase projects create dashboard-latam-staging --org-id iivhkhxodnoypvfeucob --db-password <in-process, never printed or committed> --region eu-west-3",
+    "linkedVia": "supabase link --project-ref cjdxtakgmnzwixrajjry",
+    "verificationBeforeLinking": "supabase projects list -o json — confirmed name === 'dashboard-latam-staging' and organization_id === 'iivhkhxodnoypvfeucob' before running link, since the classifier cannot itself verify a project ref belongs to the newly created project."
+  },
+  "untouched": {
+    "ref": "hywpwutykwrxkddnofrh",
+    "name": "Locker-r's Dashboard",
+    "note": "The pre-existing project. Not mutated, linked, or otherwise touched by this resolution."
+  },
+  "knownGap": {
+    "what": "The generated database password was not persisted. The storage step of the provisioning script crashed after the `supabase projects create` call had already succeeded, so the password — which existed only in that one shell invocation's environment — was lost rather than written to the intended gitignored recovery file.",
+    "exposure": "None. The password was never printed to output, never logged, and never committed. It simply no longer exists anywhere.",
+    "impact": "No impact on CLI-driven operations (this link, any future `supabase functions deploy`, RLS/auth work) since those authenticate via the CLI's own access token, not the database password. Anything that opens a direct Postgres connection or runs `supabase db push` needs the database password and will fail until it is reset.",
+    "remediation": "A human operator resets it from the Supabase dashboard: Project Settings -> Database -> Reset database password, for project ref cjdxtakgmnzwixrajjry. Recorded as B3's remaining productionActions entry in release/backlog.json."
+  },
+  "notPerformed": [
+    "No migration was applied to the staging project.",
+    "No Edge Function was deployed.",
+    "No hosting was configured.",
+    "The existing project hywpwutykwrxkddnofrh was not read, mutated, deleted, paused, restored, or transferred.",
+    "No paid size, plan, add-on, or custom domain was requested."
+  ]
+}
