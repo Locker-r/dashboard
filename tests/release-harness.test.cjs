@@ -626,7 +626,7 @@ test('documentation and status-only changes do not invalidate acceptance evidenc
 });
 
 test('isEvidenceDriftAllowed is an allow-list: product paths are not on it', () => {
-  for (const path_ of ['docs/project-status.md', 'AGENTS.md', 'CLAUDE.md', 'README.md', 'CHANGELOG.md', '.claude/settings.json', 'scripts/release/release-core.cjs', 'release/backlog.json', 'release/verification/B1.evidence.json', 'release/approvals/B1.approval.json']) {
+  for (const path_ of ['docs/project-status.md', 'AGENTS.md', 'CLAUDE.md', 'README.md', 'CHANGELOG.md', '.claude/settings.json', 'scripts/release/release-core.cjs', 'release/backlog.json', 'release/verification/B1.evidence.json', 'release/approvals/B1.approval.json', 'tests/release-harness.test.cjs']) {
     assert.equal(core.isEvidenceDriftAllowed(path_), true, path_);
   }
   for (const path_ of ['src/lead-proof.js', 'supabase/migrations/x.sql', 'index.html', 'package.json', 'tests/lead-proof.test.cjs', 'scripts/lead-proof-smoke.cjs', 'config/data-config.local.js']) {

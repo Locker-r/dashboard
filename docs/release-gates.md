@@ -72,7 +72,8 @@ different commit only when every path that changed between the two is
 harness tooling, or the evidence/approval directories themselves
 (`isEvidenceDriftAllowed` in `scripts/release/release-core.cjs`: `docs/`,
 `.claude/`, `scripts/release/`, `.github/`, `release/`, `AGENTS.md`,
-`CLAUDE.md`, `README.md`, `CHANGELOG.md`). This is an allow-list, not a
+`CLAUDE.md`, `README.md`, `CHANGELOG.md`, and the harness's own
+`tests/release-harness.test.cjs`, which no backlog criterion runs). This is an allow-list, not a
 deny-list — anything else (`src/`, `supabase/`, `tests/`, `scripts/` other than
 `scripts/release/`, and so on) is product-relevant by default and makes
 evidence stale. The same allow-list governs `ACCEPTANCE_WORKTREE_DIRTY`: an

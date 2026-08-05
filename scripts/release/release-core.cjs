@@ -526,7 +526,12 @@ const HARNESS_FILES = Object.freeze(['release/backlog.json', 'AGENTS.md', 'CLAUD
 // classifyPath, which serves the write-protection guard rather than evidence
 // staleness — the two ask different questions about the same paths.
 const EVIDENCE_DRIFT_ALLOWED_PREFIXES = Object.freeze(['docs/', '.claude/', 'scripts/release/', '.github/', 'release/']);
-const EVIDENCE_DRIFT_ALLOWED_FILES = Object.freeze(['AGENTS.md', 'CLAUDE.md', 'README.md', 'CHANGELOG.md']);
+// tests/release-harness.test.cjs is the harness's own self-test: no backlog
+// criterion runs it, so its content is as irrelevant to B1/B2 evidence as
+// scripts/release/ is. The rest of tests/ stays product-relevant by default,
+// since criteria do run specific files there (tests/lead-proof.test.cjs and
+// friends) and a change to one of those must invalidate evidence.
+const EVIDENCE_DRIFT_ALLOWED_FILES = Object.freeze(['AGENTS.md', 'CLAUDE.md', 'README.md', 'CHANGELOG.md', 'tests/release-harness.test.cjs']);
 
 function isEvidenceDriftAllowed(relative) {
   const text = String(relative || '').replace(/\\/g, '/');
