@@ -176,16 +176,42 @@ The halt does not depend on the approval record. An approval authorizes a
 `classifyCommand` recognises these families. The list is enforced in code and
 tested in `tests/release-harness.test.cjs`.
 
-**Production:** `git push`; `git tag` (except `--list`); `git remote add|set-url|remove|rename`; `gh release|workflow|secret|variable` mutations; `gh pr merge|create|edit|close|review`; `gh repo delete|edit|archive|rename`; `gh api` with a mutating method or field; `supabase db push`; `supabase functions deploy`; `supabase secrets set|unset`; `supabase link`; `supabase login`; `supabase projects create|delete`; `npm publish|unpublish|deploy|dist-tag|owner`; `docker push`; `terraform apply|destroy|import|taint`; and the hosting CLIs `vercel`, `netlify`, `wrangler`, `firebase`, `fly`, `gcloud`, `aws`, `az`, `heroku`, `kubectl`, `helm`, `surge`, `railway`, `render`, `pulumi`, `serverless`.
+**Production:** `git push` to `main`/`master`/`HEAD`, a remote other than `origin`, or with no explicit target; `git push --force|-f|--force-with-lease|--force-if-includes`, `--all|--mirror|--prune`, `--tags|--follow-tags`, `--delete|-d`, `--no-verify`, or a `+`/`:`-prefixed refspec; any refspec whose destination is `refs/tags/…` or version-shaped (`v1.2.0`); `git tag` (except `--list`); `git remote add|set-url|remove|rename`; `gh release|workflow|secret|variable` mutations; `gh auth login|logout|refresh|setup-git`; `gh pr close|edit|comment|review|ready`; `gh pr merge` with `--admin`, `--force`, `--merge`, or `--rebase`, or with no method flag at all; `gh run cancel|rerun|delete`; `gh repo delete|edit|archive|rename|create|fork|clone`; `gh gist create|delete|edit|rename`; `gh issue create|close|edit|comment|delete`; `gh api` with a mutating method (`-X`/`--method`, either form) or field; `supabase db push`; `supabase functions deploy`; `supabase secrets set|unset`; `supabase link`; `supabase login`; `supabase projects create|delete`; `npm publish|unpublish|deploy|dist-tag|owner|access|token`; `docker push`; `terraform apply|destroy|import|taint`; and the hosting CLIs `vercel`, `netlify`, `wrangler`, `firebase`, `fly`, `gcloud`, `aws`, `az`, `heroku`, `kubectl`, `helm`, `surge`, `railway`, `render`, `pulumi`, `serverless`.
 
 **Destructive:** `git reset --hard`; `git clean`; `git filter-branch|filter-repo`; `supabase db reset`; `npm run smoke`; `npm run verify:runtime -- --allow-reset`; `rmdir`; and `rm`/`del`/`Remove-Item` in their sweeping forms — recursive, wildcard, or directory targets. Removing one named file is `local-write`, because a guard that refuses routine cleanup gets switched off and then protects nothing.
 
 Wrappers do not hide any of these. Every segment of a wrapper payload is
 classified, not just the first, and the least safe result wins: `bash -c "npm
-test && git push"` is `production`, as is the same command inside `cmd /c`,
-`powershell -Command`, a pipeline, after an environment-variable prefix, behind
-`npx --yes`, `sudo -u root`, or `nice -n 10`, and with a global flag between the
-command and its subcommand (`supabase --workdir . db push`).
+test && git push origin main"` is `production`, as is the same command inside
+`cmd /c`, `powershell -Command`, a pipeline, after an environment-variable
+prefix, behind `npx --yes`, `sudo -u root`, or `nice -n 10`, and with a global
+flag between the command and its subcommand (`supabase --workdir . db push`).
+
+## What push and PR automation are actually allowed
+
+`git push` is not one action; "update my feature branch" and "force-rewrite
+main" share a verb and nothing else. `classifyGitPush` in
+`scripts/release/release-core.cjs` allows exactly one shape: an explicit,
+unambiguous push of a single ordinary branch to the remote named `origin`,
+carrying none of the flags listed above as production. `git push origin
+feat/x`, `git push -u origin feat/x`, and `git push origin HEAD:feat/x` are
+`local-write`. A bare `git push`, a push with no refspec, or a push to any
+remote other than `origin` is refused as `GIT_PUSH_AMBIGUOUS_TARGET` — the
+classifier cannot verify an unnamed or non-`origin` destination is safe, so it
+does not guess.
+
+`gh pr create` is `local-write`: it opens a request for review and changes no
+branch. `gh pr merge` is `local-write` only with `--squash` and none of
+`--admin`, `--force`, `--merge`, `--rebase` — matching
+[`release-governance.md`](release-governance.md)'s "Squash merge. One pull
+request becomes one commit on `main`." **This classifier cannot see live CI
+state.** Whether the required checks named in
+[`quality-gates.yml`](../.github/workflows/quality-gates.yml) have actually
+passed is enforced by GitHub's branch protection on the server, not by this
+text-only guard — confirm with `gh pr checks` before merging. `gh pr checks`,
+`gh pr status`, `gh pr view`, `gh pr list`, and `gh run list|view|watch` are
+`read-only`. `gh run cancel|rerun|delete` are `production`: re-running or
+cancelling a workflow can re-trigger whatever that workflow does.
 
 `unknown` is allowed for a plain unrecognised command — refusing everything the
 classifier does not know would make the guard unusable. It is refused when it

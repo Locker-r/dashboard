@@ -59,10 +59,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release/Invoke-Relea
 
 ## What Claude does not do here
 
-- No production action, ever. See `AGENTS.md` section 1. `git push`, `git tag`,
-  `gh release`, `supabase db push`, `supabase functions deploy`,
-  `supabase link`, `supabase login`, `npm publish`, and any hosting CLI are
-  refused by `.claude/settings.json` and by `.claude/hooks/release-guard.cjs`.
+- No production action, ever. See `AGENTS.md` section 1. `git tag`, `gh
+  release`, `supabase db push`, `supabase functions deploy`, `supabase link`,
+  `supabase login`, `npm publish`, and any hosting CLI are refused
+  unconditionally by `.claude/settings.json` and by
+  `.claude/hooks/release-guard.cjs`. `git push` and `gh pr` are narrower: an
+  explicit push of one ordinary branch to `origin`, `gh pr create`, and `gh pr
+  merge --squash` (no `--admin`/`--force`/`--merge`/`--rebase`) are allowed —
+  everything else (`main`/`master`, force, delete, tags, `--all`/`--mirror`, an
+  ambiguous target, an admin bypass) is still refused. See
+  [`docs/release-gates.md`](docs/release-gates.md) "What push and PR automation
+  are actually allowed."
 - No writes to `release/approvals/` under any circumstances. Writes to
   `release/verification/` are expected — that is where acceptance evidence goes.
 - No change that turns off row-level security, makes a storage bucket public, or

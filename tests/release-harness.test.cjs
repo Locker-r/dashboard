@@ -247,7 +247,11 @@ test('production commands are classified as production', () => {
     'git -C /repo push',
     'git tag -a v1.2.0 -m v1.2.0',
     'gh release create v1.2.0',
-    'gh pr merge 30 --squash',
+    'gh pr merge 30 --admin',
+    'gh pr merge 30 --squash --merge',
+    'gh pr merge 30',
+    'gh pr close 30',
+    'gh run rerun 12345',
     'gh workflow run release.yml',
     'gh api -X POST /repos/o/r/releases',
     'supabase db push',
@@ -355,6 +359,91 @@ test('a global flag and its value are not mistaken for the subcommand', () => {
   assert.equal(core.classifyCommand('gh api /repos/o/r').classification, core.READ_ONLY);
   assert.equal(core.classifyCommand('gh api --method=GET /repos/o/r').classification, core.READ_ONLY);
   assert.equal(core.classifyCommand('supabase --workdir . status').classification, core.READ_ONLY);
+});
+
+test('an explicit, unambiguous push of an ordinary branch to origin is allowed', () => {
+  const allowed = [
+    'git push origin feat/proof-and-agent-management',
+    'git push -u origin feat/x',
+    'git push --set-upstream origin feat/x',
+    'git push origin HEAD:feat/x',
+    'git push origin feat/x:feat/x',
+    'bash -c "npm test && git push origin feat/x"',
+    'sh -c "git push origin feat/x"'
+  ];
+  for (const command of allowed) {
+    const outcome = core.classifyCommand(command);
+    assert.equal(outcome.classification, core.LOCAL_WRITE, `${command} => ${outcome.classification} (${outcome.rule})`);
+    assert.equal(guard.evaluate(bashEvent(command), {}).decision, 'defer', command);
+  }
+});
+
+test('every other shape of git push stays blocked, including flag-form delete', () => {
+  const blocked = [
+    ['git push origin main', 'GIT_PUSH_PROTECTED_BRANCH'],
+    ['git push origin master', 'GIT_PUSH_PROTECTED_BRANCH'],
+    ['git push origin HEAD:main', 'GIT_PUSH_PROTECTED_BRANCH'],
+    ['git push', 'GIT_PUSH_AMBIGUOUS_TARGET'],
+    ['git push origin', 'GIT_PUSH_AMBIGUOUS_TARGET'],
+    ['git push upstream feat/x', 'GIT_PUSH_AMBIGUOUS_TARGET'],
+    ['git push https://evil.example/repo.git feat/x', 'GIT_PUSH_AMBIGUOUS_TARGET'],
+    ['git push --force origin feat/x', 'GIT_PUSH_FORCE'],
+    ['git push -f origin feat/x', 'GIT_PUSH_FORCE'],
+    ['git push --force-with-lease origin feat/x', 'GIT_PUSH_FORCE'],
+    ['git push origin +feat/x:feat/x', 'GIT_PUSH_FORCE'],
+    ['git push origin :feat/x', 'GIT_PUSH_DELETE_REF'],
+    // The gap found and closed during review: --delete as a flag, not a `:`
+    // prefix, must not read as an ordinary destination.
+    ['git push origin --delete feat/x', 'GIT_PUSH_DELETE_REF'],
+    ['git push -d origin feat/x', 'GIT_PUSH_DELETE_REF'],
+    ['git push --tags origin', 'GIT_PUSH_TAGS'],
+    ['git push --follow-tags origin feat/x', 'GIT_PUSH_TAGS'],
+    ['git push origin v1.2.0', 'GIT_PUSH_TAGS'],
+    ['git push --all origin', 'GIT_PUSH_ALL_OR_MIRROR'],
+    ['git push --mirror origin', 'GIT_PUSH_ALL_OR_MIRROR'],
+    ['git push --no-verify origin feat/x', 'GIT_PUSH_NO_VERIFY']
+  ];
+  for (const [command, rule] of blocked) {
+    const outcome = core.classifyCommand(command);
+    assert.equal(outcome.classification, core.PRODUCTION, `${command} => ${outcome.classification} (${outcome.rule})`);
+    assert.equal(outcome.rule, rule, command);
+    assert.equal(guard.evaluate(bashEvent(command), {}).decision, 'deny', command);
+  }
+});
+
+test('gh pr create and a squash-only gh pr merge are allowed; every bypass is not', () => {
+  assert.equal(core.classifyCommand('gh pr create --title x --body y --base main').classification, core.LOCAL_WRITE);
+  assert.equal(guard.evaluate(bashEvent('gh pr create --title x --body y'), {}).decision, 'defer');
+
+  assert.equal(core.classifyCommand('gh pr merge 31 --squash --delete-branch').classification, core.LOCAL_WRITE);
+  assert.equal(guard.evaluate(bashEvent('gh pr merge 31 --squash'), {}).decision, 'defer');
+
+  const blocked = [
+    'gh pr merge 31',
+    'gh pr merge 31 --squash --admin',
+    'gh pr merge 31 --squash --force',
+    'gh pr merge 31 --merge',
+    'gh pr merge 31 --rebase',
+    'gh pr close 31',
+    'gh pr edit 31 --title x',
+    'gh pr review 31 --approve'
+  ];
+  for (const command of blocked) {
+    assert.equal(core.classifyCommand(command).classification, core.PRODUCTION, command);
+    assert.equal(guard.evaluate(bashEvent(command), {}).decision, 'deny', command);
+  }
+});
+
+test('PR status checks and CI monitoring are read-only; re-running or cancelling a run is not', () => {
+  const readOnly = ['gh pr checks 31', 'gh pr status', 'gh pr view 31', 'gh pr list', 'gh run list', 'gh run view 12345', 'gh run watch 12345'];
+  for (const command of readOnly) {
+    assert.equal(core.classifyCommand(command).classification, core.READ_ONLY, command);
+    assert.equal(guard.evaluate(bashEvent(command), {}).decision, 'defer', command);
+  }
+  for (const command of ['gh run rerun 12345', 'gh run cancel 12345', 'gh run delete 12345']) {
+    assert.equal(core.classifyCommand(command).classification, core.PRODUCTION, command);
+    assert.equal(guard.evaluate(bashEvent(command), {}).decision, 'deny', command);
+  }
 });
 
 test('an approval record cannot be reached through a wrapped or indirect shell command', () => {
@@ -1027,6 +1116,22 @@ test('project settings deny the production families and wire both hooks', () => 
   const deny = settings.permissions.deny.join('\n');
   for (const fragment of ['git push', 'git tag', 'gh release', 'npm publish', 'supabase db push', 'supabase functions deploy', 'release/approvals']) {
     assert.ok(deny.includes(fragment), `settings.json does not deny ${fragment}`);
+  }
+  // The static patterns are a first line of defence, not the authoritative
+  // one — classifyGitPush is — but the specific dangerous shapes named in the
+  // policy fix must still appear as their own denies, not just as the old
+  // blanket "git push:*".
+  for (const fragment of [
+    'git push origin main', 'git push origin master', 'git push --force',
+    'git push --all', 'git push --mirror', 'git push --tags', 'git push --delete',
+    'gh pr merge*--admin', 'gh pr merge*--force', 'gh run cancel', 'gh run rerun'
+  ]) {
+    assert.ok(deny.includes(fragment), `settings.json does not deny ${fragment}`);
+  }
+  assert.equal(deny.includes('Bash(git push:*)'), false, 'the blanket git-push deny must be replaced by targeted rules, not merely supplemented');
+  const allow = settings.permissions.allow.join('\n');
+  for (const fragment of ['git push origin feat/', 'gh pr create', 'gh pr checks', 'gh pr merge', 'gh run list', 'gh run view']) {
+    assert.ok(allow.includes(fragment), `settings.json does not allow ${fragment}`);
   }
   const hookCommands = []
     .concat(settings.hooks.SessionStart, settings.hooks.PreToolUse)

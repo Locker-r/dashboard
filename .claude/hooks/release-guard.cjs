@@ -11,6 +11,16 @@
 //   3. While a release run is active, never modify product code or the harness
 //      itself.
 //
+// Rule 2 is not "never push, never open a PR": `git push` and `gh pr` are
+// ranged, not binary. classifyCommand's classifyGitPush allows an explicit,
+// unambiguous push of one ordinary branch to `origin`, and reserves PRODUCTION
+// for main/master, force, delete, tags, `--all`/`--mirror`, and an ambiguous
+// target. `gh pr create` opens a request and touches no branch. `gh pr merge`
+// is allowed only with `--squash` and without `--admin`/`--force`/`--merge`/
+// `--rebase` — this classifier has no way to observe live CI state, so
+// whether required checks have actually passed is enforced by GitHub's own
+// branch protection on the server, not by this text-only guard.
+//
 // The guard fails closed. An event it cannot parse, a tool input it cannot
 // read, or an internal error all produce a denial rather than a shrug. It is a
 // second line of defence behind the `deny` rules in settings.json, not a

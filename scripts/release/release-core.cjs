@@ -272,6 +272,71 @@ const GIT_LOCAL_WRITE_SUBCOMMANDS = new Set([
   'mv', 'rm', 'notes', 'update-index', 'update-ref', 'init', 'clone'
 ]);
 
+// Flags that take the following token as a value, so it is never mistaken for
+// the remote or a refspec (`git push --push-option ci-skip origin feat/x`).
+const GIT_PUSH_VALUE_FLAGS = new Set(['-o', '--push-option', '--repo', '--receive-pack', '--exec']);
+const GIT_PUSH_PROTECTED_REFS = new Set(['main', 'master', 'head']);
+
+// `git push` is not one action; it ranges from "update my feature branch" to
+// "force-rewrite main". Only an explicit, unambiguous push of one ordinary
+// branch to `origin` is allowed. Everything else — no target, a URL or remote
+// other than `origin`, `--force*`, `--all`/`--mirror`/`--prune`, `--tags`,
+// `--follow-tags` (can push a tag as a side effect), `--no-verify`, a leading
+// `+` or `:` refspec (force / delete), a `refs/tags/…` or version-shaped
+// destination, or `main`/`master`/`HEAD` itself — stays blocked. Fail-closed:
+// an unrecognised flag does not widen what is allowed, it is simply ignored
+// while the destination is still checked.
+function classifyGitPush(args) {
+  let forced = false;
+  let pushesTags = false;
+  let pushesEverything = false;
+  let bypassesHooks = false;
+  let deletesRef = false;
+  const positionals = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (argument === '--force' || argument === '-f' || argument === '--force-with-lease'
+      || argument.startsWith('--force-with-lease=') || argument === '--force-if-includes'
+      || argument.startsWith('--force-if-includes=')) { forced = true; continue; }
+    if (argument === '--tags' || argument === '--follow-tags') { pushesTags = true; continue; }
+    if (argument === '--all' || argument === '--mirror' || argument === '--prune') { pushesEverything = true; continue; }
+    if (argument === '--no-verify') { bypassesHooks = true; continue; }
+    // `--delete`/`-d` deletes the named ref; it does not "push a branch" in the
+    // allowed sense, and the positional after it would otherwise read as an
+    // ordinary destination.
+    if (argument === '--delete' || argument === '-d') { deletesRef = true; continue; }
+    if (GIT_PUSH_VALUE_FLAGS.has(argument)) { index += 1; continue; }
+    if (argument.startsWith('-')) continue;
+    positionals.push(argument);
+  }
+  if (forced) return { classification: PRODUCTION, rule: 'GIT_PUSH_FORCE' };
+  if (pushesEverything) return { classification: PRODUCTION, rule: 'GIT_PUSH_ALL_OR_MIRROR' };
+  if (pushesTags) return { classification: PRODUCTION, rule: 'GIT_PUSH_TAGS' };
+  if (bypassesHooks) return { classification: PRODUCTION, rule: 'GIT_PUSH_NO_VERIFY' };
+  if (deletesRef) return { classification: PRODUCTION, rule: 'GIT_PUSH_DELETE_REF' };
+
+  const [remote, ...refspecs] = positionals;
+  // No remote, no refspec, or a remote other than the one real origin: the
+  // destination cannot be verified safe, so it is not verified allowed.
+  if (remote !== 'origin' || !refspecs.length) {
+    return { classification: PRODUCTION, rule: 'GIT_PUSH_AMBIGUOUS_TARGET' };
+  }
+  for (const refspec of refspecs) {
+    if (refspec.startsWith('+')) return { classification: PRODUCTION, rule: 'GIT_PUSH_FORCE' };
+    if (refspec.startsWith(':')) return { classification: PRODUCTION, rule: 'GIT_PUSH_DELETE_REF' };
+    const colonIndex = refspec.indexOf(':');
+    const destination = (colonIndex >= 0 ? refspec.slice(colonIndex + 1) : refspec).replace(/^refs\/heads\//, '');
+    if (!destination) return { classification: PRODUCTION, rule: 'GIT_PUSH_DELETE_REF' };
+    if (destination.startsWith('refs/tags/') || /^v?\d+(?:\.\d+){1,2}/.test(destination)) {
+      return { classification: PRODUCTION, rule: 'GIT_PUSH_TAGS' };
+    }
+    if (GIT_PUSH_PROTECTED_REFS.has(destination)) {
+      return { classification: PRODUCTION, rule: 'GIT_PUSH_PROTECTED_BRANCH' };
+    }
+  }
+  return { classification: LOCAL_WRITE, rule: 'GIT_PUSH_FEATURE_BRANCH' };
+}
+
 // npm scripts are classified by what the script does, not by the word `run`.
 const NPM_READ_ONLY_SCRIPTS = new Set([
   'test', 'check:js', 'check:secrets', 'check:migrations', 'check:project-status',
@@ -311,7 +376,7 @@ function classifySegment(unwrapped) {
     const git = stripGitGlobals(words).map(word => String(word).toLowerCase());
     const subcommand = git[1] || '';
     const args = git.slice(2);
-    if (subcommand === 'push') return { classification: PRODUCTION, rule: 'GIT_PUSH' };
+    if (subcommand === 'push') return classifyGitPush(args);
     if (subcommand === 'tag') {
       const listing = args.some(argument => ['-l', '--list', '-n', '--contains', '--points-at', '--merged', '--no-merged'].includes(argument));
       return listing && !args.includes('-d') && !args.includes('--delete')
@@ -359,8 +424,32 @@ function classifySegment(unwrapped) {
       // Grants durable credentials, exactly like supabase login.
       return { classification: PRODUCTION, rule: 'GH_AUTH_MUTATION' };
     }
-    if (subcommand === 'pr' && ['merge', 'close', 'ready', 'create', 'edit', 'comment', 'review'].includes(words_[1] || '')) {
+    if (subcommand === 'pr' && words_[1] === 'create') {
+      // Opens a request for review; touches no branch and merges nothing.
+      return { classification: LOCAL_WRITE, rule: 'GH_PR_CREATE' };
+    }
+    if (subcommand === 'pr' && words_[1] === 'merge') {
+      // `--admin` is GitHub's own explicit branch-protection bypass — refused
+      // regardless of anything else on the line.
+      if (has('--admin')) return { classification: PRODUCTION, rule: 'GH_PR_MERGE_ADMIN_BYPASS' };
+      if (has('--force') || has('-f')) return { classification: PRODUCTION, rule: 'GH_PR_MERGE_FORCE' };
+      // Required method, and it must be squash: docs/release-governance.md
+      // states "Squash merge. One pull request becomes one commit on main."
+      // Whether required checks have actually passed is enforced by GitHub's
+      // branch protection on the server side, not by this text classifier —
+      // it has no way to observe live CI state, and does not pretend to.
+      if (!has('--squash') || has('--merge') || has('--rebase')) {
+        return { classification: PRODUCTION, rule: 'GH_PR_MERGE_METHOD_REQUIRED' };
+      }
+      return { classification: LOCAL_WRITE, rule: 'GH_PR_MERGE_SQUASH' };
+    }
+    if (subcommand === 'pr' && ['close', 'ready', 'edit', 'comment', 'review'].includes(words_[1] || '')) {
       return { classification: PRODUCTION, rule: 'GH_PR_MUTATION' };
+    }
+    if (subcommand === 'run' && ['cancel', 'rerun', 'delete'].includes(words_[1] || '')) {
+      // Re-running or cancelling a workflow can re-trigger whatever that
+      // workflow does, including a deploy job; reading run state does not.
+      return { classification: PRODUCTION, rule: 'GH_RUN_MUTATION' };
     }
     if (subcommand === 'repo' && ['delete', 'edit', 'archive', 'rename', 'sync', 'create', 'fork', 'clone'].includes(words_[1] || '')) {
       return { classification: PRODUCTION, rule: 'GH_REPO_MUTATION' };
