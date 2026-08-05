@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "taskId": "B1",
+  "approvedBy": "Name of the person accepting responsibility",
+  "approvedAt": "2026-08-05T12:00:00.0000000+05:00",
+  "scope": "Plain-language description of exactly what is authorized, for example: apply the storage and proof migrations to the test Supabase project and publish the rebuilt artifact to the test host.",
+  "headSha": "0000000000000000000000000000000000000000",
+  "notes": "Optional. Conditions, rollback expectations, or the reviewer who verified the gates."
+}

@@ -1,0 +1,141 @@
+# Release gates
+
+The gate ladder the autonomous release harness walks, what each rung proves,
+who executes it, and where the ladder ends.
+
+Print the live ladder with:
+
+```bash
+node scripts/release/release.cjs gates
+```
+
+The ladder in `scripts/release/release-core.cjs` is authoritative. This
+document explains it; it does not define it.
+
+## Classification
+
+Every gate and every command carries one classification. The harness executes
+only `read-only`.
+
+| Classification | Meaning | Who may execute |
+| --- | --- | --- |
+| `read-only` | Observes state without changing it. | Harness, orchestrator, operator |
+| `local-write` | Writes inside the working copy or a local service. | Operator |
+| `production` | Changes a shared or published system, or grants authority over one. | Operator only, after G7 |
+| `destructive` | Discards local state or data that is not trivially recoverable. | Operator only, with explicit per-run authorization |
+| `unknown` | The classifier does not recognise it. Treated as not read-only. | Nobody, until classified |
+
+`unknown` failing closed is deliberate. A command the harness cannot reason
+about is not a command it may run.
+
+## The ladder
+
+| Gate | Name | Classification | Executor | Proves |
+| --- | --- | --- | --- | --- |
+| G0 | Repository context | read-only | harness | Package identity is `reactivation-desk-dashboard`; branch, HEAD, and working-tree state are known. |
+| G1 | Backlog validation and task selection | read-only | harness | `release/backlog.json` validates, and exactly one next task is selected with a recorded reason for every exclusion. |
+| G2 | Governance documents | read-only | harness | Every required governance document exists and is non-empty. |
+| G3 | Static and unit gates | read-only | orchestrator | `npm test`, `check:js`, `check:secrets`, `check:migrations`, `check:project-status` all exit 0. |
+| G4 | Deterministic artifact verification | local-write | operator | `npm run verify:release`: two byte-identical builds, independent validation, artifact secret scan. |
+| G5 | Local runtime verification | read-only | operator | `npm run verify:runtime` against a running local stack. Needs Docker; the harness never starts it. |
+| G5b | Acceptance evidence | read-only | harness | Every acceptance criterion of the selected task passed against this exact HEAD. |
+| G6 | Human production approval | read-only | harness | A valid approval record exists for the selected task and names the verified HEAD. |
+| G7 | Production gate | production | operator | Nothing. It halts. |
+
+G3 is executed by the PowerShell orchestrator in `-Mode Verify`, never by the
+Node planner. G4 and G5 are left to the operator: G4 writes into `artifacts/`,
+and G5 requires a runtime the harness is forbidden from starting.
+
+## G5b: acceptance evidence
+
+A task is `in-review` when its code exists and its claim does not. G5b is what
+keeps those two facts apart.
+
+It reads `release/verification/<taskId>.evidence.json` and passes only when
+every `acceptanceCriteria` entry in `release/backlog.json` appears there with
+`status: "passed"`, `exitCode: 0`, and a `headSha` equal to the HEAD that G0
+verified. Refusal codes:
+
+| Code | Meaning |
+| --- | --- |
+| `ACCEPTANCE_EVIDENCE_ABSENT` | Nothing has been verified yet. This is the normal state of freshly landed work. |
+| `ACCEPTANCE_EVIDENCE_MALFORMED` | The file is not JSON. |
+| `ACCEPTANCE_EVIDENCE_INVALID` | Wrong schema version, or recorded for another task. |
+| `ACCEPTANCE_EVIDENCE_STALE` | Recorded against a different commit. A commit that was not tested has not been tested. |
+| `ACCEPTANCE_CRITERIA_UNPROVEN` | One or more stated criteria are missing or did not pass. |
+
+Unlike an approval, an agent **may** write evidence — because evidence is
+falsifiable. It names a commit and a set of commands, and anyone can re-run
+them. An approval is a person accepting consequences, and no re-run can
+substitute for that. `release/verification/README.md` states the distinction in
+full.
+
+G5b blocking is not a defect. It means the next operation is verification, and
+the harness says so rather than proceeding.
+
+## Content rules: changes that are not commands
+
+Some dangerous changes are two words inside a migration rather than a command
+line. `classifySecurityContent` reads proposed file content and the guard hook
+refuses these in every mode, release run or not:
+
+| Code | Refuses | Applies to |
+| --- | --- | --- |
+| `RLS_DISABLED` | Turning row-level security off | `supabase/`, `*.sql`, inline SQL in a command |
+| `STORAGE_POLICY_DROPPED_WITHOUT_REPLACEMENT` | Dropping a `storage.objects` policy with no replacement | same |
+| `PUBLIC_PROOF_BUCKET` | Making a storage bucket public | same |
+| `SERVICE_ROLE_KEY_IN_BROWSER_CODE` | An elevated key value in browser-delivered code | `index.html`, `src/`, `config/`, `vendor/` |
+
+Each rule is scoped to where its text would take effect. A fixture in `tests/`
+or a quotation in `docs/` changes no database and ships to no browser, so the
+rules deliberately do not fire there — the same exemption the repository's own
+secret scan already makes. A rule that fires on its own documentation gets
+switched off by the first person it inconveniences.
+
+## G6: the approval record
+
+An approval lives at `release/approvals/<taskId>.approval.json` and is written
+by a human. `release/approval.example.json` is the template. Required fields:
+
+| Field | Meaning |
+| --- | --- |
+| `schemaVersion` | `1`. |
+| `taskId` | Must equal the selected task id. |
+| `approvedBy` | The person accepting responsibility. |
+| `approvedAt` | ISO-8601 timestamp. |
+| `scope` | What is authorized, in plain words. |
+| `headSha` | The exact commit the approval covers. A different HEAD invalidates it. |
+
+Absence is the normal state and produces `APPROVAL_ABSENT`. Malformed,
+incomplete, mismatched-task, and mismatched-HEAD records are refused with their
+own codes rather than being repaired.
+
+No agent may create, edit, or delete a file under `release/approvals/`. That
+denial is unconditional: it applies in every mode, with every flag, and is
+enforced independently by `.claude/settings.json` permissions and by
+`.claude/hooks/release-guard.cjs`.
+
+## G7: the production gate
+
+G7 always halts with `HALTED_AT_PRODUCTION_GATE`. It lists, without performing,
+the production actions that the selected task would eventually require. For the
+current backlog those are:
+
+- `npx supabase db push`
+- `npx supabase functions deploy team-management`
+- publishing `artifacts/pages-site/` to the chosen host
+- `git tag -a <version> -m <version>` and `git push origin <version>`
+
+The halt does not depend on the approval record. An approval authorizes a
+*human* to proceed; it never converts the harness into an executor.
+
+## Recognised production and destructive commands
+
+`classifyCommand` recognises these families. The list is enforced in code and
+tested in `tests/release-harness.test.cjs`.
+
+**Production:** `git push`; `git tag` (except `--list`); `git remote add|set-url|remove|rename`; `gh release|workflow|secret|variable` mutations; `gh pr merge|create|edit|close|review`; `gh repo delete|edit|archive|rename`; `gh api` with a mutating method or field; `supabase db push`; `supabase functions deploy`; `supabase secrets set|unset`; `supabase link`; `supabase login`; `supabase projects create|delete`; `npm publish|unpublish|deploy|dist-tag|owner`; `docker push`; `terraform apply|destroy|import|taint`; and the hosting CLIs `vercel`, `netlify`, `wrangler`, `firebase`, `fly`, `gcloud`, `aws`, `az`, `heroku`, `kubectl`, `helm`, `surge`, `railway`, `render`, `pulumi`, `serverless`.
+
+**Destructive:** `git reset --hard`; `git clean`; `git filter-branch|filter-repo`; `supabase db reset`; `npm run smoke`; `npm run verify:runtime -- --allow-reset`; `rm`, `del`, `rmdir`, `Remove-Item`.
+
+Wrappers do not hide any of these. `powershell -NoProfile -Command "npx supabase db push"` classifies as `production` through `SUPABASE_DB_PUSH`, and so does the same command inside `cmd /c`, `bash -c`, a pipeline, or after an environment-variable prefix.

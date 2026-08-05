@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Bash(git push:*)",
+      "Bash(git tag:*)",
+      "Bash(git remote add:*)",
+      "Bash(git remote set-url:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean:*)",
+      "Bash(git filter-branch:*)",
+      "Bash(gh release:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(gh workflow run:*)",
+      "Bash(gh secret:*)",
+      "Bash(gh repo delete:*)",
+      "Bash(npm publish:*)",
+      "Bash(npm unpublish:*)",
+      "Bash(npm run smoke:*)",
+      "Bash(supabase db push:*)",
+      "Bash(supabase db reset:*)",
+      "Bash(supabase functions deploy:*)",
+      "Bash(supabase link:*)",
+      "Bash(supabase login:*)",
+      "Bash(supabase secrets:*)",
+      "Bash(npx supabase db push:*)",
+      "Bash(npx supabase db reset:*)",
+      "Bash(npx supabase functions deploy:*)",
+      "Bash(npx supabase link:*)",
+      "Bash(npx supabase login:*)",
+      "Bash(npx supabase secrets:*)",
+      "Bash(npx.cmd supabase db push:*)",
+      "Bash(npx.cmd supabase db reset:*)",
+      "Bash(npx.cmd supabase functions deploy:*)",
+      "Bash(npx.cmd supabase link:*)",
+      "Bash(npx.cmd supabase login:*)",
+      "Bash(vercel:*)",
+      "Bash(netlify:*)",
+      "Bash(wrangler:*)",
+      "Bash(firebase:*)",
+      "Bash(flyctl:*)",
+      "Bash(gcloud:*)",
+      "Bash(aws:*)",
+      "Bash(az:*)",
+      "Bash(kubectl:*)",
+      "Bash(helm:*)",
+      "Bash(terraform apply:*)",
+      "Bash(terraform destroy:*)",
+      "Bash(docker push:*)",
+      "Write(./release/approvals/**)",
+      "Edit(./release/approvals/**)",
+      "Read(./.env)",
+      "Read(./**/.env)",
+      "Read(./**/.env.*)",
+      "Read(./config/*.local.js)",
+      "Read(./config/*.local.json)"
+    ],
+    "ask": [
+      "Bash(git commit:*)",
+      "Bash(git merge:*)",
+      "Bash(git rebase:*)",
+      "Bash(git worktree:*)",
+      "Bash(npm install:*)",
+      "Bash(npm ci:*)",
+      "Bash(npm run verify:release:*)",
+      "Bash(npm run verify:runtime:*)",
+      "Bash(npm run preflight:*)",
+      "Bash(npm run dev:local:*)",
+      "Bash(npm run build:pages:*)",
+      "Bash(npx supabase start:*)",
+      "Bash(npx supabase stop:*)",
+      "Bash(npx supabase db diff:*)"
+    ],
+    "allow": [
+      "Bash(node scripts/release/release.cjs:*)",
+      "Bash(npm test:*)",
+      "Bash(npm run check:js:*)",
+      "Bash(npm run check:secrets:*)",
+      "Bash(npm run check:migrations:*)",
+      "Bash(npm run check:project-status:*)",
+      "Bash(npm run doctor:*)",
+      "Bash(npm run verify:fast:*)",
+      "Bash(npm run verify:pr:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git diff:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git merge-base:*)",
+      "Bash(git worktree list:*)",
+      "Bash(node --test:*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/release-context.cjs",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/release-guard.cjs",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
