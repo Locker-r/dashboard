@@ -20,6 +20,8 @@ const RUNTIME_SOURCE_FILES = Object.freeze([
   'src/auth.js',
   'src/analytics.js',
   'src/lead-import.js',
+  'src/lead-proof.js',
+  'src/team-admin.js',
   'src/data/data-service.js',
   'src/data/local-storage-data-service.js',
   'src/data/supabase-data-service.js',
@@ -748,7 +750,9 @@ function validateArtifactStructure(artifactDirectory) {
   const tree = inspectTree(artifactDirectory);
   assertExactList(tree.files, ARTIFACT_FILES, 'ARTIFACT_FILE_SET_INVALID', 'Artifact file set');
   assertExactList(tree.directories, ARTIFACT_DIRECTORIES, 'ARTIFACT_DIRECTORY_SET_INVALID', 'Artifact directory set');
-  if (tree.files.length !== 17) fail('ARTIFACT_FILE_COUNT_INVALID', 'Artifact must contain exactly 17 files.');
+  // Deliberately a literal, not ARTIFACT_FILES.length: an accidental addition to
+  // RUNTIME_SOURCE_FILES must trip this check rather than silently redefine it.
+  if (tree.files.length !== 19) fail('ARTIFACT_FILE_COUNT_INVALID', 'Artifact must contain exactly 19 files.');
 
   for (const relativePath of ARTIFACT_FILES) {
     const buffer = fs.readFileSync(path.join(artifactDirectory, ...relativePath.split('/')));

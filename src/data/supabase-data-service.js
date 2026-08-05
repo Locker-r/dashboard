@@ -1,4 +1,4 @@
-(function exposeSupabaseDataService(root, factory) {
+﻿(function exposeSupabaseDataService(root, factory) {
   const dependencies = typeof module === 'object' && module.exports
     ? require('./data-service.js')
     : root.ReactivationData;
@@ -20,6 +20,7 @@
       name: stringOrEmpty(row.name),
       role: row.role || 'agent',
       lang: row.lang || 'ru',
+      country: stringOrEmpty(row.country),
       isActive: row.is_active !== false,
       createdAt: row.created_at || null,
       updatedAt: row.updated_at || null
@@ -101,6 +102,24 @@
     };
   }
 
+  // Proof rows carry no contact value, so they map outside the mapPlayer..unwrap
+  // region that the contact-boundary test treats as its no-raw-contact span.
+  function mapProof(row) {
+    return {
+      id: row.id,
+      playerId: stringOrEmpty(row.player_id),
+      uploadedBy: row.uploaded_by || '',
+      storageBucket: stringOrEmpty(row.storage_bucket),
+      storagePath: stringOrEmpty(row.storage_path),
+      originalFilename: stringOrEmpty(row.original_filename),
+      mimeType: stringOrEmpty(row.mime_type),
+      fileSize: row.verified_file_size == null ? Number(row.declared_file_size) || 0 : Number(row.verified_file_size),
+      state: row.state === 'active' ? 'active' : (row.state === 'discarded' ? 'discarded' : 'pending'),
+      createdAt: row.created_at || null,
+      confirmedAt: row.confirmed_at || null
+    };
+  }
+
   class SupabaseDataService extends DataService {
     constructor(client) {
       super();
@@ -109,7 +128,7 @@
     }
 
     async loadUsers() {
-      const rows = await unwrap(this.client.from('profiles').select('id,username,name,role,lang,is_active,created_at,updated_at'));
+      const rows = await unwrap(this.client.from('profiles').select('id,username,name,role,lang,country,is_active,created_at,updated_at'));
       return rows.filter(row => row && row.id).map(mapProfile);
     }
 
@@ -194,12 +213,74 @@
       return mapReveal(row);
     }
 
+    // Proof rows are readable only through RLS: an admin, or the agent the lead
+    // is assigned to. Discarded rows are filtered here for display; the server
+    // still refuses to let one authorise a close.
+    async loadProofs() {
+      const rows = await unwrap(this.client.from('lead_proofs')
+        .select('id,player_id,uploaded_by,storage_bucket,storage_path,original_filename,mime_type,declared_file_size,verified_file_size,state,created_at,confirmed_at')
+        .neq('state', 'discarded')
+        .order('created_at', { ascending: false }));
+      return rows.filter(row => row && row.id).map(mapProof);
+    }
+
+    // Step 1 of the upload: the server decides whether this caller may attach a
+    // proof to this lead and returns the only storage path it will accept.
+    async requestProofUpload(playerId, proofId, filename, mimeType, fileSize) {
+      const data = await callRpc(this.client, 'request_lead_proof_upload', {
+        p_player_id: playerId, p_proof_id: proofId, p_filename: filename,
+        p_mime_type: mimeType, p_file_size: fileSize
+      });
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row || typeof row !== 'object' || !row.storage_path) {
+        throw Object.assign(new Error('PROOF_CONTRACT_VIOLATION'), { code: 'PROOF_CONTRACT_VIOLATION' });
+      }
+      return mapProof(row);
+    }
+
+    // Step 2: the bytes. The path came from the server, never from the caller.
+    async uploadProofObject(proof, file) {
+      const result = await this.client.storage.from(proof.storageBucket).upload(proof.storagePath, file, {
+        contentType: proof.mimeType, upsert: true
+      });
+      if (result.error) throw result.error;
+      return true;
+    }
+
+    // Step 3: the server re-reads the stored object and only then activates the
+    // proof. Until this succeeds the lead cannot be closed.
+    async confirmProof(proofId) {
+      const data = await callRpc(this.client, 'confirm_lead_proof', { p_proof_id: proofId });
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row || typeof row !== 'object' || row.state !== 'active') {
+        throw Object.assign(new Error('PROOF_NOT_READY'), { code: 'PROOF_NOT_READY' });
+      }
+      return mapProof(row);
+    }
+
+    async discardProof(proofId) {
+      const data = await callRpc(this.client, 'discard_lead_proof', { p_proof_id: proofId });
+      const row = Array.isArray(data) ? data[0] : data;
+      return row && typeof row === 'object' ? mapProof(row) : null;
+    }
+
+    // Reads are short-lived signed URLs. Nothing durable is stored, and the URL
+    // is requested again whenever it is needed.
+    async createProofUrl(proof, expiresInSeconds) {
+      const result = await this.client.storage.from(proof.storageBucket)
+        .createSignedUrl(proof.storagePath, Math.max(30, Number(expiresInSeconds) || 120));
+      if (result.error) throw result.error;
+      const url = result.data && result.data.signedUrl;
+      if (!url) throw Object.assign(new Error('PROOF_URL_UNAVAILABLE'), { code: 'PROOF_URL_UNAVAILABLE' });
+      return url;
+    }
+
     async getCurrentUser() {
       const sessionResult = await this.client.auth.getSession();
       if (sessionResult.error) throw sessionResult.error;
       const user = sessionResult.data && sessionResult.data.session && sessionResult.data.session.user;
       if (!user) return null;
-      const result = await this.client.from('profiles').select('id,username,name,role,lang,is_active,created_at,updated_at').eq('id', user.id).maybeSingle();
+      const result = await this.client.from('profiles').select('id,username,name,role,lang,country,is_active,created_at,updated_at').eq('id', user.id).maybeSingle();
       if (result.error) throw result.error;
       return result.data ? mapProfile(result.data) : null;
     }
@@ -210,5 +291,5 @@
     }
   }
 
-  return { SupabaseDataService, mapProfile, mapComment, mapHistory, mapPlayer, mapReveal, callRpc };
+  return { SupabaseDataService, mapProfile, mapComment, mapHistory, mapPlayer, mapReveal, mapProof, callRpc };
 });
