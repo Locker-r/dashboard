@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "taskId": "B1",
-  "headSha": "7a0d4108cabf653d4fd08dbfb906560757eca81f",
-  "recordedAt": "2026-08-05T22:47:00.0000000+05:00",
+  "headSha": "e67ebe58acdfc692e48c034a682369d6af7f971d",
+  "recordedAt": "2026-08-05T23:26:00.0000000+05:00",
   "environment": "local Supabase stack dashboard-runtime-smoke, Postgres 17, API http://127.0.0.1:54321, Docker 29.6.1",
   "criteria": [
     {
