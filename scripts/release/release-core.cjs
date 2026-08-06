@@ -591,6 +591,14 @@ function classifySegment(unwrapped) {
     if (script.startsWith('scripts/release/release.cjs') || script.startsWith('scripts/dev/check-project-status.cjs') || script.startsWith('scripts/dev/doctor.cjs')) {
       return { classification: READ_ONLY, rule: 'NODE_READ_ONLY_SCRIPT' };
     }
+    // The staging migration wrapper reaches a hosted database. Seeing it at
+    // segment level means it arrived wrapped, piped, env-prefixed, or with
+    // arguments this policy does not authorize — the exact-shape check in
+    // classifyCommand never reaches here. Refuse; the narrow allowance is
+    // granted there and nowhere else.
+    if (script === STAGING_DB_MIGRATE_SCRIPT) {
+      return { classification: PRODUCTION, rule: 'STAGING_DB_MIGRATION_UNAUTHORIZED_FORM' };
+    }
     // The runtime suites sign in, create synthetic rows, and clean up after
     // themselves against the local stack. Read-only they are not.
     if (/^scripts\/[a-z0-9-]*smoke[a-z0-9-]*\.cjs$/.test(script) || /^scripts\/(?:contact-reveal-race|provision-local-smoke-users)\.cjs$/.test(script)) {
@@ -648,8 +656,54 @@ const CLASSIFICATION_SEVERITY = Object.freeze({
   [DESTRUCTIVE]: 3
 });
 
+// The scoped staging database migration exception.
+//
+// `supabase db push` stays `production` in every form. What is authorized here
+// is one wrapper, in one shape, in one place: `scripts/release/staging-db-migrate.cjs`
+// with exactly one of `--dry-run` or `--apply`, running inside GitHub Actions
+// with RELEASE_ENVIRONMENT=staging. The wrapper re-checks all of this at run
+// time against its own pinned project ref, host, port and database; this
+// function is the outer half of that pair, not a substitute for it.
+//
+// The shape is matched against the raw tokens rather than an expanded segment
+// on purpose. Anything that had to be unwrapped to get here — `cmd /c`,
+// `npx --yes`, a pipeline, a shell, an environment-variable prefix — is not
+// this exact command, so it falls through to classifySegment and is refused
+// as STAGING_DB_MIGRATION_UNAUTHORIZED_FORM. Extending this to a second
+// project, host, or environment needs its own reviewed authorization.
+const STAGING_DB_MIGRATE_SCRIPT = 'scripts/release/staging-db-migrate.cjs';
+const STAGING_DB_MIGRATE_MODES = Object.freeze(['--dry-run', '--apply']);
+
+function classifyStagingDbMigrate(command, env) {
+  const tokens = tokenize(command).map(String);
+  if (tokens.length !== 3) return null;
+  if (baseCommand(tokens[0]) !== 'node') return null;
+  const script = tokens[1].replace(/\\/g, '/').replace(/^\.\//, '');
+  if (script !== STAGING_DB_MIGRATE_SCRIPT) return null;
+  if (!STAGING_DB_MIGRATE_MODES.includes(tokens[2])) {
+    return { classification: PRODUCTION, rule: 'STAGING_DB_MIGRATION_UNAUTHORIZED_FORM' };
+  }
+  // Local execution is not a weaker case of CI execution; it is a different
+  // actor reaching the same database with no run record. It stays refused.
+  if (env.GITHUB_ACTIONS !== 'true') {
+    return { classification: PRODUCTION, rule: 'STAGING_DB_MIGRATION_LOCAL_EXECUTION_BLOCKED' };
+  }
+  if (env.RELEASE_ENVIRONMENT !== 'staging') {
+    return { classification: PRODUCTION, rule: 'STAGING_DB_MIGRATION_ENVIRONMENT_MISMATCH' };
+  }
+  return { classification: LOCAL_WRITE, rule: 'STAGING_DB_MIGRATION_AUTHORIZED' };
+}
+
 // A pipeline is only as safe as its least safe member.
-function classifyCommand(command) {
+function classifyCommand(command, env = process.env) {
+  const scoped = classifyStagingDbMigrate(command, env);
+  if (scoped) {
+    return Object.freeze({
+      classification: scoped.classification,
+      rule: scoped.rule,
+      segments: Object.freeze([Object.freeze({ classification: scoped.classification, rule: scoped.rule })])
+    });
+  }
   const segments = splitSegments(tokenize(command)).flatMap(segment => expandSegment(segment));
   if (!segments.length) return Object.freeze({ classification: READ_ONLY, rule: 'EMPTY_COMMAND', segments: Object.freeze([]) });
   const results = segments.map(segment => {

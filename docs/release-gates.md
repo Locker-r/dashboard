@@ -210,6 +210,39 @@ merge` and live CI state. Extending this exception to a second project or
 organization needs a new, equally explicit scoped authorization — not a
 loosened pattern.
 
+## The scoped exception: staging database migration
+
+`supabase db push` is `production` in every form and remains so — bare, with
+`--dry-run`, with an explicit `--db-url`, under `npx`, or behind a global flag.
+Nothing below relaxes `SUPABASE_DB_PUSH`.
+
+What is authorized is one wrapper, `scripts/release/staging-db-migrate.cjs`,
+invoked as exactly `node scripts/release/staging-db-migrate.cjs --dry-run` or
+`--apply`, and only when `GITHUB_ACTIONS=true` and
+`RELEASE_ENVIRONMENT=staging`. That form classifies `local-write`
+(`STAGING_DB_MIGRATION_AUTHORIZED`). Every other case is `production`:
+
+- run anywhere but GitHub Actions — `STAGING_DB_MIGRATION_LOCAL_EXECUTION_BLOCKED`;
+- any other release environment — `STAGING_DB_MIGRATION_ENVIRONMENT_MISMATCH`;
+- any other argument shape, or any invocation that had to be unwrapped from
+  `cmd /c`, a shell, `npx --yes`, a pipeline, or an environment-variable
+  prefix — `STAGING_DB_MIGRATION_UNAUTHORIZED_FORM`. The exception matches raw
+  tokens, so an evasion is never the authorized command.
+
+The wrapper pins its target and holds no configuration surface: project ref
+`cjdxtakgmnzwixrajjry`, host `aws-1-eu-west-3.pooler.supabase.com`, port
+`5432`, database `postgres`, environment `staging`. It builds the
+percent-encoded connection URL in process memory only, registers a mask for
+the password and the URL before the CLI starts, and never writes either to a
+log or to disk. It re-checks every precondition at run time; the classifier is
+the outer half of the pair, not a substitute for it.
+
+This authorizes staging only. It grants nothing in production, deploys no Edge
+Function and no frontend, and does not alter gate G6 or G7 — a production
+release still halts for a human approval record. Extending this to a second
+project, host, port, database, or environment needs its own reviewed
+authorization, not a loosened pattern.
+
 ## What push and PR automation are actually allowed
 
 `git push` is not one action; "update my feature branch" and "force-rewrite
