@@ -206,7 +206,9 @@ test('the selection does not depend on the order the backlog lists tasks in', ()
 test('every excluded task carries a reason code', () => {
   const selection = core.selectNextTask(core.validateBacklog(realBacklog()));
   const byId = new Map(selection.excluded.map(entry => [entry.id, entry.code]));
-  assert.equal(byId.get('B3'), 'EXTERNAL_DEPENDENCY');
+  // B3 was resolved in 19c4c4b — the staging project exists and is linked — so
+  // it is excluded as already done, not as a pending external dependency.
+  assert.equal(byId.get('B3'), 'ALREADY_DONE');
   assert.equal(byId.get('B4'), 'EXTERNAL_DEPENDENCY');
   assert.equal(byId.get('B5'), 'DEPENDENCY_NOT_DONE');
   assert.equal(byId.get('B6'), 'DECISION_PENDING');
