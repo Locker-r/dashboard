@@ -141,20 +141,25 @@
       "severity": "P1",
       "kind": "release-blocker",
       "actionability": "external",
-      "status": "open",
+      "status": "done",
       "decision": "approved",
-      "decisionEvidence": "docs/test-environment-status.md records this as Product Owner action 1.",
+      "decisionEvidence": "docs/test-environment-status.md records this as Product Owner action 1. Resolved 2026-08-06 under an explicit, narrowly scoped Product Owner authorization limited to organization iivhkhxodnoypvfeucob and project name dashboard-latam-staging (scripts/release/release-core.cjs classifySupabaseProjectsCreate/classifySupabaseLink; docs/release-gates.md 'The one scoped exception').",
       "releaseBlocking": true,
       "workaround": null,
       "dependsOn": [],
       "blocks": [],
       "evidence": [
         "docs/test-environment-status.md — blocker B3, severity P1 (external)",
-        "docs/test-environment-status.md — no access token, no project ref, CLI holds no session"
+        "release/verification/staging-readiness-2026-08-06.json — dated confirmation the blocker was open before resolution",
+        "release/verification/B3-resolution-2026-08-06.json — the machine-readable resolution record, including the database-password gap",
+        "Resolved: Supabase CLI authenticated by the operator (SUPABASE_ACCESS_TOKEN session, out of session scope to inspect).",
+        "Created project dashboard-latam-staging (ref cjdxtakgmnzwixrajjry) in organization iivhkhxodnoypvfeucob, region eu-west-3, status ACTIVE_HEALTHY, via `supabase projects create dashboard-latam-staging --org-id iivhkhxodnoypvfeucob --db-password <in-process, unprinted> --region eu-west-3` — no --size/--plan/--custom-domain flag, so no paid size or add-on was requested.",
+        "Verified via `supabase projects list -o json` that the returned project's name and organization_id matched exactly before linking.",
+        "Linked with `supabase link --project-ref cjdxtakgmnzwixrajjry`; supabase/.temp/project-ref now reads cjdxtakgmnzwixrajjry. The pre-existing project hywpwutykwrxkddnofrh was not touched, mutated, or linked.",
+        "KNOWN GAP: the generated database password was not persisted — a bug in the storage step crashed after the CLI create call succeeded, so the value (which lived only in that shell invocation's environment) was lost rather than exposed. No secret was printed or committed. The project itself is otherwise fully usable (CLI-authenticated operations, RLS, auth do not depend on the DB password), but a human operator must reset it from the Supabase dashboard (Project Settings -> Database -> Reset database password) before any task that opens a direct Postgres connection or runs `supabase db push`."
       ],
       "productionActions": [
-        "supabase login (interactive, operator only)",
-        "supabase link --project-ref <ref>"
+        "Reset the dashboard-latam-staging database password from the Supabase dashboard (Project Settings -> Database) before any migration or db-connection task."
       ]
     },
     {

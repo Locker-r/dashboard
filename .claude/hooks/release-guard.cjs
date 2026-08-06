@@ -21,6 +21,13 @@
 // whether required checks have actually passed is enforced by GitHub's own
 // branch protection on the server, not by this text-only guard.
 //
+// One further, deliberately narrow carve-out: `supabase projects create` and
+// `supabase link` are allowed only for the single named staging project
+// (`dashboard-latam-staging` in org `iivhkhxodnoypvfeucob`) with no paid size,
+// plan, or add-on flag — see classifySupabaseProjectsCreate and
+// classifySupabaseLink. Every other project, org, name, or flag combination —
+// and the existing project `hywpwutykwrxkddnofrh` by name — stays PRODUCTION.
+//
 // The guard fails closed. An event it cannot parse, a tool input it cannot
 // read, or an internal error all produce a denial rather than a shrug. It is a
 // second line of defence behind the `deny` rules in settings.json, not a
