@@ -1,0 +1,97 @@
+name: Staging database migration
+
+# Manual only. This workflow reaches a hosted database, so it starts when a
+# person presses the button and names the target — never on a push, a
+# schedule, or another workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      project_ref:
+        description: 'Type the staging project ref exactly to confirm the target: cjdxtakgmnzwixrajjry'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Two migrations against the same database at once is how a schema ends up in
+# a state neither run intended.
+concurrency:
+  group: staging-db-migrate
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Dry run, apply, verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Carries the SUPABASE_DB_PASSWORD environment secret, and whatever
+    # protection rules the staging environment has configured.
+    environment: staging
+    env:
+      RELEASE_ENVIRONMENT: staging
+      STAGING_PROJECT_REF: cjdxtakgmnzwixrajjry
+    steps:
+      # Fail before the CLI is installed and before any secret is read: a typo
+      # in the confirmation should cost nothing.
+      - name: Confirm the target project ref
+        shell: bash
+        env:
+          SUPPLIED_REF: ${{ inputs.project_ref }}
+        run: |
+          if [[ "$SUPPLIED_REF" != "$STAGING_PROJECT_REF" ]]; then
+            echo "Refused: project_ref must be exactly $STAGING_PROJECT_REF." >&2
+            echo "Received: $SUPPLIED_REF" >&2
+            exit 1
+          fi
+          echo "Target confirmed: $STAGING_PROJECT_REF"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # The wrapper is the only authorized path to `supabase db push`; see
+      # docs/release-gates.md, "The scoped exception: staging database
+      # migration". It pins the project ref, host, port and database itself,
+      # builds the connection URL in process memory, and masks the password
+      # and the URL before the CLI starts. Nothing here passes a --db-url, and
+      # nothing here calls `supabase db push` directly.
+      - name: Dry run
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: node scripts/release/staging-db-migrate.cjs --dry-run
+
+      # Reached only when the dry run exited 0: a failed step fails the job.
+      - name: Apply pending migrations
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: node scripts/release/staging-db-migrate.cjs --apply
+
+      # Proves the applied state is the intended state rather than trusting
+      # the apply step's own exit code.
+      - name: Verify no migrations remain pending
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: node scripts/release/staging-db-migrate.cjs --dry-run
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### Staging database migration"
+            echo ""
+            echo "- Project ref: \`$STAGING_PROJECT_REF\`"
+            echo "- Environment: \`staging\`"
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Result: \`${{ job.status }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
