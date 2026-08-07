@@ -69,6 +69,32 @@ task claims to be unstarted while its implementation is reachable
 (`TASK_STATE_STALE`). A task whose code exists and whose claims do not is
 `in-review`, and the operation reported for it is `verify`.
 
+## Task status: `accepted` is not `done`
+
+A task carries one of four statuses: `open`, `in-review`, `accepted`, `done`.
+
+`accepted` means a human recorded a G6 approval and accepted the task, but its
+`productionActions` are still outstanding. It exists because approval and
+shipping are different events, and the harness must be able to represent the
+gap between them without lying in either direction. Calling such a task `done`
+would claim work shipped that has not; leaving it `in-review` would make the
+planner re-select it forever and block every remaining task behind it.
+
+Its only mechanical effect is on selection: an `accepted` task is excluded with
+`AWAITING_PRODUCTION` (never `ALREADY_DONE`), and its reported operation is
+`none`. Everything else is deliberately unchanged — the production actions stay
+recorded and unexecuted, and gate G7 still halts by construction.
+
+Two properties are load-bearing:
+
+- **Nothing derives it automatically.** No code path reads an approval record to
+  set a status. A person edits `release/backlog.json`, exactly as a person
+  writes the approval, because the status asserts human acceptance and an agent
+  that could set it would be self-approving under a different name.
+- **`accepted` does not satisfy a dependency.** `dependsOn` is still met only by
+  `done`. A task waiting on unshipped work stays blocked, because what it is
+  waiting for has not happened yet.
+
 ## Why the halt is trustworthy
 
 Three independent mechanisms, each testable on its own:

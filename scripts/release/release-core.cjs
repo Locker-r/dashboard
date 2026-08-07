@@ -48,7 +48,16 @@ const UNKNOWN = 'unknown';
 const CLASSIFICATIONS = Object.freeze([READ_ONLY, LOCAL_WRITE, PRODUCTION, DESTRUCTIVE, UNKNOWN]);
 
 const SEVERITY_ORDER = Object.freeze({ P0: 0, P1: 1, P2: 2, P3: 3 });
-const TASK_STATUSES = Object.freeze(['open', 'in-review', 'done']);
+// `accepted` sits between `in-review` and `done`: a human recorded a G6
+// approval and accepted the task, but its productionActions are still
+// outstanding. It is deliberately NOT `done` — nothing has shipped — and
+// nothing derives it automatically from an approval file. A person sets it,
+// the same way a person writes the approval, because it asserts human
+// acceptance and an agent that could set it would be self-approving by
+// another name. Its only mechanical effect is that the planner stops
+// re-selecting the task, so goal mode can advance to the remaining
+// non-production work while gate G7 still halts.
+const TASK_STATUSES = Object.freeze(['open', 'in-review', 'accepted', 'done']);
 const TASK_DECISIONS = Object.freeze(['approved', 'pending', 'rejected']);
 const TASK_ACTIONABILITY = Object.freeze(['internal', 'external']);
 const TASK_ID = /^[A-Z][A-Z0-9-]{0,15}$/;
@@ -1120,6 +1129,12 @@ function loadBacklog(deps, backlogPath) {
 // not a selection, it is an assertion.
 function excludeReason(task, byId) {
   if (task.status === 'done') return { code: 'ALREADY_DONE', detail: 'The task is recorded as done.' };
+  // Accepted, not shipped. The task needs no further agent work, but its
+  // production actions are still outstanding and only an operator can perform
+  // them — so it is excluded from selection without being called done.
+  if (task.status === 'accepted') {
+    return { code: 'AWAITING_PRODUCTION', detail: 'A human accepted the task; its production actions remain outstanding and only an operator can perform them.' };
+  }
   if (task.decision === 'rejected') return { code: 'DECISION_REJECTED', detail: 'The recorded decision rejects this task.' };
   if (task.decision !== 'approved') {
     return { code: 'DECISION_PENDING', detail: 'No approved decision is recorded, so an agent may not start it.' };
@@ -1145,6 +1160,8 @@ function nextOperation(task) {
   if (!task) return null;
   if (task.status === 'in-review') return 'verify';
   if (task.status === 'open') return task.implementation.commits.length ? 'reconcile-state' : 'implement';
+  // `accepted` and `done` both fall through: there is no agent operation left
+  // on either. What remains for `accepted` is an operator's production work.
   return 'none';
 }
 
