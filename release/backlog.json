@@ -55,8 +55,8 @@
         },
         {
           "id": "proof-runtime-suite",
-          "statement": "Against a live local stack: a lead cannot close without a confirmed proof, the bucket is private, cross-agent proof access is refused, admin access works, and a deactivated agent loses proof access.",
-          "command": "node scripts/lead-proof-smoke.cjs"
+          "statement": "Against the hosted staging project: a lead cannot close without a confirmed proof; proof upload and confirmation succeed through the real product path; proof access is private and refused to a cross-agent actor; disallowed MIME types and oversized files are rejected; signed proof access is granted to an authorized actor and refused to a cross-agent actor; a confirmed proof cannot be overwritten or deleted; the close audit record identifies the real actor; admin can see proof metadata and the final result; contact fields stay protected before in_work and become available after; and anonymous or unauthorized access to protected data, proof objects, and team-management is refused. Verified by scripts/verify-staging-smoke-evidence.cjs, a read-only check for a qualifying successful run of .github/workflows/staging-cloud-smoke.yml — see docs/release-gates.md, 'B1 proof-runtime-suite: staging evidence verification'.",
+          "command": "node scripts/verify-staging-smoke-evidence.cjs"
         },
         {
           "id": "proof-no-browser-secret",
