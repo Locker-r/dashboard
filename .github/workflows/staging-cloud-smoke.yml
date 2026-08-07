@@ -1,0 +1,144 @@
+name: Staging cloud smoke
+
+# Manual only. This workflow writes real rows to a hosted staging database
+# and creates real (disposable) Auth accounts, so it starts when a person
+# presses the button and names the target explicitly.
+on:
+  workflow_dispatch:
+    inputs:
+      project_ref:
+        description: 'Type the staging project ref exactly to confirm the target: cjdxtakgmnzwixrajjry'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Two smoke runs racing each other would collide on the run-scoped cleanup
+# and cashier accounts.
+concurrency:
+  group: staging-cloud-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: Provision, smoke, deprovision
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Only main carries reviewed source; a branch could have anything in it.
+    if: github.ref == 'refs/heads/main'
+    # Carries the STAGING_SMOKE_ADMIN_EMAIL/PASSWORD environment secrets, and
+    # whatever protection rules the staging environment has configured.
+    environment: staging
+    env:
+      STAGING_PROJECT_REF: cjdxtakgmnzwixrajjry
+      SMOKE_TEST_MODE: staging
+      SMOKE_TEST_PROJECT_URL: https://cjdxtakgmnzwixrajjry.supabase.co
+      SMOKE_TEST_ALLOWED_PROJECT_URL: https://cjdxtakgmnzwixrajjry.supabase.co
+      SMOKE_TEST_STAGING_CONFIRMATION: STAGING_ONLY_NOT_PRODUCTION
+      SMOKE_TEST_WRITE_CONFIRMATION: I_UNDERSTAND_SMOKE_TEST_WRITES
+      # The publishable (anon) key, not a secret: same value already public in
+      # the deployed Pages runtime-config.js. See docs/release-gates.md.
+      SMOKE_TEST_PUBLISHABLE_KEY: sb_publishable_A6m7h8KC8ob9g_ItZZRlqg_ZwLIC2iv
+    steps:
+      # Fail before the admin credentials are ever read: a typo in the
+      # confirmation should cost nothing.
+      - name: Confirm the target project ref
+        shell: bash
+        env:
+          SUPPLIED_REF: ${{ inputs.project_ref }}
+        run: |
+          if [[ "$SUPPLIED_REF" != "$STAGING_PROJECT_REF" ]]; then
+            echo "Refused: project_ref must be exactly $STAGING_PROJECT_REF." >&2
+            echo "Received: $SUPPLIED_REF" >&2
+            exit 1
+          fi
+          echo "Target confirmed: $STAGING_PROJECT_REF"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # A stable, run-scoped id ties provisioning, the smoke run itself, and
+      # deprovisioning together, and is what scripts/runtime-smoke.cjs's own
+      # cleanup RPC matches records against.
+      - name: Generate the run id
+        id: run_id
+        shell: bash
+        run: echo "value=$(node -e "console.log(require('crypto').randomBytes(10).toString('hex'))")" >> "$GITHUB_OUTPUT"
+
+      # Creates two disposable cashiers through the reviewed team-management
+      # `create-member` action — the same path an admin uses from the UI, not
+      # a direct database or Auth-admin mutation. Their generated passwords
+      # are masked the moment they exist and never appear in any log.
+      - name: Provision disposable staging cashiers
+        id: cashiers
+        shell: bash
+        env:
+          SMOKE_TEST_ADMIN_EMAIL: ${{ secrets.STAGING_SMOKE_ADMIN_EMAIL }}
+          SMOKE_TEST_ADMIN_PASSWORD: ${{ secrets.STAGING_SMOKE_ADMIN_PASSWORD }}
+        run: |
+          node scripts/staging-smoke-provision-cashiers.cjs "${{ steps.run_id.outputs.value }}" > /tmp/cashiers.tsv
+          IFS=$'\t' read -r A_EMAIL A_PASSWORD < <(sed -n '1p' /tmp/cashiers.tsv)
+          IFS=$'\t' read -r B_EMAIL B_PASSWORD < <(sed -n '2p' /tmp/cashiers.tsv)
+          rm -f /tmp/cashiers.tsv
+          echo "::add-mask::$A_PASSWORD"
+          echo "::add-mask::$B_PASSWORD"
+          {
+            echo "a_email=$A_EMAIL"
+            echo "a_password=$A_PASSWORD"
+            echo "b_email=$B_EMAIL"
+            echo "b_password=$B_PASSWORD"
+          } >> "$GITHUB_OUTPUT"
+
+      # The reviewed staging-write smoke harness (also used by verify:runtime
+      # locally): admin/cashier sign-in, cross-cashier RLS isolation, NOT_OWNER
+      # rejection on cross-cashier writes, in_work transition with audit
+      # history, admin visibility of both leads, and atomic run-scoped cleanup.
+      # Unmodified — this workflow only supplies its account inputs.
+      - name: Run the staging smoke harness
+        env:
+          SMOKE_TEST_RUN_ID: ${{ steps.run_id.outputs.value }}
+          SMOKE_TEST_ADMIN_EMAIL: ${{ secrets.STAGING_SMOKE_ADMIN_EMAIL }}
+          SMOKE_TEST_ADMIN_PASSWORD: ${{ secrets.STAGING_SMOKE_ADMIN_PASSWORD }}
+          SMOKE_TEST_AGENT_A_EMAIL: ${{ steps.cashiers.outputs.a_email }}
+          SMOKE_TEST_AGENT_A_PASSWORD: ${{ steps.cashiers.outputs.a_password }}
+          SMOKE_TEST_AGENT_B_EMAIL: ${{ steps.cashiers.outputs.b_email }}
+          SMOKE_TEST_AGENT_B_PASSWORD: ${{ steps.cashiers.outputs.b_password }}
+        run: node scripts/runtime-smoke.cjs
+
+      # Best-effort, always runs: deactivates the two disposable cashiers
+      # through the same reviewed set-member-active action. There is no
+      # delete-member action; deactivation is the existing disposal path.
+      - name: Deprovision disposable staging cashiers
+        if: always()
+        env:
+          SMOKE_TEST_ADMIN_EMAIL: ${{ secrets.STAGING_SMOKE_ADMIN_EMAIL }}
+          SMOKE_TEST_ADMIN_PASSWORD: ${{ secrets.STAGING_SMOKE_ADMIN_PASSWORD }}
+        run: node scripts/staging-smoke-deprovision-cashiers.cjs "${{ steps.run_id.outputs.value }}"
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### Staging cloud smoke"
+            echo ""
+            echo "- Project ref: \`$STAGING_PROJECT_REF\`"
+            echo "- Run id: \`${{ steps.run_id.outputs.value }}\`"
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Result: \`${{ job.status }}\`"
+            echo ""
+            echo "**Known gap**: this run proves account isolation, RLS,"
+            echo "in_work transition, and audit history. It does not yet"
+            echo "exercise the proof-upload/closure flow, the explicit"
+            echo "contact-reveal masking check, or the security-negative"
+            echo "probes (anonymous read, public proof access, unauthorized"
+            echo "team-management invocation) — tracked as follow-up backlog,"
+            echo "not covered by this workflow."
+          } >> "$GITHUB_STEP_SUMMARY"
