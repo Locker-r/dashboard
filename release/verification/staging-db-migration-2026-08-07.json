@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "check": "staging-db-migration",
+  "recordedAt": "2026-08-07T00:00:00.0000000+05:00",
+  "authorization": "Explicit, narrowly scoped Product Owner authorization: staging GitHub environment, exact project ref cjdxtakgmnzwixrajjry, host aws-1-eu-west-3.pooler.supabase.com, wrapper scripts/release/staging-db-migrate.cjs only.",
+  "policyChange": "scripts/release/release-core.cjs classifyStagingDbMigrate (PR #32); .github/workflows/staging-db-migrate.yml (PR #33); docs/release-gates.md 'The scoped exception: staging database migration'.",
+  "run": {
+    "workflow": "staging-db-migrate.yml",
+    "runId": 31168185349,
+    "runUrl": "https://github.com/Locker-r/dashboard/actions/runs/31168185349",
+    "triggeredBy": "workflow_dispatch, project_ref input cjdxtakgmnzwixrajjry",
+    "headSha": "595e049cff40793f3ac3db494c7aad21a5c62663",
+    "headBranch": "main",
+    "conclusion": "success",
+    "steps": [
+      { "name": "Confirm the target project ref", "conclusion": "success" },
+      { "name": "Dry run", "conclusion": "success" },
+      { "name": "Apply pending migrations", "conclusion": "success" },
+      { "name": "Verify no migrations remain pending", "conclusion": "success" }
+    ]
+  },
+  "verifiedVia": "GET /repos/Locker-r/dashboard/actions/workflows/329210770/runs and .../runs/31168185349/jobs — read via the GitHub API, not asserted from the dispatch instruction alone.",
+  "exposure": "None observed. The workflow's own steps never echo SUPABASE_DB_PASSWORD or the generated connection URL; both are registered as masked values before the Supabase CLI starts (scripts/release/staging-db-migrate.cjs).",
+  "notPerformed": [
+    "No Edge Function was deployed.",
+    "No frontend hosting was configured.",
+    "No secret or password was rotated.",
+    "No production project or database was touched.",
+    "supabase/snippets/ was not touched."
+  ]
+}
