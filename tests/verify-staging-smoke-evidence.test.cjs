@@ -60,6 +60,29 @@ test('wrong workflow: the API call targets exactly staging-cloud-smoke.yml, noth
   assert.match(ghCall[1].join(' '), /repos\/Locker-r\/dashboard\/actions\/workflows\/staging-cloud-smoke\.yml\/runs/);
 });
 
+test('the gh api call is an unambiguous GET: no -f/-F/-X/--method flag anywhere', () => {
+  // `gh api` treats -f/-F fields as a request body, which forces a mutating
+  // method even against a listing endpoint (the exact bug this regresses:
+  // `-f per_page=20 -f branch=main` 404'd where the equivalent query string
+  // succeeds). Query parameters belong in the URL, never in -f/-F fields, and
+  // no explicit method flag should be needed for a call that must always be
+  // a GET.
+  const calls = [];
+  verifier.main([], {
+    run: (command, args) => {
+      calls.push([command, args]);
+      return fakeRun({ runsResponse: [successRun()] })(command, args);
+    },
+    log() {}, emit() {}
+  });
+  const ghCall = calls.find(([command]) => command === 'gh');
+  assert.ok(ghCall);
+  for (const flag of ['-f', '-F', '--field', '--raw-field', '-X', '--method']) {
+    assert.ok(!ghCall[1].includes(flag), `gh api call must not use ${flag}`);
+  }
+  assert.match(ghCall[1].join(' '), /runs\?per_page=\d+&branch=main/, 'query parameters must be in the URL, not in -f fields');
+});
+
 test('stale SHA: an ancestor run whose diff touches product code is refused', () => {
   const status = verifier.main([], {
     run: fakeRun({
