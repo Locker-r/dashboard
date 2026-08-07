@@ -889,6 +889,7 @@ const STORAGE_KEYS = { data:'crm-data', users:'crm-users' };
 let dataService = null;
 let dataMode = 'local';
 let authService = null;
+let authInitError = null;
 
 function configureDataService(){
   dataMode = window.ReactivationData.normalizeDataMode(window.REACTIVATION_DATA_CONFIG && window.REACTIVATION_DATA_CONFIG.mode);
@@ -1207,6 +1208,11 @@ document.getElementById('loginForm').addEventListener('submit', async (e)=>{
   const email = document.getElementById('loginEmail').value.trim().toLowerCase();
   const password = document.getElementById('loginPassword').value;
   if(!email || !password){ showAuthError(t('auth_err_fields')); return; }
+  if(!authService){
+    logAuthDiagnostic(authInitError);
+    showAuthError(authErrorMessage(authInitError));
+    return;
+  }
   const submit = e.currentTarget.querySelector('[type=submit]');
   submit.disabled = true;
   try{
@@ -2420,6 +2426,7 @@ function render(){
     }
   }catch(error){
     currentUser = null;
+    if(!authService){ authInitError = error; }
     logAuthDiagnostic(error);
     showLogin();
     showAuthError(authErrorMessage(error));
