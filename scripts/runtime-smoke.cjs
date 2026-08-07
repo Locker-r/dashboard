@@ -208,6 +208,21 @@ async function runSmoke(config) {
       p_player_id: plan.assignedPlayerId, p_next_status: 'success', p_history_id: `${plan.historyId}_close_no_proof`, p_confirm_reopen: false
     }, 'PROOF_REQUIRED');
 
+    // MIME allowlist and the 10 MB declared-size ceiling are enforced inside
+    // request_lead_proof_upload itself — proven directly against that RPC,
+    // not by reading the bucket's admin configuration (which needs the
+    // service role this harness never holds).
+    stage = 'reject_disallowed_mime_type';
+    await expectRpcFailure(agentA.client, 'request_lead_proof_upload', {
+      p_player_id: plan.assignedPlayerId, p_proof_id: crypto.randomUUID(),
+      p_filename: 'evidence.txt', p_mime_type: 'text/plain', p_file_size: 10
+    }, 'INVALID_FILE_TYPE');
+    stage = 'reject_oversized_declared_file';
+    await expectRpcFailure(agentA.client, 'request_lead_proof_upload', {
+      p_player_id: plan.assignedPlayerId, p_proof_id: crypto.randomUUID(),
+      p_filename: 'evidence.png', p_mime_type: 'image/png', p_file_size: 10485761
+    }, 'FILE_TOO_LARGE');
+
     // A tiny, real 1x1 PNG — request_lead_proof_upload validates the MIME type
     // against a fixed allowlist and confirm_lead_proof re-derives size and MIME
     // from the uploaded object itself, not from what the caller declares.
@@ -232,12 +247,44 @@ async function runSmoke(config) {
     if (confirmedProof.error) throw confirmedProof.error;
     if (confirmedProof.data.state !== 'active') throw new Error('PROOF_NOT_ACTIVE_AFTER_CONFIRM');
 
+    // Signed-URL minting runs on the caller's own session (admin qualifies via
+    // is_admin() on the same storage SELECT policy that gates download), not
+    // the service role — a cross-agent, non-admin actor must be refused the
+    // same way a direct download already is.
+    stage = 'verify_signed_url_access';
+    const adminSigned = await admin.client.storage.from('lead-proofs').createSignedUrl(storagePath, 60);
+    if (adminSigned.error || !adminSigned.data || !adminSigned.data.signedUrl) throw new Error('ADMIN_SIGNED_URL_FAILED');
+    const signedFetch = await fetch(adminSigned.data.signedUrl);
+    if (!signedFetch.ok) throw new Error('ADMIN_SIGNED_URL_NOT_USABLE');
+    const otherAgentSigned = await agentB.client.storage.from('lead-proofs').createSignedUrl(storagePath, 60);
+    if (!otherAgentSigned.error) throw new Error('CROSS_AGENT_SIGNED_URL_NOT_DENIED');
+
     stage = 'verify_proof_private_from_other_agent';
     const otherAgentDownload = await agentB.client.storage.from('lead-proofs').download(storagePath);
     if (!otherAgentDownload.error) throw new Error('PROOF_NOT_PRIVATE_TO_OTHER_AGENT');
 
     stage = 'close_lead_with_proof';
-    await agentData.changePlayerStatus(plan.assignedPlayerId, 'success', `${plan.historyId}_close`);
+    const closeHistoryId = `${plan.historyId}_close`;
+    await agentData.changePlayerStatus(plan.assignedPlayerId, 'success', closeHistoryId);
+
+    stage = 'verify_close_audit_actor';
+    const closeHistory = await admin.client.from('player_status_history')
+      .select('id,from_status,to_status,user_id').eq('id', closeHistoryId).single();
+    if (closeHistory.error) throw closeHistory.error;
+    if (closeHistory.data.from_status !== 'in_work' || closeHistory.data.to_status !== 'success'
+      || closeHistory.data.user_id !== agentA.id) throw new Error('CLOSE_AUDIT_ACTOR_MISMATCH');
+
+    // Confirmation locks the bytes: the storage update/delete policies only
+    // admit a write while the owning proof row is still 'pending', so once
+    // confirm_lead_proof has flipped it to 'active' even the uploader's own
+    // session must be refused.
+    stage = 'verify_proof_immutable_after_close';
+    const overwriteAttempt = await agentA.client.storage.from('lead-proofs')
+      .upload(storagePath, proofBytes, { contentType: 'image/png', upsert: true });
+    if (!overwriteAttempt.error) throw new Error('CONFIRMED_PROOF_OVERWRITE_NOT_DENIED');
+    const removeAttempt = await agentA.client.storage.from('lead-proofs').remove([storagePath]);
+    const removeBlocked = Boolean(removeAttempt.error) || !(removeAttempt.data || []).length;
+    if (!removeBlocked) throw new Error('CONFIRMED_PROOF_DELETE_NOT_DENIED');
 
     stage = 'verify_admin_proof_visibility';
     const adminProof = await admin.client.from('lead_proofs').select('id,player_id,state,uploaded_by,mime_type')
