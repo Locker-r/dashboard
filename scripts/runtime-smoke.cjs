@@ -90,12 +90,24 @@ async function signIn(config, account) {
   const profile = await client.from('profiles').select('id,role,is_active').eq('id', result.data.user.id).single();
   if (profile.error) throw profile.error;
   if (!profile.data.is_active || profile.data.role !== account.role) throw new Error(`UNEXPECTED_${account.role.toUpperCase()}_PROFILE`);
-  return { client, id: result.data.user.id };
+  return { client, id: result.data.user.id, token: result.data.session.access_token };
 }
 
 async function expectRpcFailure(client, name, parameters, expected) {
   const result = await client.rpc(name, parameters);
   if (!result.error || !String(result.error.message || '').includes(expected)) throw new Error(`EXPECTED_${expected}`);
+}
+
+// The reviewed team-management action an admin uses from the UI, called
+// directly with an already-issued session token — never the service role.
+async function callTeamManagement(config, token, body) {
+  const response = await fetch(`${config.projectUrl}/functions/v1/team-management`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const parsed = await response.json().catch(() => null);
+  return { status: response.status, body: parsed };
 }
 
 async function cleanup(adminClient, plan) {
@@ -315,6 +327,51 @@ async function runSmoke(config) {
       body: JSON.stringify({ action: 'list-members' })
     });
     if (unauthorized.status !== 401) throw new Error('UNAUTHORIZED_TEAM_MANAGEMENT_NOT_DENIED');
+
+    // A deactivated agent's already-issued JWT must lose proof access
+    // immediately — require_active_profile() is re-checked on every RPC, not
+    // only at sign-in. Run last: it reassigns agent B's lead to agent A,
+    // which would confuse the ownership assertions earlier in this run.
+    stage = 'transition_other_lead_to_in_work';
+    const otherToWork = await agentB.client.rpc('change_player_status_atomic', {
+      p_player_id: plan.otherPlayerId, p_next_status: 'in_work', p_history_id: `${plan.historyId}_b_in_work`, p_confirm_reopen: false
+    });
+    if (otherToWork.error) throw otherToWork.error;
+
+    stage = 'verify_active_agent_can_request_proof';
+    const activeRequest = await agentB.client.rpc('request_lead_proof_upload', {
+      p_player_id: plan.otherPlayerId, p_proof_id: crypto.randomUUID(),
+      p_filename: `${plan.markerPrefix}_b.png`, p_mime_type: 'image/png', p_file_size: proofBytes.length
+    });
+    if (activeRequest.error) throw activeRequest.error;
+
+    stage = 'deactivate_agent_via_team_management';
+    const deactivated = await callTeamManagement(config, admin.token, {
+      action: 'set-member-active', memberId: agentB.id, isActive: false,
+      reassignTo: agentA.id, requestId: crypto.randomUUID()
+    });
+    if (deactivated.status !== 200 || !deactivated.body || deactivated.body.ok !== true) {
+      throw new Error(`DEACTIVATE_AGENT_FAILED:${deactivated.status}`);
+    }
+
+    // The same session from sign_in_agent_b, never refreshed or re-issued.
+    stage = 'verify_deactivated_agent_denied_with_live_token';
+    await expectRpcFailure(agentB.client, 'request_lead_proof_upload', {
+      p_player_id: plan.otherPlayerId, p_proof_id: crypto.randomUUID(),
+      p_filename: `${plan.markerPrefix}_b2.png`, p_mime_type: 'image/png', p_file_size: proofBytes.length
+    }, 'ACTIVE_PROFILE_REQUIRED');
+
+    stage = 'reactivate_agent_via_team_management';
+    const reactivated = await callTeamManagement(config, admin.token, {
+      action: 'set-member-active', memberId: agentB.id, isActive: true, reassignTo: null, requestId: crypto.randomUUID()
+    });
+    if (reactivated.status !== 200 || !reactivated.body || reactivated.body.ok !== true) {
+      throw new Error(`REACTIVATE_AGENT_FAILED:${reactivated.status}`);
+    }
+
+    stage = 'verify_reactivated_agent_regains_access';
+    const revivedRead = await agentB.client.from('lead_proofs').select('id').limit(1);
+    if (revivedRead.error) throw revivedRead.error;
 
     outcome = { ok: true, runId: plan.runId };
   } catch (error) {

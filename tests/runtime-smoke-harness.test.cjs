@@ -238,3 +238,64 @@ test('none of the five parity additions introduce a service-role client', () => 
   assert.doesNotMatch(source, /service_role/i);
   assert.doesNotMatch(source, /SERVICE_KEY/);
 });
+
+/* ==================== B1 parity: deactivated agent with a live token ==================== */
+
+test('a deactivated agent is denied proof access using their already-issued token, without re-authenticating', () => {
+  const source = runtimeSmokeSource();
+  const order = [
+    "stage = 'transition_other_lead_to_in_work'",
+    "stage = 'verify_active_agent_can_request_proof'",
+    "stage = 'deactivate_agent_via_team_management'",
+    "stage = 'verify_deactivated_agent_denied_with_live_token'",
+    "stage = 'reactivate_agent_via_team_management'",
+    "stage = 'verify_reactivated_agent_regains_access'"
+  ];
+  let cursor = -1;
+  for (const marker of order) {
+    const index = source.indexOf(marker);
+    assert.ok(index >= 0, `missing stage: ${marker}`);
+    assert.ok(index > cursor, `${marker} must come after the previous stage`);
+    cursor = index;
+  }
+  // The denial check must reuse agentB.client — the same session object
+  // signed in at sign_in_agent_b — never a freshly created or re-authenticated
+  // client, which is the whole point of proving a live token is revoked.
+  const denialIndex = source.indexOf("stage = 'verify_deactivated_agent_denied_with_live_token'");
+  const denialBlock = source.slice(denialIndex, source.indexOf("stage = 'reactivate_agent_via_team_management'"));
+  assert.match(denialBlock, /expectRpcFailure\(agentB\.client, 'request_lead_proof_upload'/);
+  assert.match(denialBlock, /'ACTIVE_PROFILE_REQUIRED'/);
+  assert.doesNotMatch(denialBlock, /signInWithPassword/);
+});
+
+test('deactivation goes through the reviewed team-management set-member-active action, not the service role or a direct table write', () => {
+  const source = runtimeSmokeSource();
+  const deactivateIndex = source.indexOf("stage = 'deactivate_agent_via_team_management'");
+  const deactivateBlock = source.slice(deactivateIndex, source.indexOf("stage = 'verify_deactivated_agent_denied_with_live_token'"));
+  assert.match(deactivateBlock, /callTeamManagement\(config, admin\.token, \{/);
+  assert.match(deactivateBlock, /action: 'set-member-active', memberId: agentB\.id, isActive: false/);
+  assert.doesNotMatch(source, /service_role/i);
+  assert.doesNotMatch(source, /update\('is_active'/);
+});
+
+test('callTeamManagement carries the caller\'s own session token, not a service key, and the admin/agent tokens come from sign-in', () => {
+  const source = runtimeSmokeSource();
+  assert.match(source, /async function callTeamManagement\(config, token, body\)/);
+  assert.match(source, /headers: \{ authorization: `Bearer \$\{token\}`/);
+  assert.match(source, /return \{ client, id: result\.data\.user\.id, token: result\.data\.session\.access_token \};/);
+});
+
+test('the deactivation scenario runs last, after every other stage that depends on agent B\'s original lead ownership', () => {
+  const source = runtimeSmokeSource();
+  const reassignRiskyStages = [
+    "stage = 'verify_signed_url_access'",
+    "stage = 'verify_proof_private_from_other_agent'",
+    "stage = 'verify_admin_visibility'"
+  ];
+  const deactivateIndex = source.indexOf("stage = 'transition_other_lead_to_in_work'");
+  assert.ok(deactivateIndex >= 0);
+  for (const marker of reassignRiskyStages) {
+    const index = source.indexOf(marker);
+    assert.ok(index >= 0 && index < deactivateIndex, `${marker} must run before the lead is reassigned`);
+  }
+});
