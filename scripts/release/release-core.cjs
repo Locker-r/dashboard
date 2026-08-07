@@ -599,6 +599,10 @@ function classifySegment(unwrapped) {
     if (script === STAGING_DB_MIGRATE_SCRIPT) {
       return { classification: PRODUCTION, rule: 'STAGING_DB_MIGRATION_UNAUTHORIZED_FORM' };
     }
+    // Same reasoning, for the staging Edge Function deployment wrapper.
+    if (script === STAGING_FUNCTIONS_DEPLOY_SCRIPT) {
+      return { classification: PRODUCTION, rule: 'STAGING_FUNCTIONS_DEPLOY_UNAUTHORIZED_FORM' };
+    }
     // The runtime suites sign in, create synthetic rows, and clean up after
     // themselves against the local stack. Read-only they are not.
     if (/^scripts\/[a-z0-9-]*smoke[a-z0-9-]*\.cjs$/.test(script) || /^scripts\/(?:contact-reveal-race|provision-local-smoke-users)\.cjs$/.test(script)) {
@@ -694,9 +698,48 @@ function classifyStagingDbMigrate(command, env) {
   return { classification: LOCAL_WRITE, rule: 'STAGING_DB_MIGRATION_AUTHORIZED' };
 }
 
+// The scoped staging Edge Function deployment exception.
+//
+// `supabase functions deploy` stays `production` in every form. What is
+// authorized here is one wrapper, in one shape: `scripts/release/staging-functions-deploy.cjs`
+// with exactly `--function <name>`, where `<name>` is one the wrapper itself
+// allowlists against the functions the running app actually calls — running
+// inside GitHub Actions with RELEASE_ENVIRONMENT=staging. The wrapper
+// re-checks all of this at run time against its own pinned project ref and
+// function allowlist; this function is the outer half of that pair.
+//
+// Matched against raw tokens for the same reason as the migration exception:
+// anything unwrapped from `cmd /c`, `npx --yes`, a pipeline, a shell, or an
+// environment-variable prefix is not this exact command and falls through to
+// classifySegment, refused as STAGING_FUNCTIONS_DEPLOY_UNAUTHORIZED_FORM.
+// Extending this to a second project or a function outside the wrapper's own
+// allowlist needs its own reviewed authorization.
+const STAGING_FUNCTIONS_DEPLOY_SCRIPT = 'scripts/release/staging-functions-deploy.cjs';
+
+function classifyStagingFunctionsDeploy(command, env) {
+  const tokens = tokenize(command).map(String);
+  if (tokens.length !== 4) return null;
+  if (baseCommand(tokens[0]) !== 'node') return null;
+  const script = tokens[1].replace(/\\/g, '/').replace(/^\.\//, '');
+  if (script !== STAGING_FUNCTIONS_DEPLOY_SCRIPT) return null;
+  if (tokens[2] !== '--function') {
+    return { classification: PRODUCTION, rule: 'STAGING_FUNCTIONS_DEPLOY_UNAUTHORIZED_FORM' };
+  }
+  // The function allowlist itself lives in the wrapper (TARGET.functions), not
+  // duplicated here — the classifier authorizes the invocation shape, and the
+  // wrapper is the one source of truth for which functions that shape may name.
+  if (env.GITHUB_ACTIONS !== 'true') {
+    return { classification: PRODUCTION, rule: 'STAGING_FUNCTIONS_DEPLOY_LOCAL_EXECUTION_BLOCKED' };
+  }
+  if (env.RELEASE_ENVIRONMENT !== 'staging') {
+    return { classification: PRODUCTION, rule: 'STAGING_FUNCTIONS_DEPLOY_ENVIRONMENT_MISMATCH' };
+  }
+  return { classification: LOCAL_WRITE, rule: 'STAGING_FUNCTIONS_DEPLOY_AUTHORIZED' };
+}
+
 // A pipeline is only as safe as its least safe member.
 function classifyCommand(command, env = process.env) {
-  const scoped = classifyStagingDbMigrate(command, env);
+  const scoped = classifyStagingDbMigrate(command, env) || classifyStagingFunctionsDeploy(command, env);
   if (scoped) {
     return Object.freeze({
       classification: scoped.classification,

@@ -243,6 +243,39 @@ release still halts for a human approval record. Extending this to a second
 project, host, port, database, or environment needs its own reviewed
 authorization, not a loosened pattern.
 
+## The scoped exception: staging Edge Function deployment
+
+`supabase functions deploy` is `production` in every form and remains so.
+Nothing below relaxes `SUPABASE_FUNCTIONS_DEPLOY`.
+
+What is authorized is one wrapper, `scripts/release/staging-functions-deploy.cjs`,
+invoked as exactly `node scripts/release/staging-functions-deploy.cjs --function <name>`,
+where `<name>` is one the wrapper itself allowlists (`TARGET.functions`,
+currently only `team-management` — the one function the running app calls, at
+`src/team-admin.js`), and only when `GITHUB_ACTIONS=true` and
+`RELEASE_ENVIRONMENT=staging`. That form classifies `local-write`
+(`STAGING_FUNCTIONS_DEPLOY_AUTHORIZED`). Every other case is `production`:
+
+- run anywhere but GitHub Actions — `STAGING_FUNCTIONS_DEPLOY_LOCAL_EXECUTION_BLOCKED`;
+- any other release environment — `STAGING_FUNCTIONS_DEPLOY_ENVIRONMENT_MISMATCH`;
+- any other argument shape, or any invocation that had to be unwrapped from
+  `cmd /c`, a shell, `npx --yes`, a pipeline, or an environment-variable
+  prefix — `STAGING_FUNCTIONS_DEPLOY_UNAUTHORIZED_FORM`.
+
+The wrapper pins the project ref (`cjdxtakgmnzwixrajjry`) and the function
+allowlist; the classifier authorizes the invocation shape, the wrapper is the
+one source of truth for which function names that shape may carry, and it
+refuses (`EXIT.USAGE`) any name outside `TARGET.functions` before touching the
+CLI. It reads `SUPABASE_ACCESS_TOKEN` from the environment only, registers a
+mask for it before the CLI starts, and never writes it to a log or to disk.
+
+This wrapper is added by this change; nothing has deployed through it yet.
+Authorizing the path is a policy decision, separate from and prior to using
+it. It authorizes staging only, grants nothing in production, configures no
+frontend hosting, and does not alter gate G6 or G7. Extending this to a
+second project or a function outside the wrapper's own allowlist needs its
+own reviewed authorization, not a loosened pattern.
+
 ## What push and PR automation are actually allowed
 
 `git push` is not one action; "update my feature branch" and "force-rewrite
