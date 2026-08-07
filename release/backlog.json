@@ -171,7 +171,7 @@
       "actionability": "external",
       "status": "open",
       "decision": "approved",
-      "decisionEvidence": "docs/test-environment-status.md records this as Product Owner action 3.",
+      "decisionEvidence": "Product Owner decision, 2026-08-07: GitHub Pages is approved as the frontend hosting target for staging/pilot only. It is NOT approved as production hosting; production hosting remains undecided. Canonical staging URL: https://locker-r.github.io/dashboard/ (GET /repos/Locker-r/dashboard/pages). Policy implementing this: scripts/release/staging-auth-config.cjs, scripts/release/release-core.cjs classifyStagingAuthConfig, docs/release-gates.md 'Frontend hosting: GitHub Pages, staging/pilot only' and 'The scoped exception: staging Auth URL configuration'.",
       "releaseBlocking": true,
       "workaround": null,
       "dependsOn": [],
@@ -181,8 +181,8 @@
         "docs/release-governance.md — the release workflow deploys nothing"
       ],
       "productionActions": [
-        "create a hosting account and project",
-        "publish artifacts/pages-site/ to the chosen host"
+        "publish artifacts/pages-site/ to https://locker-r.github.io/dashboard/ (staging only) via a reviewed GitHub Actions workflow — not yet added",
+        "choose and configure production hosting — undecided, out of scope for this policy"
       ]
     },
     {
