@@ -1,0 +1,99 @@
+name: Staging Edge Function deployment
+
+# Manual only. Deployment changes a hosted service, so it starts when a
+# person presses the button and names both the target and the function.
+on:
+  workflow_dispatch:
+    inputs:
+      project_ref:
+        description: 'Type the staging project ref exactly to confirm the target: cjdxtakgmnzwixrajjry'
+        required: true
+        type: string
+      function_name:
+        description: 'The Edge Function to deploy'
+        required: true
+        type: choice
+        options:
+          - team-management
+
+permissions:
+  contents: read
+
+# Two deployments of the same function at once is how a rollout gets
+# clobbered mid-flight.
+concurrency:
+  group: staging-functions-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only main carries a reviewed, merged wrapper; a branch could have
+    # anything in it.
+    if: github.ref == 'refs/heads/main'
+    # Carries the SUPABASE_ACCESS_TOKEN environment secret, and whatever
+    # protection rules the staging environment has configured.
+    environment: staging
+    env:
+      RELEASE_ENVIRONMENT: staging
+      STAGING_PROJECT_REF: cjdxtakgmnzwixrajjry
+      STAGING_FUNCTION: team-management
+    steps:
+      # Fail before the CLI is installed and before any secret is read: a
+      # typo in either confirmation should cost nothing.
+      - name: Confirm the target project ref and function
+        shell: bash
+        env:
+          SUPPLIED_REF: ${{ inputs.project_ref }}
+          SUPPLIED_FUNCTION: ${{ inputs.function_name }}
+        run: |
+          if [[ "$SUPPLIED_REF" != "$STAGING_PROJECT_REF" ]]; then
+            echo "Refused: project_ref must be exactly $STAGING_PROJECT_REF." >&2
+            echo "Received: $SUPPLIED_REF" >&2
+            exit 1
+          fi
+          if [[ "$SUPPLIED_FUNCTION" != "$STAGING_FUNCTION" ]]; then
+            echo "Refused: function_name must be exactly $STAGING_FUNCTION." >&2
+            echo "Received: $SUPPLIED_FUNCTION" >&2
+            exit 1
+          fi
+          echo "Target confirmed: $STAGING_FUNCTION on $STAGING_PROJECT_REF"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # The wrapper is the only authorized path to `supabase functions
+      # deploy`; see docs/release-gates.md, "The scoped exception: staging
+      # Edge Function deployment". It pins the project ref and allowlists the
+      # function itself, and refuses any other name before touching the CLI.
+      # Nothing here calls `supabase functions deploy` directly.
+      - name: Deploy
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: node scripts/release/staging-functions-deploy.cjs --function "$STAGING_FUNCTION"
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### Staging Edge Function deployment"
+            echo ""
+            echo "- Project ref: \`$STAGING_PROJECT_REF\`"
+            echo "- Function: \`$STAGING_FUNCTION\`"
+            echo "- Environment: \`staging\`"
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Result: \`${{ job.status }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

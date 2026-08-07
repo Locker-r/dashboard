@@ -12,7 +12,9 @@ const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '..');
 const WORKFLOW_PATH = path.join(ROOT, '.github', 'workflows', 'staging-db-migrate.yml');
-const WORKFLOW = fs.readFileSync(WORKFLOW_PATH, 'utf8');
+// A checkout with core.autocrlf=true rewrites LF to CRLF; the line-anchored
+// assertions below only need line content, not the checkout's line-ending style.
+const WORKFLOW = fs.readFileSync(WORKFLOW_PATH, 'utf8').replace(/\r\n/g, '\n');
 const PROJECT_REF = 'cjdxtakgmnzwixrajjry';
 
 // Step names in the order the file declares them.
