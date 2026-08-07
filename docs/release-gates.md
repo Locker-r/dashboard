@@ -111,6 +111,42 @@ full.
 G5b blocking is not a defect. It means the next operation is verification, and
 the harness says so rather than proceeding.
 
+## B1 proof-runtime-suite: staging evidence verification
+
+B1's `proof-runtime-suite` criterion originally ran
+`node scripts/lead-proof-smoke.cjs`, which is intentionally local-only and
+requires `SMOKE_TEST_LOCAL_SERVICE_KEY` — a service-role key an agent must
+never hold. Its command is now `node scripts/verify-staging-smoke-evidence.cjs`,
+which proves the same guarantees a different way: by checking, read-only,
+that `.github/workflows/staging-cloud-smoke.yml` has a run on `main` that
+completed with `conclusion: "success"` for a commit that proves the one being
+judged. It never dispatches that workflow and holds no credential beyond
+ordinary `gh` read access.
+
+"Proves the commit being judged" means the run's `head_sha` either equals the
+current commit, or is an ancestor of it whose diff to the current commit is
+entirely `isEvidenceDriftAllowed` — the exact predicate G5b's own staleness
+check uses (`scripts/release/release-core.cjs`), not a separate or looser
+rule. A run whose diff touches product or security-relevant code (Edge
+Functions, migrations, RLS, storage policy, the smoke harness itself) does
+not qualify, the same as it would not for any other acceptance evidence.
+
+What that staging run actually proves, ported check-for-check from the
+original local suite where the hosted security model allows it without a
+service-role key (`scripts/runtime-smoke.cjs`, extended in #44 and #46):
+proof-required closure; upload and confirmation through the real product
+path; private, cross-agent-refused proof access; MIME and declared-size
+rejection at the `request_lead_proof_upload` boundary; signed-URL access
+granted to an authorized actor and refused to a cross-agent one; a confirmed
+proof's bytes refusing both overwrite and delete; the close audit record
+naming the real actor; admin visibility of proof metadata and the final
+result; contact protection before `in_work` and availability after; and the
+anonymous/unauthorized negatives (protected data, proof objects,
+team-management). Not ported: the local suite's one check that reads
+`storage.buckets` configuration directly, which needs the service role — its
+guarantee (MIME/size enforcement) is proven here at the RPC boundary instead,
+which is the more direct assertion.
+
 ## Content rules: changes that are not commands
 
 Some dangerous changes are two words inside a migration rather than a command
