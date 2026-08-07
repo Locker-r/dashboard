@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "check": "staging-cloud-smoke",
+  "recordedAt": "2026-08-07T00:00:00.0000000+05:00",
+  "scope": "Read-only verification of the deployed staging product. No test accounts exist yet in the staging project, so authenticated ADMIN/CASHIER/proof flows could not be exercised — see blocker below.",
+  "deployEvidence": {
+    "stagingPagesDeployment": { "runId": 31174463887, "conclusion": "success", "headBranch": "main" },
+    "stagingAuthUrlConfiguration": { "runId": 31174597105, "conclusion": "success", "headBranch": "main" },
+    "verifiedVia": "GET /repos/Locker-r/dashboard/actions/workflows/{id}/runs and .../jobs — read via the GitHub API, not asserted."
+  },
+  "siteAndRuntimeConfig": {
+    "url": "https://locker-r.github.io/dashboard/",
+    "reachable": true,
+    "runtimeConfigProjectUrl": "https://cjdxtakgmnzwixrajjry.supabase.co",
+    "matchesApprovedStagingProject": true,
+    "secretsPresentInArtifact": "none — only projectUrl and the public publishableKey (anon key) were found in config/runtime-config.js and window.REACTIVATION_SUPABASE_CONFIG",
+    "loginGatePresent": true,
+    "verifiedVia": "Browser navigation + window.REACTIVATION_SUPABASE_CONFIG inspection + fetch of config/runtime-config.js"
+  },
+  "securityNegatives": {
+    "anonymousPlayersRead": { "endpoint": "/rest/v1/players", "status": 401, "result": "blocked" },
+    "anonymousProfilesRead": { "endpoint": "/rest/v1/profiles", "status": 401, "result": "blocked" },
+    "anonymousTeamManagementInvocation": { "endpoint": "/functions/v1/team-management", "method": "OPTIONS preflight", "status": 403, "code": "ORIGIN_FORBIDDEN", "result": "blocked, though for the wrong reason — see defect below" },
+    "note": "RLS/auth enforcement confirmed at the API level (401), not merely absent in the UI. Proof-storage public-access probe and authenticated cashier-isolation/contact-protection/proof-upload checks were not run — no test accounts exist yet."
+  },
+  "adminCashierProofFlow": {
+    "status": "blocked",
+    "reason": "No admin or cashier accounts exist in project cjdxtakgmnzwixrajjry. Per docs/test-environment-runbook.md section 5, the first admin account can only be created through the Supabase Dashboard (Authentication -> Users -> Add user) plus a manual profiles insert; there is no automated or reviewed staging path for this. Without an authenticated session, login, cashier management, CSV import, lead assignment, contact-reveal, proof upload, and closure could not be exercised."
+  },
+  "defectFound": {
+    "summary": "The deployed team-management Edge Function rejects every browser call from the staging site at the CORS preflight stage.",
+    "rootCause": "supabase/functions/team-management/index.ts checks the request Origin against the TEAM_ALLOWED_ORIGIN secret; it is unset or mismatched on the staging project.",
+    "evidence": "curl -X OPTIONS https://cjdxtakgmnzwixrajjry.supabase.co/functions/v1/team-management -H 'Origin: https://locker-r.github.io' -> 403 {\"ok\":false,\"error\":{\"code\":\"ORIGIN_FORBIDDEN\",...}}",
+    "classification": "Configuration gap, not a code defect — the function's own origin check is correct.",
+    "fix": "Not applied in this session: requires supabase secrets set, classified production (SUPABASE_SECRETS_MUTATION), no existing scoped exception. Prepared a minimal reviewed policy PR (scripts/release/staging-team-origin-config.cjs, classifyStagingTeamOriginConfig) authorizing exactly TEAM_ALLOWED_ORIGIN=https://locker-r.github.io for project cjdxtakgmnzwixrajjry. Not dispatched in this session."
+  },
+  "notPerformed": [
+    "No admin or cashier account was created.",
+    "No lead was imported, assigned, or closed.",
+    "No proof was uploaded.",
+    "No secret was set or rotated.",
+    "No production project was touched.",
+    "supabase/snippets/ was not touched."
+  ]
+}

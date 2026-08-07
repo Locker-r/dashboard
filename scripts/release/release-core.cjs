@@ -607,6 +607,10 @@ function classifySegment(unwrapped) {
     if (script === STAGING_AUTH_CONFIG_SCRIPT) {
       return { classification: PRODUCTION, rule: 'STAGING_AUTH_CONFIG_UNAUTHORIZED_FORM' };
     }
+    // Same reasoning, for the staging team-management CORS origin secret wrapper.
+    if (script === STAGING_TEAM_ORIGIN_CONFIG_SCRIPT) {
+      return { classification: PRODUCTION, rule: 'STAGING_TEAM_ORIGIN_CONFIG_UNAUTHORIZED_FORM' };
+    }
     // The runtime suites sign in, create synthetic rows, and clean up after
     // themselves against the local stack. Read-only they are not.
     if (/^scripts\/[a-z0-9-]*smoke[a-z0-9-]*\.cjs$/.test(script) || /^scripts\/(?:contact-reveal-race|provision-local-smoke-users)\.cjs$/.test(script)) {
@@ -776,11 +780,43 @@ function classifyStagingAuthConfig(command, env) {
   return { classification: LOCAL_WRITE, rule: 'STAGING_AUTH_CONFIG_AUTHORIZED' };
 }
 
+// The scoped staging team-management CORS origin secret exception.
+//
+// `supabase secrets set`/`unset` stay `production` in every other form.
+// What is authorized here is one wrapper,
+// `scripts/release/staging-team-origin-config.cjs`, invoked as exactly
+// `--dry-run` or `--apply`, only when `GITHUB_ACTIONS=true` and
+// `RELEASE_ENVIRONMENT=staging`. The wrapper pins the project ref, the exact
+// secret name (`TEAM_ALLOWED_ORIGIN`), and its exact value (the approved
+// staging Pages URL) itself; no secret name or value is accepted as an
+// argument, so this cannot be repurposed to set any other secret.
+const STAGING_TEAM_ORIGIN_CONFIG_SCRIPT = 'scripts/release/staging-team-origin-config.cjs';
+const STAGING_TEAM_ORIGIN_CONFIG_MODES = Object.freeze(['--dry-run', '--apply']);
+
+function classifyStagingTeamOriginConfig(command, env) {
+  const tokens = tokenize(command).map(String);
+  if (tokens.length !== 3) return null;
+  if (baseCommand(tokens[0]) !== 'node') return null;
+  const script = tokens[1].replace(/\\/g, '/').replace(/^\.\//, '');
+  if (script !== STAGING_TEAM_ORIGIN_CONFIG_SCRIPT) return null;
+  if (!STAGING_TEAM_ORIGIN_CONFIG_MODES.includes(tokens[2])) {
+    return { classification: PRODUCTION, rule: 'STAGING_TEAM_ORIGIN_CONFIG_UNAUTHORIZED_FORM' };
+  }
+  if (env.GITHUB_ACTIONS !== 'true') {
+    return { classification: PRODUCTION, rule: 'STAGING_TEAM_ORIGIN_CONFIG_LOCAL_EXECUTION_BLOCKED' };
+  }
+  if (env.RELEASE_ENVIRONMENT !== 'staging') {
+    return { classification: PRODUCTION, rule: 'STAGING_TEAM_ORIGIN_CONFIG_ENVIRONMENT_MISMATCH' };
+  }
+  return { classification: LOCAL_WRITE, rule: 'STAGING_TEAM_ORIGIN_CONFIG_AUTHORIZED' };
+}
+
 // A pipeline is only as safe as its least safe member.
 function classifyCommand(command, env = process.env) {
   const scoped = classifyStagingDbMigrate(command, env)
     || classifyStagingFunctionsDeploy(command, env)
-    || classifyStagingAuthConfig(command, env);
+    || classifyStagingAuthConfig(command, env)
+    || classifyStagingTeamOriginConfig(command, env);
   if (scoped) {
     return Object.freeze({
       classification: scoped.classification,
