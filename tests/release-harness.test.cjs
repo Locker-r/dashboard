@@ -1237,3 +1237,92 @@ test('the orchestrator contains no production command and re-checks before execu
     assert.equal(script.includes(forbidden), false, `orchestrator references ${forbidden}`);
   }
 });
+
+/* ==================== the `accepted` status: approved, not shipped ==================== */
+
+// Every test below mutates an in-memory copy only. The committed backlog keeps
+// B1 at `in-review`; nothing here transitions a real task.
+
+test('accepted is a valid task status and is not done', () => {
+  const backlog = realBacklog();
+  backlog.tasks.find(task => task.id === 'B1').status = 'accepted';
+  const validated = core.validateBacklog(backlog);
+  const b1 = validated.tasks.find(task => task.id === 'B1');
+  assert.equal(b1.status, 'accepted');
+  assert.notEqual(b1.status, 'done');
+});
+
+test('an accepted task is excluded as AWAITING_PRODUCTION, not ALREADY_DONE', () => {
+  const backlog = realBacklog();
+  backlog.tasks.find(task => task.id === 'B1').status = 'accepted';
+  const selection = core.selectNextTask(core.validateBacklog(backlog));
+  const excluded = new Map(selection.excluded.map(entry => [entry.id, entry]));
+  assert.equal(excluded.get('B1').code, 'AWAITING_PRODUCTION');
+  assert.notEqual(excluded.get('B1').code, 'ALREADY_DONE');
+  assert.ok(excluded.get('B1').detail.trim());
+});
+
+test('accepting the selected task advances the planner to the next eligible task', () => {
+  const before = core.selectNextTask(core.validateBacklog(realBacklog()));
+  assert.equal(before.selected.id, 'B1');
+
+  const backlog = realBacklog();
+  backlog.tasks.find(task => task.id === 'B1').status = 'accepted';
+  const after = core.selectNextTask(core.validateBacklog(backlog));
+  assert.equal(after.selected.id, 'B2');
+  assert.ok(!after.rankedIds.includes('B1'), 'an accepted task is no longer eligible');
+});
+
+test('an accepted task has no remaining agent operation', () => {
+  const backlog = realBacklog();
+  backlog.tasks.find(task => task.id === 'B1').status = 'accepted';
+  const b1 = core.validateBacklog(backlog).tasks.find(task => task.id === 'B1');
+  assert.equal(core.nextOperation(b1), 'none');
+});
+
+test('accepting a task leaves its productionActions intact and unexecuted', () => {
+  const backlog = realBacklog();
+  const original = core.validateBacklog(realBacklog()).tasks.find(task => task.id === 'B1').productionActions;
+  backlog.tasks.find(task => task.id === 'B1').status = 'accepted';
+  const b1 = core.validateBacklog(backlog).tasks.find(task => task.id === 'B1');
+  assert.deepEqual(Array.from(b1.productionActions), Array.from(original));
+  assert.ok(b1.productionActions.length > 0, 'production work must remain visible, not be erased by acceptance');
+});
+
+test('accepted does not satisfy a dependency: only done does', () => {
+  // B5 dependsOn B2. Accepting B2 must not unblock B5 — accepted means the
+  // work is approved, not that it has shipped.
+  const backlog = realBacklog();
+  backlog.tasks.find(task => task.id === 'B2').status = 'accepted';
+  const selection = core.selectNextTask(core.validateBacklog(backlog));
+  const excluded = new Map(selection.excluded.map(entry => [entry.id, entry]));
+  assert.equal(excluded.get('B5').code, 'DEPENDENCY_NOT_DONE');
+});
+
+test('an approval alone never marks a task accepted', () => {
+  // Selection must never consult an approval record to derive a status: the
+  // transition is a human edit to the backlog, nothing else.
+  const source = fs.readFileSync(path.join(ROOT, 'scripts', 'release', 'release-core.cjs'), 'utf8');
+  const selectionBody = source.slice(source.indexOf('function excludeReason'), source.indexOf('function compareTasks'));
+  // The mechanisms by which an approval record could leak into selection:
+  // reading it, or naming its directory. Neither may appear in the selector.
+  assert.doesNotMatch(selectionBody, /readApproval|APPROVAL_RELATIVE|\.approval\.json/, 'selection must not consult the approval record');
+  // The committed backlog still records B1 as in-review even when a valid
+  // approval exists locally, and the selector still chooses it.
+  assert.equal(realBacklog().tasks.find(task => task.id === 'B1').status, 'in-review');
+  assert.equal(core.selectNextTask(core.validateBacklog(realBacklog())).selected.id, 'B1');
+});
+
+test('the accepted status introduces no production execution path', () => {
+  const source = fs.readFileSync(path.join(ROOT, 'scripts', 'release', 'release-core.cjs'), 'utf8');
+  // G7 still halts by construction, and no branch keys production execution
+  // off the new status.
+  assert.match(source, /HALTED_AT_PRODUCTION_GATE/);
+  assert.doesNotMatch(source, /accepted[^\n]*(execute|perform)[^\n]*production/i);
+  // The gate ladder's production gate remains classified production.
+  const ladder = core.buildGates ? core.buildGates() : null;
+  if (ladder) {
+    const g7 = ladder.find(gate => gate.id === 'G7-production');
+    assert.equal(g7.classification, core.PRODUCTION);
+  }
+});
