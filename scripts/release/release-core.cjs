@@ -603,6 +603,10 @@ function classifySegment(unwrapped) {
     if (script === STAGING_FUNCTIONS_DEPLOY_SCRIPT) {
       return { classification: PRODUCTION, rule: 'STAGING_FUNCTIONS_DEPLOY_UNAUTHORIZED_FORM' };
     }
+    // Same reasoning, for the staging Auth URL configuration wrapper.
+    if (script === STAGING_AUTH_CONFIG_SCRIPT) {
+      return { classification: PRODUCTION, rule: 'STAGING_AUTH_CONFIG_UNAUTHORIZED_FORM' };
+    }
     // The runtime suites sign in, create synthetic rows, and clean up after
     // themselves against the local stack. Read-only they are not.
     if (/^scripts\/[a-z0-9-]*smoke[a-z0-9-]*\.cjs$/.test(script) || /^scripts\/(?:contact-reveal-race|provision-local-smoke-users)\.cjs$/.test(script)) {
@@ -737,9 +741,46 @@ function classifyStagingFunctionsDeploy(command, env) {
   return { classification: LOCAL_WRITE, rule: 'STAGING_FUNCTIONS_DEPLOY_AUTHORIZED' };
 }
 
+// The scoped staging Auth URL configuration exception.
+//
+// There is no `supabase` CLI subcommand for Auth Site URL or redirect
+// configuration; the wrapper calls the Supabase Management API directly, so
+// there is no separate `SUPABASE_*` command family to keep `production` the
+// way `db push` and `functions deploy` are — the wrapper itself is the only
+// path capable of this mutation at all. What is authorized is one wrapper,
+// `scripts/release/staging-auth-config.cjs`, invoked as exactly `--dry-run` or
+// `--apply`, only when `GITHUB_ACTIONS=true` and `RELEASE_ENVIRONMENT=staging`.
+// The wrapper pins the project ref, the exact Site URL, and the exact
+// redirect allowlist itself (`TARGET`); the classifier authorizes the
+// invocation shape, and the wrapper is the one source of truth for what that
+// shape may configure — no project ref, URL, or redirect entry is accepted
+// as an argument.
+const STAGING_AUTH_CONFIG_SCRIPT = 'scripts/release/staging-auth-config.cjs';
+const STAGING_AUTH_CONFIG_MODES = Object.freeze(['--dry-run', '--apply']);
+
+function classifyStagingAuthConfig(command, env) {
+  const tokens = tokenize(command).map(String);
+  if (tokens.length !== 3) return null;
+  if (baseCommand(tokens[0]) !== 'node') return null;
+  const script = tokens[1].replace(/\\/g, '/').replace(/^\.\//, '');
+  if (script !== STAGING_AUTH_CONFIG_SCRIPT) return null;
+  if (!STAGING_AUTH_CONFIG_MODES.includes(tokens[2])) {
+    return { classification: PRODUCTION, rule: 'STAGING_AUTH_CONFIG_UNAUTHORIZED_FORM' };
+  }
+  if (env.GITHUB_ACTIONS !== 'true') {
+    return { classification: PRODUCTION, rule: 'STAGING_AUTH_CONFIG_LOCAL_EXECUTION_BLOCKED' };
+  }
+  if (env.RELEASE_ENVIRONMENT !== 'staging') {
+    return { classification: PRODUCTION, rule: 'STAGING_AUTH_CONFIG_ENVIRONMENT_MISMATCH' };
+  }
+  return { classification: LOCAL_WRITE, rule: 'STAGING_AUTH_CONFIG_AUTHORIZED' };
+}
+
 // A pipeline is only as safe as its least safe member.
 function classifyCommand(command, env = process.env) {
-  const scoped = classifyStagingDbMigrate(command, env) || classifyStagingFunctionsDeploy(command, env);
+  const scoped = classifyStagingDbMigrate(command, env)
+    || classifyStagingFunctionsDeploy(command, env)
+    || classifyStagingAuthConfig(command, env);
   if (scoped) {
     return Object.freeze({
       classification: scoped.classification,

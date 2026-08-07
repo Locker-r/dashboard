@@ -276,6 +276,67 @@ frontend hosting, and does not alter gate G6 or G7. Extending this to a
 second project or a function outside the wrapper's own allowlist needs its
 own reviewed authorization, not a loosened pattern.
 
+## Frontend hosting: GitHub Pages, staging/pilot only
+
+The Product Owner approved GitHub Pages as the staging/pilot frontend host
+for this repository. **Production hosting remains undecided and is not
+authorized by this section or any other.** The canonical staging URL is
+`https://locker-r.github.io/dashboard/`, read from `GET
+/repos/Locker-r/dashboard/pages` — not guessed, not assumed from the repo
+name.
+
+Publishing to Pages happens entirely inside a reviewed GitHub Actions
+workflow using the official `actions/configure-pages` /
+`actions/upload-pages-artifact` / `actions/deploy-pages` actions with
+`pages: write` permission scoped to that workflow's job. Those are `uses:`
+steps run by the workflow's own token, not commands this repository's
+classifier evaluates — authorizing that publishing path is authoring the
+workflow file itself, a reviewed code change like any other, exactly as
+`staging-db-migrate.yml` and `staging-functions-deploy.yml` were. This
+document records the policy; the workflow that exercises it is a separate,
+later change, and this change does not add one.
+
+What stays refused, unconditionally: any *ad hoc* mutation of repository
+Pages settings outside that workflow — `gh api -X PUT
+repos/Locker-r/dashboard/pages` and equivalents remain `GH_API_MUTATION`
+(`production`), enabling Pages for a different repository, a custom domain,
+and disabling or deleting the Pages site.
+
+## The scoped exception: staging Auth URL configuration
+
+Supabase's Auth Site URL and redirect allowlist have no `supabase` CLI
+subcommand; they are mutated through the Supabase Management API. There is
+therefore no generic `SUPABASE_*` command family to keep `production` the
+way `db push` and `functions deploy` are — `scripts/release/staging-auth-config.cjs`
+is the only thing in this repository capable of this mutation at all.
+
+The wrapper is authorized as exactly `node
+scripts/release/staging-auth-config.cjs --dry-run` or `--apply`, only when
+`GITHUB_ACTIONS=true` and `RELEASE_ENVIRONMENT=staging`
+(`STAGING_AUTH_CONFIG_AUTHORIZED`, `local-write`). Every other case is
+`production`: local execution
+(`STAGING_AUTH_CONFIG_LOCAL_EXECUTION_BLOCKED`), any other release
+environment (`STAGING_AUTH_CONFIG_ENVIRONMENT_MISMATCH`), or any other
+argument shape or unwrapped invocation
+(`STAGING_AUTH_CONFIG_UNAUTHORIZED_FORM`).
+
+The wrapper pins everything itself and accepts no configuring argument:
+project ref `cjdxtakgmnzwixrajjry`, Site URL
+`https://locker-r.github.io/dashboard/` exactly, and a redirect allowlist
+containing that same single exact URL and nothing else — no wildcard, no
+second entry. The app has no OAuth, magic-link, or password-reset redirect
+flow today (`src/supabase-auth-service.js` calls only
+`signInWithPassword`), so a wildcard or a broader allowlist is not something
+"existing application behavior strictly requires," and none is authorized.
+`--dry-run` only reads the current configuration and reports whether it
+already matches; only `--apply` writes. `SUPABASE_ACCESS_TOKEN` is read from
+the environment only, masked before any network call, and never logged.
+
+This authorizes staging only. It grants nothing in production, touches no
+other Supabase project, and does not alter gate G6 or G7. Extending this to
+a second project, a different Site URL, or an additional redirect entry
+needs its own reviewed authorization, not a loosened pattern.
+
 ## What push and PR automation are actually allowed
 
 `git push` is not one action; "update my feature branch" and "force-rewrite
