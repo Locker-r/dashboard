@@ -61,19 +61,25 @@ async function main() {
   const signIn = await client.auth.signInWithPassword({ email: adminEmail, password: adminPassword });
   if (signIn.error) throw new Error(`ADMIN_SIGN_IN_FAILED:${signIn.error.message}`);
   const accessToken = signIn.data.session.access_token;
-  await client.auth.signOut({ scope: 'local' });
 
   const functionsUrl = `${projectUrl}/functions/v1`;
   const emails = [buildCashier(runId, 'a').email, buildCashier(runId, 'b').email];
   const failures = [];
-  for (const email of emails) {
-    try {
-      const memberId = await findMemberId(functionsUrl, accessToken, email);
-      if (!memberId) continue; // Never created, or already gone — nothing to deactivate.
-      await deactivate(functionsUrl, accessToken, memberId);
-    } catch (error) {
-      failures.push(`${email}: ${String(error && error.message || error)}`);
+  try {
+    for (const email of emails) {
+      try {
+        const memberId = await findMemberId(functionsUrl, accessToken, email);
+        if (!memberId) continue; // Never created, or already gone — nothing to deactivate.
+        await deactivate(functionsUrl, accessToken, memberId);
+      } catch (error) {
+        failures.push(`${email}: ${String(error && error.message || error)}`);
+      }
     }
+  } finally {
+    // Signing out earlier revokes this session, and the Edge Function
+    // validates the bearer token against Auth on every call — the token
+    // must stay live until every call that needs it has finished.
+    await client.auth.signOut({ scope: 'local' });
   }
   if (failures.length) throw new Error(`CASHIER_DEACTIVATION_INCOMPLETE: ${failures.join('; ')}`);
 }
