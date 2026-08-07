@@ -65,9 +65,12 @@ function isCodeUnchangedSince(deps, candidate, head) {
 }
 
 function fetchRuns(deps) {
+  // `-f` fields tell `gh api` to build a request body, which forces a
+  // mutating method even for a listing endpoint — the exact opposite of what
+  // this script may ever do. A literal query string keeps the request an
+  // unambiguous GET, with no method flag to get wrong.
   const result = deps.run('gh', [
-    'api', `repos/${OWNER}/${REPO}/actions/workflows/${WORKFLOW_FILE}/runs`,
-    '-f', `per_page=${RUNS_PER_PAGE}`, '-f', 'branch=main'
+    'api', `repos/${OWNER}/${REPO}/actions/workflows/${WORKFLOW_FILE}/runs?per_page=${RUNS_PER_PAGE}&branch=main`
   ]);
   if (result.status !== 0) {
     throw new Error(`GH_API_FAILED:${String(result.stderr || result.error || '').trim().slice(0, 300)}`);
