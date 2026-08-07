@@ -337,6 +337,39 @@ other Supabase project, and does not alter gate G6 or G7. Extending this to
 a second project, a different Site URL, or an additional redirect entry
 needs its own reviewed authorization, not a loosened pattern.
 
+## The scoped exception: staging team-management CORS origin
+
+`supabase secrets set`/`unset` are `production` in every other form
+(`SUPABASE_SECRETS_MUTATION`). What is authorized is one wrapper,
+`scripts/release/staging-team-origin-config.cjs`, invoked as exactly
+`--dry-run` or `--apply`, only when `GITHUB_ACTIONS=true` and
+`RELEASE_ENVIRONMENT=staging` (`STAGING_TEAM_ORIGIN_CONFIG_AUTHORIZED`,
+`local-write`). Every other case is `production`: local execution
+(`STAGING_TEAM_ORIGIN_CONFIG_LOCAL_EXECUTION_BLOCKED`), any other release
+environment (`STAGING_TEAM_ORIGIN_CONFIG_ENVIRONMENT_MISMATCH`), or any
+other argument shape (`STAGING_TEAM_ORIGIN_CONFIG_UNAUTHORIZED_FORM`).
+
+Why this exists: `supabase/functions/team-management/index.ts` checks the
+request's `Origin` header against the `TEAM_ALLOWED_ORIGIN` Edge Function
+secret and refuses the CORS preflight (`403 ORIGIN_FORBIDDEN`) unless it
+matches exactly. Confirmed against the live staging function on 2026-08-07:
+an `OPTIONS` request with `Origin: https://locker-r.github.io` returned
+`403 ORIGIN_FORBIDDEN`, meaning the secret is unset or set to something
+else — the admin cashier-management flow cannot work from the deployed
+staging site until it is set. The function's own origin check is correct;
+this is a configuration gap, not a code defect.
+
+The wrapper pins everything itself and accepts no configuring argument:
+project ref `cjdxtakgmnzwixrajjry`, secret name `TEAM_ALLOWED_ORIGIN`, value
+`https://locker-r.github.io` exactly. `--dry-run` only lists current secret
+*names* (`supabase secrets list` never prints values) and reports whether
+`TEAM_ALLOWED_ORIGIN` is already present; only `--apply` writes.
+
+This authorizes staging only. It grants nothing in production, sets no
+other secret, and does not alter gate G6 or G7. Extending this to a second
+project, secret name, or value needs its own reviewed authorization, not a
+loosened pattern.
+
 ## What push and PR automation are actually allowed
 
 `git push` is not one action; "update my feature branch" and "force-rewrite
