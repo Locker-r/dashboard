@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "check": "staging-functions-deployment",
+  "recordedAt": "2026-08-07T00:00:00.0000000+05:00",
+  "authorization": "scripts/release/release-core.cjs classifyStagingFunctionsDeploy (PR #34); .github/workflows/staging-functions-deploy.yml (PR #35).",
+  "policyChange": "docs/release-gates.md 'The scoped exception: staging Edge Function deployment'.",
+  "run": {
+    "workflow": "staging-functions-deploy.yml",
+    "workflowId": 329232058,
+    "firstAttempt": {
+      "runId": 31171392768,
+      "conclusion": "failure",
+      "cause": "SUPABASE_ACCESS_TOKEN was not set in the staging GitHub environment. The wrapper refused before touching the CLI (exit 2, precondition check) and printed no secret value.",
+      "remediation": "Operator added the SUPABASE_ACCESS_TOKEN secret to the staging GitHub environment."
+    },
+    "successfulRun": {
+      "runId": 31171883318,
+      "runUrl": "https://github.com/Locker-r/dashboard/actions/runs/31171883318",
+      "triggeredBy": "workflow_dispatch, project_ref cjdxtakgmnzwixrajjry, function_name team-management",
+      "headSha": "e4c2974c8a5b5c5bc4032448a2214dee76c928a9",
+      "headBranch": "main",
+      "conclusion": "success",
+      "steps": [
+        { "name": "Confirm the target project ref and function", "conclusion": "success" },
+        { "name": "Run supabase/setup-cli@v1", "conclusion": "success" },
+        { "name": "Deploy", "conclusion": "success" }
+      ]
+    }
+  },
+  "verifiedVia": "GET /repos/Locker-r/dashboard/actions/workflows/329232058/runs and .../runs/31171883318/jobs — read via the GitHub API, not asserted from the dispatch instruction alone.",
+  "exposure": "None observed. SUPABASE_ACCESS_TOKEN is registered as a masked value before the Supabase CLI starts (scripts/release/staging-functions-deploy.cjs) and is never echoed by any workflow step.",
+  "notPerformed": [
+    "No frontend was deployed.",
+    "No Supabase Auth URL was configured.",
+    "No database migration ran as part of this deployment.",
+    "No secret or password was rotated.",
+    "No production project was touched.",
+    "supabase/snippets/ was not touched."
+  ]
+}
