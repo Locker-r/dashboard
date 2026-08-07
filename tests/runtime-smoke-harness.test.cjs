@@ -81,3 +81,102 @@ test('ordinary CI never invokes a credentialed runtime smoke test', () => {
   assert.doesNotMatch(workflow, /Invoke-RuntimeSmokeTest|runtime-smoke\.cjs|SMOKE_TEST_PUBLISHABLE_KEY/);
   assert.match(workflow, /check-runtime-smoke-harness\.ps1/);
 });
+
+/* ==================== contact protection, proof/closure, security negatives ==================== */
+
+function runtimeSmokeSource() {
+  return fs.readFileSync(path.join(__dirname, '..', 'scripts', 'runtime-smoke.cjs'), 'utf8');
+}
+
+test('contact protection is checked before the in_work transition and re-checked after', () => {
+  const source = runtimeSmokeSource();
+  const lockedIndex = source.indexOf("stage = 'verify_contact_locked_before_in_work'");
+  const rawForbiddenIndex = source.indexOf("stage = 'verify_raw_contact_columns_forbidden'");
+  const transitionIndex = source.indexOf("stage = 'change_player_status_atomic'");
+  const eligibleIndex = source.indexOf("stage = 'verify_contact_eligible_after_in_work'");
+  assert.ok(lockedIndex >= 0 && rawForbiddenIndex >= 0 && transitionIndex >= 0 && eligibleIndex >= 0);
+  assert.ok(lockedIndex < rawForbiddenIndex && rawForbiddenIndex < transitionIndex && transitionIndex < eligibleIndex,
+    'contact must be proven locked, then raw columns proven forbidden, before the in_work transition, then proven eligible after it');
+});
+
+test('contact protection is asserted against the server-computed gate and the raw column grant, not just the UI', () => {
+  const source = runtimeSmokeSource();
+  assert.match(source, /players_secure['"][\s\S]{0,120}contact_access_state/);
+  assert.match(source, /CONTACT_NOT_LOCKED_BEFORE_IN_WORK/);
+  assert.match(source, /CONTACT_NOT_MASKED_BEFORE_IN_WORK/);
+  assert.match(source, /CONTACT_NOT_ELIGIBLE_AFTER_IN_WORK/);
+  // The raw-column attempt must expect an error (RLS/grant enforcement), not
+  // merely observe that the UI would have hidden the values.
+  assert.match(source, /from\('players'\)\.select\('phone,email,messenger'\)/);
+  assert.match(source, /RAW_CONTACT_COLUMNS_NOT_FORBIDDEN/);
+});
+
+test('closing without proof is rejected before any proof is created', () => {
+  const source = runtimeSmokeSource();
+  const rejectIndex = source.indexOf("stage = 'reject_close_without_proof'");
+  const requestProofIndex = source.indexOf("stage = 'request_lead_proof_upload'");
+  assert.ok(rejectIndex >= 0 && requestProofIndex >= 0 && rejectIndex < requestProofIndex);
+  assert.match(source, /PROOF_REQUIRED/);
+});
+
+test('the proof flow uploads through the real reviewed RPC and storage path, in order', () => {
+  const source = runtimeSmokeSource();
+  const order = [
+    "stage = 'request_lead_proof_upload'",
+    "stage = 'upload_proof_object'",
+    "stage = 'confirm_lead_proof'",
+    "stage = 'verify_proof_private_from_other_agent'",
+    "stage = 'close_lead_with_proof'",
+    "stage = 'verify_admin_proof_visibility'",
+    "stage = 'verify_admin_final_result'"
+  ];
+  let cursor = -1;
+  for (const marker of order) {
+    const index = source.indexOf(marker);
+    assert.ok(index >= 0, `missing stage: ${marker}`);
+    assert.ok(index > cursor, `${marker} must come after the previous stage`);
+    cursor = index;
+  }
+  assert.match(source, /request_lead_proof_upload'/);
+  assert.match(source, /\.storage\.from\('lead-proofs'\)\.upload\(/);
+  assert.match(source, /confirm_lead_proof'/);
+  assert.match(source, /PROOF_NOT_PRIVATE_TO_OTHER_AGENT/);
+});
+
+test('proof privacy is checked by attempting a real download as a non-owning agent, not asserted from configuration alone', () => {
+  const source = runtimeSmokeSource();
+  assert.match(source, /agentB\.client\.storage\.from\('lead-proofs'\)\.download\(storagePath\)/);
+  assert.match(source, /if \(!otherAgentDownload\.error\) throw new Error\('PROOF_NOT_PRIVATE_TO_OTHER_AGENT'\)/);
+});
+
+test('the security negatives cover anonymous data read, anonymous proof access, and an unauthorized team-management call', () => {
+  const source = runtimeSmokeSource();
+  assert.match(source, /ANONYMOUS_PLAYER_READ_NOT_DENIED/);
+  assert.match(source, /ANONYMOUS_PROFILE_READ_NOT_DENIED/);
+  assert.match(source, /ANONYMOUS_PROOF_ACCESS_NOT_DENIED/);
+  assert.match(source, /UNAUTHORIZED_TEAM_MANAGEMENT_NOT_DENIED/);
+  // The anonymous client must be unauthenticated — built with the same public
+  // config as everything else, not signed in as any account.
+  assert.match(source, /const anonClient = clientFor\(config\)/);
+  assert.match(source, /functions\/v1\/team-management/);
+  assert.match(source, /if \(unauthorized\.status !== 401\)/);
+});
+
+test('the security negatives run after the proof flow, while the proof object still exists to probe', () => {
+  const source = runtimeSmokeSource();
+  const closeIndex = source.indexOf("stage = 'close_lead_with_proof'");
+  const anonReadIndex = source.indexOf("stage = 'verify_anonymous_read_denied'");
+  const anonProofIndex = source.indexOf("stage = 'verify_anonymous_proof_access_denied'");
+  assert.ok(closeIndex >= 0 && anonReadIndex >= 0 && anonProofIndex >= 0);
+  assert.ok(closeIndex < anonReadIndex && anonReadIndex < anonProofIndex);
+});
+
+test('no new stage bypasses the existing cleanup contract', () => {
+  const source = runtimeSmokeSource();
+  // The added stages must all still live inside the same try block that the
+  // existing finally-cleanup covers — outcome is only set once, at the very end.
+  assert.equal((source.match(/outcome = \{ ok: true, runId: plan\.runId \};/g) || []).length, 1);
+  const outcomeIndex = source.indexOf('outcome = { ok: true, runId: plan.runId };');
+  const lastNewStageIndex = source.lastIndexOf("stage = 'verify_unauthorized_team_management_denied'");
+  assert.ok(lastNewStageIndex >= 0 && lastNewStageIndex < outcomeIndex);
+});
