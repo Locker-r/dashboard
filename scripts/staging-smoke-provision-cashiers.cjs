@@ -68,13 +68,19 @@ async function main() {
   const signIn = await client.auth.signInWithPassword({ email: adminEmail, password: adminPassword });
   if (signIn.error) throw new Error(`ADMIN_SIGN_IN_FAILED:${signIn.error.message}`);
   const accessToken = signIn.data.session.access_token;
-  await client.auth.signOut({ scope: 'local' });
 
   const functionsUrl = `${projectUrl}/functions/v1`;
   const a = buildCashier(runId, 'a');
   const b = buildCashier(runId, 'b');
-  await createMember(functionsUrl, accessToken, a);
-  await createMember(functionsUrl, accessToken, b);
+  try {
+    await createMember(functionsUrl, accessToken, a);
+    await createMember(functionsUrl, accessToken, b);
+  } finally {
+    // Signing out earlier revokes this session, and the Edge Function
+    // validates the bearer token against Auth on every call — the token
+    // must stay live until every call that needs it has finished.
+    await client.auth.signOut({ scope: 'local' });
+  }
 
   process.stdout.write(`${a.email}\t${a.password}\n`);
   process.stdout.write(`${b.email}\t${b.password}\n`);

@@ -2,9 +2,39 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const provision = require('../scripts/staging-smoke-provision-cashiers.cjs');
 const deprovision = require('../scripts/staging-smoke-deprovision-cashiers.cjs');
+
+// Regression for the first staging dispatch's actual failure: both scripts
+// captured the admin access token, then called client.auth.signOut() before
+// using that token against team-management. signOut revokes the current
+// session server-side even with { scope: 'local' }, so by the time the Edge
+// Function validated the bearer token it was already dead — every call
+// failed with 401 INVALID_TOKEN (provisioning) and 401 LIST_MEMBERS_FAILED
+// (deprovisioning, cascading from the same bug). The token must outlive
+// every call that needs it; signOut must run last.
+function sourceOf(filename) {
+  return fs.readFileSync(path.join(__dirname, '..', 'scripts', filename), 'utf8');
+}
+
+test('provisioning signs out only after both create-member calls complete', () => {
+  const source = sourceOf('staging-smoke-provision-cashiers.cjs');
+  const signOutIndex = source.indexOf('client.auth.signOut(');
+  const lastCreateMemberIndex = source.lastIndexOf('await createMember(');
+  assert.ok(signOutIndex >= 0 && lastCreateMemberIndex >= 0);
+  assert.ok(signOutIndex > lastCreateMemberIndex, 'signOut must run after every createMember call, not before');
+});
+
+test('deprovisioning signs out only after every lookup/deactivate call completes', () => {
+  const source = sourceOf('staging-smoke-deprovision-cashiers.cjs');
+  const signOutIndex = source.indexOf('client.auth.signOut(');
+  const lastDeactivateIndex = Math.max(source.lastIndexOf('await findMemberId('), source.lastIndexOf('await deactivate('));
+  assert.ok(signOutIndex >= 0 && lastDeactivateIndex >= 0);
+  assert.ok(signOutIndex > lastDeactivateIndex, 'signOut must run after every team-management call, not before');
+});
 
 test('buildCashier produces a deterministic, run-scoped, smoke_test-prefixed identity', () => {
   const a = provision.buildCashier('abc123def456', 'a');
