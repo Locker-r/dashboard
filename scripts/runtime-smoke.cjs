@@ -142,12 +142,37 @@ async function runSmoke(config) {
     if (visibleToAgent.error) throw visibleToAgent.error;
     if (visibleToAgent.data.length !== 1 || visibleToAgent.data[0].id !== plan.assignedPlayerId) throw new Error('AGENT_RLS_VISIBILITY_FAILED');
 
+    // Contact protection is a server-computed gate (players_secure.contact_access_state),
+    // not a client-side choice, and the raw columns are unreachable regardless of
+    // status: the column grant on public.players never includes phone/email/messenger
+    // (see supabase/migrations/20260801000200_revoke_raw_contacts.sql). Both facts are
+    // asserted here, before the lead has ever reached in_work.
+    stage = 'verify_contact_locked_before_in_work';
+    const lockedSecure = await agentA.client.from('players_secure')
+      .select('id,contact_access_state,has_email,has_messenger,email_display,messenger_display')
+      .eq('id', plan.assignedPlayerId).single();
+    if (lockedSecure.error) throw lockedSecure.error;
+    if (lockedSecure.data.contact_access_state !== 'locked') throw new Error('CONTACT_NOT_LOCKED_BEFORE_IN_WORK');
+    const assignedPlayerFixture = buildPlayers(plan)[0];
+    if (lockedSecure.data.email_display === assignedPlayerFixture.email
+      || lockedSecure.data.messenger_display === assignedPlayerFixture.messenger) {
+      throw new Error('CONTACT_NOT_MASKED_BEFORE_IN_WORK');
+    }
+    stage = 'verify_raw_contact_columns_forbidden';
+    const rawContactAttempt = await agentA.client.from('players').select('phone,email,messenger').eq('id', plan.assignedPlayerId).maybeSingle();
+    if (!rawContactAttempt.error) throw new Error('RAW_CONTACT_COLUMNS_NOT_FORBIDDEN');
+
     stage = 'change_player_status_atomic';
     await agentData.changePlayerStatus(plan.assignedPlayerId, 'in_work', plan.historyId);
     stage = 'verify_status_history';
     const history = await admin.client.from('player_status_history').select('id,player_id,from_status,to_status').eq('player_id', plan.assignedPlayerId);
     if (history.error) throw history.error;
     if (history.data.length !== 1 || history.data[0].id !== plan.historyId || history.data[0].from_status !== 'assigned' || history.data[0].to_status !== 'in_work') throw new Error('STATUS_HISTORY_ASSERTION_FAILED');
+
+    stage = 'verify_contact_eligible_after_in_work';
+    const eligibleSecure = await agentA.client.from('players_secure').select('id,contact_access_state').eq('id', plan.assignedPlayerId).single();
+    if (eligibleSecure.error) throw eligibleSecure.error;
+    if (eligibleSecure.data.contact_access_state !== 'eligible') throw new Error('CONTACT_NOT_ELIGIBLE_AFTER_IN_WORK');
 
     stage = 'add_player_comment_atomic';
     await agentData.addPlayerComment(plan.assignedPlayerId, plan.commentId, `${PREFIX}:${plan.runId}:comment`);
@@ -177,6 +202,73 @@ async function runSmoke(config) {
     await expectRpcFailure(admin.client, 'create_players_atomic', { p_players: [{
       id: plan.assignedPlayerId, email: `smoke_test_${plan.runId}_duplicate@example.invalid`, messenger: plan.assignedMarker
     }] }, 'PLAYER_ID_CONFLICT');
+
+    stage = 'reject_close_without_proof';
+    await expectRpcFailure(agentA.client, 'change_player_status_atomic', {
+      p_player_id: plan.assignedPlayerId, p_next_status: 'success', p_history_id: `${plan.historyId}_close_no_proof`, p_confirm_reopen: false
+    }, 'PROOF_REQUIRED');
+
+    // A tiny, real 1x1 PNG — request_lead_proof_upload validates the MIME type
+    // against a fixed allowlist and confirm_lead_proof re-derives size and MIME
+    // from the uploaded object itself, not from what the caller declares.
+    stage = 'request_lead_proof_upload';
+    const proofId = crypto.randomUUID();
+    const proofBytes = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'
+    );
+    const requestedProof = await agentA.client.rpc('request_lead_proof_upload', {
+      p_player_id: plan.assignedPlayerId, p_proof_id: proofId, p_filename: `${plan.markerPrefix}.png`,
+      p_mime_type: 'image/png', p_file_size: proofBytes.length
+    });
+    if (requestedProof.error) throw requestedProof.error;
+    const storagePath = requestedProof.data.storage_path;
+
+    stage = 'upload_proof_object';
+    const uploadedProof = await agentA.client.storage.from('lead-proofs').upload(storagePath, proofBytes, { contentType: 'image/png', upsert: false });
+    if (uploadedProof.error) throw uploadedProof.error;
+
+    stage = 'confirm_lead_proof';
+    const confirmedProof = await agentA.client.rpc('confirm_lead_proof', { p_proof_id: proofId });
+    if (confirmedProof.error) throw confirmedProof.error;
+    if (confirmedProof.data.state !== 'active') throw new Error('PROOF_NOT_ACTIVE_AFTER_CONFIRM');
+
+    stage = 'verify_proof_private_from_other_agent';
+    const otherAgentDownload = await agentB.client.storage.from('lead-proofs').download(storagePath);
+    if (!otherAgentDownload.error) throw new Error('PROOF_NOT_PRIVATE_TO_OTHER_AGENT');
+
+    stage = 'close_lead_with_proof';
+    await agentData.changePlayerStatus(plan.assignedPlayerId, 'success', `${plan.historyId}_close`);
+
+    stage = 'verify_admin_proof_visibility';
+    const adminProof = await admin.client.from('lead_proofs').select('id,player_id,state,uploaded_by,mime_type')
+      .eq('player_id', plan.assignedPlayerId).eq('state', 'active').maybeSingle();
+    if (adminProof.error) throw adminProof.error;
+    if (!adminProof.data || adminProof.data.id !== proofId || adminProof.data.uploaded_by !== agentA.id) throw new Error('ADMIN_PROOF_VISIBILITY_FAILED');
+
+    stage = 'verify_admin_final_result';
+    const closedPlayer = await admin.client.from('players').select('id,status').eq('id', plan.assignedPlayerId).single();
+    if (closedPlayer.error) throw closedPlayer.error;
+    if (closedPlayer.data.status !== 'success') throw new Error('FINAL_RESULT_NOT_VISIBLE');
+
+    stage = 'verify_anonymous_read_denied';
+    const anonClient = clientFor(config);
+    const anonPlayers = await anonClient.from('players').select('id').eq('id', plan.assignedPlayerId);
+    if (!anonPlayers.error) throw new Error('ANONYMOUS_PLAYER_READ_NOT_DENIED');
+    const anonProfiles = await anonClient.from('profiles').select('id').limit(1);
+    if (!anonProfiles.error) throw new Error('ANONYMOUS_PROFILE_READ_NOT_DENIED');
+
+    stage = 'verify_anonymous_proof_access_denied';
+    const anonProofDownload = await anonClient.storage.from('lead-proofs').download(storagePath);
+    if (!anonProofDownload.error) throw new Error('ANONYMOUS_PROOF_ACCESS_NOT_DENIED');
+
+    stage = 'verify_unauthorized_team_management_denied';
+    const unauthorized = await fetch(`${config.projectUrl}/functions/v1/team-management`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer not-a-real-token', 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'list-members' })
+    });
+    if (unauthorized.status !== 401) throw new Error('UNAUTHORIZED_TEAM_MANAGEMENT_NOT_DENIED');
+
     outcome = { ok: true, runId: plan.runId };
   } catch (error) {
     failure = new Error(`stage=${stage} run_id=${plan.runId} error=${String(error && error.message || error)}`);
