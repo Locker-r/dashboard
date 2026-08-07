@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "check": "staging-cloud-smoke-full-coverage",
+  "recordedAt": "2026-08-07T00:00:00.0000000+05:00",
+  "supersedes": "release/verification/staging-cloud-smoke-2026-08-07.json (partial coverage, prior to PR #44)",
+  "workflow": "staging-cloud-smoke.yml",
+  "workflowId": 329340910,
+  "run": {
+    "runId": 31199621397,
+    "runUrl": "https://github.com/Locker-r/dashboard/actions/runs/31199621397",
+    "headSha": "34d4cfa2d7ef6dcf97b2d4ecc3afe915ce27d5c0",
+    "headBranch": "main",
+    "conclusion": "success",
+    "triggeredBy": "workflow_dispatch, project_ref cjdxtakgmnzwixrajjry",
+    "steps": [
+      { "name": "Confirm the target project ref", "conclusion": "success" },
+      { "name": "Provision disposable staging cashiers", "conclusion": "success" },
+      { "name": "Run the staging smoke harness", "conclusion": "success" },
+      { "name": "Deprovision disposable staging cashiers", "conclusion": "success" }
+    ]
+  },
+  "coverageProven": [
+    "admin authentication",
+    "disposable cashier provisioning/deprovisioning via team-management create-member/set-member-active",
+    "cross-cashier RLS isolation and NOT_OWNER rejection",
+    "in_work transition with audit history",
+    "admin visibility of assigned/other leads",
+    "contact protection: locked before in_work, eligible after, raw phone/email/messenger columns refused at the DB grant level (not UI-hidden)",
+    "proof-required closure: rejected without an active proof",
+    "proof upload/confirm through the real request_lead_proof_upload/confirm_lead_proof/storage path",
+    "proof privacy: cross-agent download denied",
+    "admin visibility of proof metadata and final lead status",
+    "security negatives: anonymous player/profile read denied, anonymous proof download denied, team-management with an invalid bearer token denied (401)"
+  ],
+  "priorFailedRuns": [
+    { "runId": 31183242813, "cause": "signOut revoked the session before its access token was used against team-management (fixed by PR #43)" },
+    { "runId": 31196533778, "cause": "SMOKE_TEST_ADMIN_EMAIL did not carry the smoke_test prefix runtime-smoke.cjs requires of all three accounts (operator reconfigured the secret to a dedicated smoke_test-prefixed admin)" }
+  ],
+  "verifiedVia": "GET /repos/Locker-r/dashboard/actions/workflows/329340910/runs and .../runs/31199621397/jobs — read via the GitHub API, not asserted from the dispatch instruction alone.",
+  "notPerformed": [
+    "No production project was touched.",
+    "No database reset or delete occurred (cleanup_smoke_test_run_atomic removes only triple-matched, run-prefixed rows).",
+    "No release policy or guard was weakened.",
+    "supabase/snippets/ was not touched."
+  ]
+}
