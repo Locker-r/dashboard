@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "taskId": "B1",
-  "headSha": "9add1b707eec570b52390e647b31ae2ef3f20c17",
-  "recordedAt": "2026-08-07T00:00:00.0000000+05:00",
+  "headSha": "ce9ff24d569b0a031579b1792774041cbe05fc82",
+  "recordedAt": "2026-08-08T00:00:00.0000000+05:00",
   "criteria": [
     {
       "id": "proof-migration-governed",
@@ -23,7 +23,7 @@
       "status": "passed",
       "exitCode": 0,
       "command": "node scripts/verify-staging-smoke-evidence.cjs",
-      "detail": "Qualifying run: id=31204742834 head_sha=9add1b707eec570b52390e647b31ae2ef3f20c17 conclusion=success (exact HEAD match, no drift). Workflow .github/workflows/staging-cloud-smoke.yml on main; every step succeeded, including 'Provision disposable staging cashiers', 'Run the staging smoke harness', and 'Deprovision disposable staging cashiers'. Verified via GET /repos/Locker-r/dashboard/actions/runs/31204742834/jobs, not asserted from the dispatch instruction alone."
+      "detail": "Qualifying run: id=31207651449 head_sha=ce9ff24d569b0a031579b1792774041cbe05fc82 conclusion=success (exact HEAD match, no drift). Workflow .github/workflows/staging-cloud-smoke.yml on main; every step succeeded, including 'Provision disposable staging cashiers', 'Run the staging smoke harness' (now including the deactivated-agent-with-live-token scenario from #50), and 'Deprovision disposable staging cashiers'. Verified via GET /repos/Locker-r/dashboard/actions/runs/31207651449/jobs, not asserted from the dispatch instruction alone."
     },
     {
       "id": "proof-no-browser-secret",
