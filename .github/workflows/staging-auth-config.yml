@@ -1,0 +1,107 @@
+name: Staging Auth URL configuration
+
+# Manual only. This workflow reaches a hosted Supabase project's Auth
+# configuration, so it starts when a person presses the button and names the
+# target explicitly.
+on:
+  workflow_dispatch:
+    inputs:
+      project_ref:
+        description: 'Type the staging project ref exactly to confirm the target: cjdxtakgmnzwixrajjry'
+        required: true
+        type: string
+      site_url:
+        description: 'Type the exact staging Site URL to confirm the target: https://locker-r.github.io/dashboard/'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Two runs racing each other is how a Site URL flips back and forth.
+concurrency:
+  group: staging-auth-config
+  cancel-in-progress: false
+
+jobs:
+  configure:
+    name: Dry run, apply, verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only main carries a reviewed, merged wrapper; a branch could have
+    # anything in it.
+    if: github.ref == 'refs/heads/main'
+    # Carries the SUPABASE_ACCESS_TOKEN environment secret, and whatever
+    # protection rules the staging environment has configured.
+    environment: staging
+    env:
+      RELEASE_ENVIRONMENT: staging
+      STAGING_PROJECT_REF: cjdxtakgmnzwixrajjry
+      STAGING_SITE_URL: https://locker-r.github.io/dashboard/
+    steps:
+      # Fail before the CLI is installed and before any secret is read: a
+      # typo in either confirmation should cost nothing.
+      - name: Confirm the target project ref and Site URL
+        shell: bash
+        env:
+          SUPPLIED_REF: ${{ inputs.project_ref }}
+          SUPPLIED_SITE_URL: ${{ inputs.site_url }}
+        run: |
+          if [[ "$SUPPLIED_REF" != "$STAGING_PROJECT_REF" ]]; then
+            echo "Refused: project_ref must be exactly $STAGING_PROJECT_REF." >&2
+            echo "Received: $SUPPLIED_REF" >&2
+            exit 1
+          fi
+          if [[ "$SUPPLIED_SITE_URL" != "$STAGING_SITE_URL" ]]; then
+            echo "Refused: site_url must be exactly $STAGING_SITE_URL." >&2
+            echo "Received: $SUPPLIED_SITE_URL" >&2
+            exit 1
+          fi
+          echo "Target confirmed: $STAGING_SITE_URL on $STAGING_PROJECT_REF"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # The wrapper is the only authorized path to this mutation; there is no
+      # supabase CLI subcommand for Auth Site URL / redirect configuration,
+      # and no generic Management API call is used here. See
+      # docs/release-gates.md, "The scoped exception: staging Auth URL
+      # configuration". The wrapper itself pins the project ref, Site URL,
+      # and redirect allowlist — nothing here passes those as arguments.
+      - name: Dry run
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: node scripts/release/staging-auth-config.cjs --dry-run
+
+      # Reached only when the dry run exited 0: a failed step fails the job.
+      - name: Apply
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: node scripts/release/staging-auth-config.cjs --apply
+
+      # Proves the applied state is the intended state rather than trusting
+      # the apply step's own exit code.
+      - name: Verify the configuration now matches
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: node scripts/release/staging-auth-config.cjs --dry-run
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### Staging Auth URL configuration"
+            echo ""
+            echo "- Project ref: \`$STAGING_PROJECT_REF\`"
+            echo "- Site URL: \`$STAGING_SITE_URL\`"
+            echo "- Environment: \`staging\`"
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Result: \`${{ job.status }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
