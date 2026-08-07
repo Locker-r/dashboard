@@ -180,3 +180,61 @@ test('no new stage bypasses the existing cleanup contract', () => {
   const lastNewStageIndex = source.lastIndexOf("stage = 'verify_unauthorized_team_management_denied'");
   assert.ok(lastNewStageIndex >= 0 && lastNewStageIndex < outcomeIndex);
 });
+
+/* ==================== B1 local-suite parity: MIME/size, signed URL, audit actor, immutability ==================== */
+
+test('MIME and size enforcement are checked before the real proof is ever created', () => {
+  const source = runtimeSmokeSource();
+  const mimeIndex = source.indexOf("stage = 'reject_disallowed_mime_type'");
+  const sizeIndex = source.indexOf("stage = 'reject_oversized_declared_file'");
+  const realRequestIndex = source.indexOf("stage = 'request_lead_proof_upload'");
+  assert.ok(mimeIndex >= 0 && sizeIndex >= 0 && realRequestIndex >= 0);
+  assert.ok(mimeIndex < realRequestIndex && sizeIndex < realRequestIndex);
+  assert.match(source, /INVALID_FILE_TYPE/);
+  assert.match(source, /FILE_TOO_LARGE/);
+  // Enforced by calling the real RPC, not by reading bucket admin config —
+  // this harness must never need the service role.
+  assert.doesNotMatch(source, /SMOKE_TEST_LOCAL_SERVICE_KEY/);
+  assert.doesNotMatch(source, /getBucket/);
+});
+
+test('signed-URL access is proven for the admin and refused for a cross-agent actor, using their own sessions', () => {
+  const source = runtimeSmokeSource();
+  assert.match(source, /admin\.client\.storage\.from\('lead-proofs'\)\.createSignedUrl\(storagePath, 60\)/);
+  assert.match(source, /ADMIN_SIGNED_URL_FAILED/);
+  assert.match(source, /ADMIN_SIGNED_URL_NOT_USABLE/);
+  assert.match(source, /agentB\.client\.storage\.from\('lead-proofs'\)\.createSignedUrl\(storagePath, 60\)/);
+  assert.match(source, /CROSS_AGENT_SIGNED_URL_NOT_DENIED/);
+  const signedIndex = source.indexOf("stage = 'verify_signed_url_access'");
+  const confirmIndex = source.indexOf("stage = 'confirm_lead_proof'");
+  const closeIndex = source.indexOf("stage = 'close_lead_with_proof'");
+  assert.ok(confirmIndex >= 0 && signedIndex > confirmIndex && signedIndex < closeIndex,
+    'signed-URL access must be proven on the active, not-yet-closed proof');
+});
+
+test('the close audit record is checked against the real authenticated actor', () => {
+  const source = runtimeSmokeSource();
+  const closeIndex = source.indexOf("stage = 'close_lead_with_proof'");
+  const auditIndex = source.indexOf("stage = 'verify_close_audit_actor'");
+  assert.ok(closeIndex >= 0 && auditIndex > closeIndex);
+  assert.match(source, /closeHistory\.data\.user_id !== agentA\.id/);
+  assert.match(source, /CLOSE_AUDIT_ACTOR_MISMATCH/);
+});
+
+test('proof immutability is checked only after the lead is actually closed, using the uploader\'s own session', () => {
+  const source = runtimeSmokeSource();
+  const closeIndex = source.indexOf("stage = 'close_lead_with_proof'");
+  const immutableIndex = source.indexOf("stage = 'verify_proof_immutable_after_close'");
+  const adminVisibilityIndex = source.indexOf("stage = 'verify_admin_proof_visibility'");
+  assert.ok(closeIndex >= 0 && immutableIndex > closeIndex && immutableIndex < adminVisibilityIndex);
+  assert.match(source, /agentA\.client\.storage\.from\('lead-proofs'\)\s*\n?\s*\.upload\(storagePath, proofBytes, \{ contentType: 'image\/png', upsert: true \}\)/);
+  assert.match(source, /CONFIRMED_PROOF_OVERWRITE_NOT_DENIED/);
+  assert.match(source, /agentA\.client\.storage\.from\('lead-proofs'\)\.remove\(\[storagePath\]\)/);
+  assert.match(source, /CONFIRMED_PROOF_DELETE_NOT_DENIED/);
+});
+
+test('none of the five parity additions introduce a service-role client', () => {
+  const source = runtimeSmokeSource();
+  assert.doesNotMatch(source, /service_role/i);
+  assert.doesNotMatch(source, /SERVICE_KEY/);
+});
