@@ -19,6 +19,19 @@ function realBacklog() {
   return JSON.parse(fs.readFileSync(path.join(ROOT, 'release', 'backlog.json'), 'utf8'));
 }
 
+// The committed backlog with B1 forced to 'in-review'. Most tests below exist
+// to prove general selector/gate properties (ordering, scheduling,
+// verify-vs-implement, evidence handling) using B1 as a stand-in in-review
+// task — not to assert the real backlog's live status, which changes
+// legitimately (e.g. once a human accepts B1). Tests that specifically assert
+// the live status use realBacklog() directly and are exempt from this.
+function referenceBacklog() {
+  const backlog = realBacklog();
+  const b1 = backlog.tasks.find(task => task.id === 'B1');
+  if (b1) b1.status = 'in-review';
+  return backlog;
+}
+
 function evidenceFor(taskId, overrides = {}) {
   const task = core.validateBacklog(realBacklog()).tasks.find(entry => entry.id === taskId);
   return JSON.stringify({
@@ -59,10 +72,15 @@ function gitStub(recorded) {
 }
 
 function fsStub(overrides = {}) {
+  // Defaults to the reference backlog (B1 forced 'in-review'), not the real
+  // file, so every simulation test keeps its intended fixture regardless of
+  // B1's live status — a caller-supplied 'release/backlog.json' key still
+  // wins, since it is spread in after the default.
+  const merged = { 'release/backlog.json': JSON.stringify(referenceBacklog()), ...overrides };
   return {
     readFileSync(target, encoding) {
       const normalized = String(target).replace(/\\/g, '/');
-      for (const [suffix, value] of Object.entries(overrides)) {
+      for (const [suffix, value] of Object.entries(merged)) {
         if (normalized.endsWith(suffix)) {
           if (value === null) {
             const error = new Error(`ENOENT: ${suffix}`);
@@ -127,7 +145,7 @@ test('backlog validation refuses a dependency cycle', () => {
 /* ==================== selection ==================== */
 
 test('the harness selects B1 as the next task', () => {
-  const selection = core.selectNextTask(core.validateBacklog(realBacklog()));
+  const selection = core.selectNextTask(core.validateBacklog(referenceBacklog()));
   assert.equal(selection.selectionCode, 'SELECTED');
   assert.equal(selection.selected.id, 'B1');
   assert.equal(selection.selected.severity, 'P1');
@@ -136,7 +154,7 @@ test('the harness selects B1 as the next task', () => {
 });
 
 test('B1 and B2 are scheduled for verification, not for a second implementation', () => {
-  const backlog = core.validateBacklog(realBacklog());
+  const backlog = core.validateBacklog(referenceBacklog());
   const selection = core.selectNextTask(backlog);
   assert.equal(selection.operation, 'verify');
   for (const id of ['B1', 'B2']) {
@@ -162,12 +180,16 @@ test('a task whose implementation exists but is still marked open is a state def
 });
 
 test('a task cannot claim review status without an implementation and criteria', () => {
-  const withoutCommits = realBacklog();
-  withoutCommits.tasks.find(task => task.id === 'B1').implementation = { commits: [], branch: '', merged: false };
+  const withoutCommits = referenceBacklog();
+  const b1WithoutCommits = withoutCommits.tasks.find(task => task.id === 'B1');
+  b1WithoutCommits.status = 'in-review';
+  b1WithoutCommits.implementation = { commits: [], branch: '', merged: false };
   assert.throws(() => core.validateBacklog(withoutCommits), error => error.code === 'BACKLOG_TASK_REVIEW_WITHOUT_IMPLEMENTATION');
 
-  const withoutCriteria = realBacklog();
-  withoutCriteria.tasks.find(task => task.id === 'B1').acceptanceCriteria = [];
+  const withoutCriteria = referenceBacklog();
+  const b1WithoutCriteria = withoutCriteria.tasks.find(task => task.id === 'B1');
+  b1WithoutCriteria.status = 'in-review';
+  b1WithoutCriteria.acceptanceCriteria = [];
   assert.throws(() => core.validateBacklog(withoutCriteria), error => error.code === 'BACKLOG_TASK_REVIEW_WITHOUT_CRITERIA');
 });
 
@@ -186,17 +208,17 @@ test('the untracked supabase/snippets directory is not a release task', () => {
 });
 
 test('the selection does not depend on the order the backlog lists tasks in', () => {
-  const reference = core.selectNextTask(core.validateBacklog(realBacklog()));
+  const reference = core.selectNextTask(core.validateBacklog(referenceBacklog()));
   // Every rotation, plus a reversal: a stable answer under all of them cannot
   // be an artefact of input order.
   for (let offset = 0; offset < reference.ordered.length + reference.excluded.length; offset += 1) {
-    const backlog = realBacklog();
+    const backlog = referenceBacklog();
     backlog.tasks = backlog.tasks.slice(offset).concat(backlog.tasks.slice(0, offset));
     const selection = core.selectNextTask(core.validateBacklog(backlog));
     assert.equal(selection.selected.id, 'B1', `rotation ${offset} changed the selection`);
     assert.deepEqual(selection.rankedIds, reference.rankedIds);
   }
-  const reversed = realBacklog();
+  const reversed = referenceBacklog();
   reversed.tasks.reverse();
   const selection = core.selectNextTask(core.validateBacklog(reversed));
   assert.equal(selection.selected.id, 'B1');
@@ -1158,12 +1180,19 @@ test('classify exits 0 only for a read-only command', () => {
   assert.equal(cli.runClassify({ commandLine: 'curl https://example.com' }).exitCode, core.EXIT_BLOCKED);
 });
 
-test('the plan subcommand names B1 and every exclusion', () => {
+test('the plan subcommand reads the real committed backlog: B1 accepted and awaiting production, B2 next', () => {
+  // Unlike the fixture-based tests above, this one deliberately reads the
+  // real release/backlog.json from disk — it is the one place this suite
+  // should reflect B1's actual, current, human-set status rather than the
+  // reference fixture.
   const plan = cli.runPlan({ backlogPath: null }, { repositoryRoot: ROOT });
   assert.equal(plan.exitCode, core.EXIT_OK);
-  assert.equal(plan.payload.selectedTaskId, 'B1');
-  assert.ok(plan.human.includes('NEXT TASK: B1'));
+  assert.equal(plan.payload.selectedTaskId, 'B2');
+  assert.ok(plan.human.includes('NEXT TASK: B2'));
   assert.ok(plan.payload.excluded.length >= 5);
+  const b1 = plan.payload.excluded.find(entry => entry.id === 'B1');
+  assert.ok(b1, 'B1 must appear among the exclusions');
+  assert.equal(b1.code, 'AWAITING_PRODUCTION');
 });
 
 /* ==================== wiring ==================== */
@@ -1263,7 +1292,11 @@ test('an accepted task is excluded as AWAITING_PRODUCTION, not ALREADY_DONE', ()
 });
 
 test('accepting the selected task advances the planner to the next eligible task', () => {
-  const before = core.selectNextTask(core.validateBacklog(realBacklog()));
+  // Self-contained "before" state: this must hold regardless of the real
+  // backlog's current status, including after a legitimate human transition.
+  const beforeBacklog = realBacklog();
+  beforeBacklog.tasks.find(task => task.id === 'B1').status = 'in-review';
+  const before = core.selectNextTask(core.validateBacklog(beforeBacklog));
   assert.equal(before.selected.id, 'B1');
 
   const backlog = realBacklog();
@@ -1307,10 +1340,13 @@ test('an approval alone never marks a task accepted', () => {
   // The mechanisms by which an approval record could leak into selection:
   // reading it, or naming its directory. Neither may appear in the selector.
   assert.doesNotMatch(selectionBody, /readApproval|APPROVAL_RELATIVE|\.approval\.json/, 'selection must not consult the approval record');
-  // The committed backlog still records B1 as in-review even when a valid
-  // approval exists locally, and the selector still chooses it.
-  assert.equal(realBacklog().tasks.find(task => task.id === 'B1').status, 'in-review');
-  assert.equal(core.selectNextTask(core.validateBacklog(realBacklog())).selected.id, 'B1');
+  // A task stays selectable purely because its own status says so — an
+  // approval record existing alongside it (real or not) changes nothing here,
+  // since selection never reads one. Constructed explicitly so this holds
+  // regardless of the real backlog's current status.
+  const backlog = realBacklog();
+  backlog.tasks.find(task => task.id === 'B1').status = 'in-review';
+  assert.equal(core.selectNextTask(core.validateBacklog(backlog)).selected.id, 'B1');
 });
 
 test('the accepted status introduces no production execution path', () => {
