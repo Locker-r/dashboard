@@ -37,12 +37,22 @@ snapshot has been deployed: no production deployment pipeline exists yet.
   `runtime-smoke`, and `smoke-provisioning` operation names, with exclusive
   acquisition, stale and PID-reuse detection, and no automatic stealing of a
   live lock. This milestone defines and inspects it: `agent:worktree` reports a
-  held lock and refuses worktree removal while one is live. No destructive
-  runtime command acquires it yet, so it does not currently serialise database
-  resets; wiring acquisition into `verify:runtime`, the smoke wrappers, and
-  provisioning is deferred to Automation PR 2-B2.
+  held lock and refuses worktree removal while one is live.
+- `verify:runtime`'s `runtime-smoke-reset` stage now acquires the
+  `database-reset` lock immediately before it invokes the sanctioned
+  `scripts/dev/smoke.ps1 -AllowDatabaseReset` wrapper, and releases it on
+  success, failure, or interruption. The family root is always resolved from
+  the primary repository (via `git rev-parse --git-common-dir`), so the lock
+  is visible to `agent:worktree` regardless of which worktree
+  `verify:runtime` runs from. Collision is a hard refusal
+  (`RUNTIME_LOCK_HELD`, exit 2): never stolen, never waited on, never
+  retried; a stale or malformed claim is preserved for a human to clear.
+  The smoke wrappers and provisioning remain unwired, deferred to Automation
+  PR 2-B2b, along with PR preparation, merge readiness, post-merge
+  validation, and branch cleanup. See ADR-012.
 - Documentation of the Automation PR 2-A1/2-A2 split. Verification tiers are
-  delivered in PR 2-A2; agent worktrees in PR 2-B1; PR lifecycle automation remains PR 2-B2.
+  delivered in PR 2-A2; agent worktrees in PR 2-B1; runtime-lock wiring in PR
+  2-B2a; PR lifecycle automation remains PR 2-B2b.
 - `npm run doctor`: read-only local environment diagnostic covering Git state,
   toolchain, Docker, Supabase, port ownership, local configuration, key class,
   Auth health, smoke-user linkage, and competing processes. It finishes with

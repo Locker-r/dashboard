@@ -45,6 +45,12 @@ function commandResult(status = 0, stdout = '', stderr = '', extra = {}) {
   return { status, signal: null, stdout, stderr, error: null, ...extra };
 }
 
+// The fixture `git rev-parse --path-format=absolute --git-common-dir` answer
+// every runner gives by default, so runtime-tier tests that reach the
+// runtime-smoke-reset stage resolve a deterministic (fake) lock family root
+// without needing per-test wiring.
+const FIXTURE_GIT_COMMON_DIR = path.join(ROOT, '.git');
+
 function createRunner(handler = null) {
   const calls = [];
   const runCommand = async (file, args, options = {}) => {
@@ -54,9 +60,74 @@ function createRunner(handler = null) {
       const result = await handler(call, calls);
       if (result) return result;
     }
+    if (file === 'git' && args.includes('--git-common-dir')) {
+      return commandResult(0, `${FIXTURE_GIT_COMMON_DIR}\n`);
+    }
     return commandResult(0, 'fixture passed\n');
   };
   return { calls, runCommand };
+}
+
+// A minimal in-memory filesystem for the shared advisory runtime lock only.
+// Nothing else in this suite exercises deps.fs (defaultRunCommand's npm-path
+// lookup and the package.json read inside resolveRepository are both
+// unreachable here — every test injects `runCommand` and `repository`
+// directly), so this replaces the real `fs` module as the default rather
+// than letting lock acquisition write lock files onto the real disk.
+function createFakeLockFs() {
+  const files = new Map();
+  const dirs = new Set();
+  const norm = target => path.resolve(String(target));
+  const notFound = (op, target) => {
+    const error = new Error(`ENOENT: no such file or directory, ${op} '${target}'`);
+    error.code = 'ENOENT';
+    return error;
+  };
+  return {
+    mkdirSync(target, options = {}) {
+      const resolved = norm(target);
+      if (!options.recursive) { dirs.add(resolved); return; }
+      let current = path.parse(resolved).root;
+      for (const part of resolved.slice(current.length).split(path.sep).filter(Boolean)) {
+        current = path.join(current, part);
+        dirs.add(current);
+      }
+    },
+    writeFileSync(target, content, options = {}) {
+      const resolved = norm(target);
+      if (options && options.flag === 'wx' && files.has(resolved)) {
+        const error = new Error(`EEXIST: file already exists, open '${resolved}'`);
+        error.code = 'EEXIST';
+        throw error;
+      }
+      files.set(resolved, String(content));
+      dirs.add(path.dirname(resolved));
+    },
+    readFileSync(target) {
+      const resolved = norm(target);
+      if (!files.has(resolved)) throw notFound('open', resolved);
+      return files.get(resolved);
+    },
+    rmSync(target, options = {}) {
+      const resolved = norm(target);
+      if (!files.has(resolved)) {
+        if (options && options.force) return;
+        throw notFound('unlink', resolved);
+      }
+      files.delete(resolved);
+    },
+    lstatSync(target) {
+      const resolved = norm(target);
+      if (files.has(resolved)) return { isFile: () => true, isDirectory: () => false };
+      if (dirs.has(resolved)) return { isFile: () => false, isDirectory: () => true };
+      throw notFound('lstat', resolved);
+    },
+    realpathSync(target) {
+      const resolved = norm(target);
+      if (files.has(resolved) || dirs.has(resolved)) return resolved;
+      throw notFound('realpath', resolved);
+    }
+  };
 }
 
 function baseOverrides(overrides = {}) {
@@ -75,7 +146,7 @@ function baseOverrides(overrides = {}) {
     onStageStart: overrides.onStageStart,
     releaseOps: overrides.releaseOps,
     randomToken: overrides.randomToken || (() => 'fixture-owner-token'),
-    fs: overrides.fs || fs,
+    fs: overrides.fs || createFakeLockFs(),
     _capture: capture,
     _runner: runner
   };
