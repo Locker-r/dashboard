@@ -640,7 +640,14 @@ async function resolveRuntimeLockFamilyRoot(context) {
   }
   const commonDir = path.resolve(String(commonDirResult.stdout || '').trim());
   const primaryRoot = path.dirname(commonDir);
-  const pathDeps = { fs: deps.fs, platform: deps.platform };
+  // path.resolve/path.dirname above (and inside resolveWorktreeParent/
+  // canonicalDirectory below) always follow the real OS this process is
+  // actually running on — Node's `path` module has no "pretend platform"
+  // mode. deps.platform exists to pick which shell/executable string other
+  // stages use and can legitimately differ from the real OS in a test; path
+  // *shape* validation must not use it, or a real POSIX path gets checked
+  // against Windows syntax rules (or vice versa) and is wrongly refused.
+  const pathDeps = { fs: deps.fs, platform: process.platform };
   // Same default parent scripts/dev/agent-worktree.cjs's create/list/remove
   // compute from the primary repository root: no --parent override exists
   // here, so this always matches the default a plain `npm run agent:worktree`
