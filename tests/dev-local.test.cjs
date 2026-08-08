@@ -669,6 +669,24 @@ test('the npm scripts expose the documented commands', () => {
   assert.equal(manifest.scripts['dev:local'], 'node scripts/dev/dev-local.cjs');
 });
 
+// B7: supabase/config.toml's Auth redirect allow-list must name the port
+// npm run dev:local actually serves the dashboard on (DEFAULT_DASHBOARD_PORT),
+// not some other port left over from a template default. A mismatch is inert
+// today only because password sign-in uses no redirect — this pins the two
+// together so a future redirect-based flow does not inherit a stale allow-list.
+test('the Supabase Auth redirect allow-list matches the port the dashboard is actually served on', () => {
+  const configToml = fs.readFileSync(path.join(repositoryRoot, 'supabase', 'config.toml'), 'utf8');
+  const port = doctor.DEFAULT_DASHBOARD_PORT;
+  const siteUrlMatch = configToml.match(/^site_url\s*=\s*"([^"]+)"/m);
+  assert.ok(siteUrlMatch, 'config.toml must set [auth] site_url');
+  assert.equal(siteUrlMatch[1], `http://127.0.0.1:${port}`);
+
+  const redirectMatch = configToml.match(/^additional_redirect_urls\s*=\s*(\[[^\]]*\])/m);
+  assert.ok(redirectMatch, 'config.toml must set [auth] additional_redirect_urls');
+  const redirectUrls = JSON.parse(redirectMatch[1]);
+  assert.deepEqual(redirectUrls, [`http://localhost:${port}`, `http://127.0.0.1:${port}`]);
+});
+
 // Asserting that the state file is simply absent would make the result depend on
 // whether a launcher happens to be running, and `npm run dev:local` is the very
 // workflow this suite covers. The real behaviour under test is that --help does
