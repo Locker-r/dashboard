@@ -125,3 +125,21 @@ test('team list follows admin authorization and direct profile RLS remains restr
   const foundation = fs.readFileSync(path.join(root, 'supabase', 'migrations', '20260729000100_dashboard_foundation.sql'), 'utf8');
   assert.match(foundation, /profiles_select_own_or_admin[\s\S]*id = auth\.uid\(\) or public\.is_admin\(\)/);
 });
+
+test('check-team-management.ps1 statically asserts the audit table is retire-not-erase: FK RESTRICT on both actor and target, and no DELETE/ALL grant to any role including service_role', () => {
+  const checkScript = fs.readFileSync(path.join(root, 'scripts', 'check-team-management.ps1'), 'utf8');
+  assert.ok(checkScript.includes('actor_id\\s+uuid\\s+not\\s+null\\s+references\\s+public\\.profiles\\(id\\)\\s+on\\s+delete\\s+restrict'),
+    'missing static FK-RESTRICT assertion for actor_id');
+  assert.ok(checkScript.includes('target_user_id\\s+uuid\\s+references\\s+public\\.profiles\\(id\\)\\s+on\\s+delete\\s+restrict'),
+    'missing static FK-RESTRICT assertion for target_user_id');
+  assert.match(checkScript, /grant\\s\+\(all\|delete\)/);
+  assert.ok(checkScript.includes('on\\s+public\\.admin_audit_events\\s+to\\s+service_role'),
+    'missing static no-service_role-grant assertion for admin_audit_events');
+
+  // The migration text itself must satisfy what the structural check asserts —
+  // this is what makes the static check meaningful rather than tautological.
+  assert.match(sql, /actor_id uuid not null references public\.profiles\(id\) on delete restrict/);
+  assert.match(sql, /target_user_id uuid references public\.profiles\(id\) on delete restrict/);
+  assert.doesNotMatch(sql, /grant\s+(all|delete)[\s\S]{0,120}?on\s+public\.admin_audit_events/i);
+  assert.doesNotMatch(sql, /on\s+public\.admin_audit_events\s+to\s+service_role/i);
+});

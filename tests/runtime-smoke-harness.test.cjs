@@ -285,6 +285,125 @@ test('callTeamManagement carries the caller\'s own session token, not a service 
   assert.match(source, /return \{ client, id: result\.data\.user\.id, token: result\.data\.session\.access_token \};/);
 });
 
+/* ==================== B2 staging parity: admin cashier management ==================== */
+
+test('B2 admin-gate, validation, duplicate, contract, escalation, and idempotency stages run in order, before the deactivation scenario reassigns agent B\'s lead', () => {
+  const source = runtimeSmokeSource();
+  const order = [
+    "stage = 'verify_unauthorized_team_management_denied'",
+    "stage = 'team_admin_gate_enforced_for_every_privileged_action'",
+    "stage = 'team_unknown_action_refused'",
+    "stage = 'team_reject_invalid_email_before_auth_write'",
+    "stage = 'team_reject_invalid_country_before_auth_write'",
+    "stage = 'team_reject_invalid_password_before_auth_write'",
+    "stage = 'team_reject_username_collision_with_orphan_compensation'",
+    "stage = 'team_verify_no_orphan_auth_user_after_username_collision'",
+    "stage = 'team_create_cashier_c'",
+    "stage = 'sign_in_cashier_c'",
+    "stage = 'team_cashier_c_self_scope'",
+    "stage = 'team_reject_duplicate_email'",
+    "stage = 'team_update_member_country_contract'",
+    "stage = 'team_self_promotion_forbidden'",
+    "stage = 'team_direct_rpc_bypass_refused'",
+    "stage = 'team_idempotent_replay'",
+    "stage = 'transition_other_lead_to_in_work'"
+  ];
+  let cursor = -1;
+  for (const marker of order) {
+    const index = source.indexOf(marker);
+    assert.ok(index >= 0, `missing stage: ${marker}`);
+    assert.ok(index > cursor, `${marker} must come after the previous stage`);
+    cursor = index;
+  }
+});
+
+test('the admin gate is checked for every privileged action, using agent A\'s token, and asserts the exact ADMIN_REQUIRED code', () => {
+  const source = runtimeSmokeSource();
+  const gateIndex = source.indexOf("stage = 'team_admin_gate_enforced_for_every_privileged_action'");
+  const nextIndex = source.indexOf("stage = 'team_unknown_action_refused'");
+  const gateBlock = source.slice(gateIndex, nextIndex);
+  for (const action of ['list-members', 'create-member', 'set-member-active', 'update-member-country', 'update-member-role']) {
+    assert.match(gateBlock, new RegExp(`'${action}'`), `admin gate must cover ${action}`);
+  }
+  assert.match(gateBlock, /callTeamManagement\(config, agentA\.token, \{ action, \.\.\.extra \}\)/);
+  assert.match(gateBlock, /code !== 'ADMIN_REQUIRED'/);
+  assert.match(source, /INVALID_ACTION/);
+});
+
+test('email, country, and password validation are all checked before any Auth write, using cashier C\'s real target email', () => {
+  const source = runtimeSmokeSource();
+  assert.match(source, /INVALID_EMAIL_NOT_REFUSED/);
+  assert.match(source, /INVALID_COUNTRY_NOT_REFUSED/);
+  assert.match(source, /INVALID_PASSWORD_NOT_REFUSED/);
+  const emailIndex = source.indexOf("stage = 'team_reject_invalid_email_before_auth_write'");
+  const countryIndex = source.indexOf("stage = 'team_reject_invalid_country_before_auth_write'");
+  const passwordIndex = source.indexOf("stage = 'team_reject_invalid_password_before_auth_write'");
+  const collisionIndex = source.indexOf("stage = 'team_reject_username_collision_with_orphan_compensation'");
+  assert.ok(emailIndex >= 0 && emailIndex < countryIndex && countryIndex < passwordIndex && passwordIndex < collisionIndex);
+});
+
+test('a duplicate-username create is proven to leave no orphan Auth user by a failed sign-in, not by a service-role user listing', () => {
+  const source = runtimeSmokeSource();
+  assert.match(source, /USERNAME_ALREADY_EXISTS/);
+  assert.match(source, /cashierACollisionUsername/);
+  const orphanIndex = source.indexOf("stage = 'team_verify_no_orphan_auth_user_after_username_collision'");
+  const orphanBlock = source.slice(orphanIndex, source.indexOf("stage = 'team_create_cashier_c'"));
+  assert.match(orphanBlock, /signInWithPassword\(\{\s*email: cashierC\.email, password: cashierCPassword\s*\}\)/);
+  assert.match(orphanBlock, /if \(!orphanSignIn\.error\) throw new Error\('ORPHAN_AUTH_USER_SIGNS_IN'\)/);
+  assert.doesNotMatch(source, /listUsers/);
+});
+
+test('cashier C is created through the real create-member action and its contract is checked: agent role, uppercase country, active, and session id match', () => {
+  const source = runtimeSmokeSource();
+  const createIndex = source.indexOf("stage = 'team_create_cashier_c'");
+  const createBlock = source.slice(createIndex, source.indexOf("stage = 'sign_in_cashier_c'"));
+  assert.match(createBlock, /action: 'create-member'.*country: 'ec'/s);
+  assert.match(createBlock, /memberC\.role !== 'agent'/);
+  assert.match(createBlock, /memberC\.country !== 'EC'/);
+  assert.match(createBlock, /memberC\.is_active !== true/);
+  assert.match(source, /cashierCSession\.id !== cashierCId/);
+});
+
+test('cashier C sees exactly its own profile row and is refused every admin team-management action', () => {
+  const source = runtimeSmokeSource();
+  const scopeIndex = source.indexOf("stage = 'team_cashier_c_self_scope'");
+  const scopeBlock = source.slice(scopeIndex, source.indexOf("stage = 'team_reject_duplicate_email'"));
+  assert.match(scopeBlock, /cashierCSession\.client\.from\('profiles'\)\.select\('id'\)/);
+  assert.match(scopeBlock, /ownRows\.data\.length !== 1/);
+  assert.match(scopeBlock, /callTeamManagement\(config, cashierCSession\.token, \{ action: 'list-members' \}\)/);
+  assert.match(scopeBlock, /CASHIER_C_NOT_DENIED_ADMIN_ACTION/);
+});
+
+test('a duplicate email is refused, the country-change contract reports the true previous country and assigned count, and self-promotion stays forbidden', () => {
+  const source = runtimeSmokeSource();
+  assert.match(source, /USER_ALREADY_EXISTS/);
+  assert.match(source, /countryChange\.body\.data\.previous_country !== 'EC' \|\| countryChange\.body\.data\.assigned_players !== 0/);
+  assert.match(source, /memberId: admin\.id, role: 'admin'/);
+  assert.match(source, /SELF_PROMOTION_FORBIDDEN/);
+});
+
+test('a direct team_register_member RPC call bypassing the Edge Function is refused, and requestId replay is idempotent while reuse with different values is rejected', () => {
+  const source = runtimeSmokeSource();
+  const bypassIndex = source.indexOf("stage = 'team_direct_rpc_bypass_refused'");
+  const bypassBlock = source.slice(bypassIndex, source.indexOf("stage = 'team_idempotent_replay'"));
+  assert.match(bypassBlock, /agentA\.client\.rpc\('team_register_member'/);
+  assert.match(bypassBlock, /if \(!directRpc\.error\) throw new Error\('DIRECT_RPC_BYPASS_SUCCEEDED'\)/);
+  const replayIndex = source.indexOf("stage = 'team_idempotent_replay'");
+  const replayBlock = source.slice(replayIndex, source.indexOf("stage = 'transition_other_lead_to_in_work'"));
+  assert.match(replayBlock, /const replayId = crypto\.randomUUID\(\)/);
+  assert.match(replayBlock, /IDEMPOTENT_REPLAY_DIVERGED/);
+  assert.match(replayBlock, /REQUEST_ID_REUSE_NOT_ENFORCED/);
+});
+
+test('cashier C\'s naming mirrors staging-smoke-provision-cashiers.cjs\'s buildCashier by construction, not by a circular require', () => {
+  const source = runtimeSmokeSource();
+  assert.doesNotMatch(source, /require\(['"]\.\/staging-smoke-provision-cashiers\.cjs['"]\)/);
+  assert.match(source, /function buildDisposableCashier\(runId, slot\)/);
+  assert.match(source, /smoke_test_\$\{runId\}_cashier_\$\{slot\}@example\.invalid/);
+  const deprovision = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'staging-smoke-deprovision-cashiers.cjs'), 'utf8');
+  assert.match(deprovision, /buildCashier\(runId, 'c'\)\.email/);
+});
+
 test('the deactivation scenario runs last, after every other stage that depends on agent B\'s original lead ownership', () => {
   const source = runtimeSmokeSource();
   const reassignRiskyStages = [
