@@ -240,7 +240,7 @@
       "severity": "P3",
       "kind": "release-blocker",
       "actionability": "internal",
-      "status": "open",
+      "status": "done",
       "decision": "approved",
       "decisionEvidence": "docs/test-environment-status.md — 'Align when a redirect-based flow is introduced.'",
       "releaseBlocking": false,

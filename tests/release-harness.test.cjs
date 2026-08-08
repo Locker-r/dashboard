@@ -19,11 +19,12 @@ function realBacklog() {
   return JSON.parse(fs.readFileSync(path.join(ROOT, 'release', 'backlog.json'), 'utf8'));
 }
 
-// The committed backlog with B1 and B2 forced to 'in-review'. Most tests below
-// exist to prove general selector/gate properties (ordering, scheduling,
-// verify-vs-implement, evidence handling) using B1/B2 as stand-in in-review
-// tasks — not to assert the real backlog's live status, which changes
-// legitimately (e.g. once a human accepts B1 or B2). Tests that specifically
+// The committed backlog with B1/B2 forced to 'in-review' and B7 forced back
+// to 'open'. Most tests below exist to prove general selector/gate properties
+// (ordering, scheduling, verify-vs-implement, evidence handling) using
+// B1/B2/B7 as stand-in tasks in their original states — not to assert the
+// real backlog's live status, which changes legitimately (e.g. once a human
+// accepts B1/B2, or B7's fix is merged and closed). Tests that specifically
 // assert the live status use realBacklog() directly and are exempt from this.
 function referenceBacklog() {
   const backlog = realBacklog();
@@ -31,6 +32,8 @@ function referenceBacklog() {
     const task = backlog.tasks.find(entry => entry.id === id);
     if (task) task.status = 'in-review';
   }
+  const b7 = backlog.tasks.find(entry => entry.id === 'B7');
+  if (b7) b7.status = 'open';
   return backlog;
 }
 
@@ -1182,15 +1185,15 @@ test('classify exits 0 only for a read-only command', () => {
   assert.equal(cli.runClassify({ commandLine: 'curl https://example.com' }).exitCode, core.EXIT_BLOCKED);
 });
 
-test('the plan subcommand reads the real committed backlog: B1 and B2 accepted and awaiting production, B7 next', () => {
+test('the plan subcommand reads the real committed backlog: B1 and B2 accepted and awaiting production, B7 done, M-2B2 next', () => {
   // Unlike the fixture-based tests above, this one deliberately reads the
   // real release/backlog.json from disk — it is the one place this suite
-  // should reflect B1's and B2's actual, current, human-set status rather
-  // than the reference fixture.
+  // should reflect B1's, B2's, and B7's actual, current, human-set status
+  // rather than the reference fixture.
   const plan = cli.runPlan({ backlogPath: null }, { repositoryRoot: ROOT });
   assert.equal(plan.exitCode, core.EXIT_OK);
-  assert.equal(plan.payload.selectedTaskId, 'B7');
-  assert.ok(plan.human.includes('NEXT TASK: B7'));
+  assert.equal(plan.payload.selectedTaskId, 'M-2B2');
+  assert.ok(plan.human.includes('NEXT TASK: M-2B2'));
   assert.ok(plan.payload.excluded.length >= 5);
   const b1 = plan.payload.excluded.find(entry => entry.id === 'B1');
   assert.ok(b1, 'B1 must appear among the exclusions');
@@ -1198,6 +1201,9 @@ test('the plan subcommand reads the real committed backlog: B1 and B2 accepted a
   const b2 = plan.payload.excluded.find(entry => entry.id === 'B2');
   assert.ok(b2, 'B2 must appear among the exclusions');
   assert.equal(b2.code, 'AWAITING_PRODUCTION');
+  const b7 = plan.payload.excluded.find(entry => entry.id === 'B7');
+  assert.ok(b7, 'B7 must appear among the exclusions');
+  assert.equal(b7.code, 'ALREADY_DONE');
 });
 
 /* ==================== wiring ==================== */
