@@ -147,6 +147,41 @@ team-management). Not ported: the local suite's one check that reads
 guarantee (MIME/size enforcement) is proven here at the RPC boundary instead,
 which is the more direct assertion.
 
+## B2 cashier-runtime-suite: staging evidence verification
+
+B2's `cashier-runtime-suite` criterion originally ran
+`node scripts/agent-management-smoke.cjs`, which is intentionally local-only
+and requires `SMOKE_TEST_LOCAL_SERVICE_KEY`. Its command is now the same
+`node scripts/verify-staging-smoke-evidence.cjs` used by B1 — one shared,
+task-agnostic verifier, not a fork — checking read-only for a qualifying
+successful `.github/workflows/staging-cloud-smoke.yml` run under the exact
+rule described above ("Proves the commit being judged").
+
+What that staging run actually proves, ported check-for-check from the
+original local suite onto ordinary admin/cashier JWTs
+(`scripts/runtime-smoke.cjs`, extended in #54): the team-management admin
+gate refuses every privileged action to a non-admin, and an unknown action is
+refused; email, country, and temporary-password validation happen before any
+Auth write; a duplicate-username create is refused with no orphan or
+squatted Auth user left behind (proven by a failed sign-in against that
+email, not a privileged user listing); create-member produces a coherent
+profile; a cashier sees only its own profile row and cannot call an admin
+action; a duplicate email is refused; a country change reports the true
+previous country and current assigned-lead count; deactivation revokes an
+already-issued token's access immediately, and reactivation restores it on
+the same token with no second Auth user; an admin cannot self-promote; a
+direct call to the underlying team RPC, bypassing the Edge Function, is
+refused; and requestId replay is idempotent while reuse with different
+values is refused. Not ported: the local suite's one check that lists Auth
+users directly with the service role — its guarantee (no orphan Auth user)
+is proven here by attempting to sign in as the disputed account instead,
+which needs no privileged credential. Also not ported at the API boundary:
+audit-history immutability (no `DELETE`/`ALL` grant on `admin_audit_events`
+to any role, and its foreign keys restricting deletion of an audited
+profile) — that has no reachable product-API surface, so it is proven
+structurally instead, by `cashier-structure`'s own criterion
+(`scripts/check-team-management.ps1`).
+
 ## Content rules: changes that are not commands
 
 Some dangerous changes are two words inside a migration rather than a command
