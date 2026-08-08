@@ -101,7 +101,13 @@ A tag that is not an ancestor of `main` is rejected, so that guarantee holds.
 ### What a tag means
 
 A tag means: reviewed, gated, and reproducible. **It does not mean deployed.**
-No production deployment pipeline exists — that is D2 and later.
+Pushing a `vMAJOR.MINOR.PATCH` tag additionally triggers
+`.github/workflows/production-pages-deploy.yml` (M-D2B, ADR-015), which
+re-verifies the tag, rebuilds the Pages artifact from that exact commit, and
+then waits on the `production` GitHub environment's own approval gate before
+Wrangler runs — pushing the tag is not itself deployment; a human still
+approves the environment before Cloudflare is touched. Deployment
+verification and rollback rehearsal are separate, later work (M-D2C).
 
 GitHub Pages currently publishes the root of `main` to
 `https://locker-r.github.io/dashboard/` automatically on every push, outside
