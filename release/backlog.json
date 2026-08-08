@@ -176,18 +176,19 @@
       "actionability": "external",
       "status": "open",
       "decision": "approved",
-      "decisionEvidence": "Product Owner decision, 2026-08-07: GitHub Pages is approved as the frontend hosting target for staging/pilot only. It is NOT approved as production hosting; production hosting remains undecided. Canonical staging URL: https://locker-r.github.io/dashboard/ (GET /repos/Locker-r/dashboard/pages). Policy implementing this: scripts/release/staging-auth-config.cjs, scripts/release/release-core.cjs classifyStagingAuthConfig, docs/release-gates.md 'Frontend hosting: GitHub Pages, staging/pilot only' and 'The scoped exception: staging Auth URL configuration'.",
+      "decisionEvidence": "Product Owner decision, 2026-08-07: GitHub Pages is approved as the frontend hosting target for staging/pilot only, at https://locker-r.github.io/dashboard/ (GET /repos/Locker-r/dashboard/pages) — not production. Product Owner decision, 2026-08-08 (docs/decisions.md ADR-013): Cloudflare Pages is the approved production frontend host. This names the host only; account creation, project creation, DNS/custom domain, choice of deployment mechanism, and any deployment remain external and unresolved, requiring a human with Cloudflare account access. See docs/release-gates.md 'Frontend hosting: GitHub Pages, staging/pilot only' and 'Frontend hosting: production (Cloudflare Pages), account and deployment mechanism not yet configured'.",
       "releaseBlocking": true,
       "workaround": null,
       "dependsOn": [],
       "blocks": [],
       "evidence": [
         "docs/test-environment-status.md — blocker B4, severity P1 (external)",
-        "docs/release-governance.md — the release workflow deploys nothing"
+        "docs/release-governance.md — the release workflow deploys nothing",
+        "docs/decisions.md ADR-013 — Cloudflare Pages approved as production host"
       ],
       "productionActions": [
-        "publish artifacts/pages-site/ to https://locker-r.github.io/dashboard/ (staging only) via a reviewed GitHub Actions workflow — not yet added",
-        "choose and configure production hosting — undecided, out of scope for this policy"
+        "publish artifacts/pages-site/ to https://locker-r.github.io/dashboard/ (staging only) via .github/workflows/staging-pages-deploy.yml — already added; dispatch is a separate operator action",
+        "create the Cloudflare account/project, choose a deployment mechanism, and configure production hosting — host is decided (Cloudflare Pages), configuration remains external"
       ]
     },
     {
