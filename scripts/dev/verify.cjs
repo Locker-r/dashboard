@@ -6,6 +6,8 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const doctor = require('./doctor.cjs');
 const pages = require('../build-pages-artifact.cjs');
+const automationCore = require('./automation-core.cjs');
+const agentWorktree = require('./agent-worktree.cjs');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 const SCHEMA_VERSION = 1;
@@ -24,6 +26,10 @@ const RELEASE_MARKER = '.verify-owner.json';
 const RELEASE_SLOT_NAMES = Object.freeze(['a', 'b']);
 const SAFE_RUNTIME_RUN_ID = 'verifyruntime0001';
 const FULL_SHA = /^[0-9a-f]{40}$/i;
+// The shared advisory runtime lock's operation name for the database-resetting
+// stage below. Acquired only at the destructive child-process boundary — see
+// resolveRuntimeLockFamilyRoot and the runtime-smoke-reset stage.
+const RUNTIME_LOCK_OPERATION = 'database-reset';
 
 const PR_STAGE_SPECS = Object.freeze([
   Object.freeze({ id: 'unit-tests', label: 'Full unit test suite', executable: 'npm', args: ['test'], timeoutMs: 360000 }),
@@ -257,7 +263,12 @@ function createDefaultDeps(overrides = {}) {
     onStageStart: overrides.onStageStart || null,
     spawnProcess: overrides.spawnProcess || spawn,
     killGraceMs: Number.isFinite(overrides.killGraceMs) ? Math.max(0, overrides.killGraceMs) : 2000,
-    releaseOps: overrides.releaseOps || null
+    releaseOps: overrides.releaseOps || null,
+    // Only consulted by the shared advisory runtime lock (automation-core.cjs's
+    // acquireRuntimeLock/inspectRuntimeLock), for the process-identity check
+    // that tells a live holder apart from a reused PID.
+    processPid: overrides.processPid || (() => process.pid),
+    processKill: overrides.processKill || ((pid, signal) => process.kill(pid, signal))
   };
   deps.sensitiveValues = overrides.sensitiveValues || sensitiveEnvironmentValues(deps.env);
   deps.runCommand = overrides.runCommand || ((file, args, options = {}) => defaultRunCommand(file, args, options, deps));
@@ -603,6 +614,48 @@ function requiredResetCredentialNames(environment) {
   ].filter(name => !String(environment[name] || '').trim());
 }
 
+// The shared runtime lock's family root must be the same directory regardless
+// of which worktree of this repository verify.cjs happens to run from —
+// scripts/dev/agent-worktree.cjs computes it from the PRIMARY repository root
+// (dirname(repositoryRoot)/.worktrees), and a lock this stage takes must be
+// visible to `agent:worktree remove` running in the primary checkout. Using
+// this worktree's own `git rev-parse --show-toplevel` would compute a
+// different, worktree-local family root and make the lock invisible to the
+// command that has to refuse because of it — exactly the failure mode
+// scripts/dev/agent-worktree.cjs's own familyRoot comment warns about.
+//
+// `git rev-parse --path-format=absolute --git-common-dir` returns the one
+// `.git` directory every worktree of a repository shares, so its parent is
+// always the primary repository root no matter which worktree asks.
+async function resolveRuntimeLockFamilyRoot(context) {
+  const deps = context.deps;
+  const commonDirResult = await deps.runCommand(
+    'git', ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+    { cwd: context.repository.root, env: deps.env, timeoutMs: 30000 }
+  );
+  if (!commonDirResult || commonDirResult.status !== 0) {
+    throw new VerificationError('RUNTIME_LOCK_FAMILY_UNAVAILABLE',
+      commandOutput(commonDirResult, deps.sensitiveValues) || 'Could not resolve the shared Git directory for the runtime lock family root.',
+      EXIT_BLOCKED);
+  }
+  const commonDir = path.resolve(String(commonDirResult.stdout || '').trim());
+  const primaryRoot = path.dirname(commonDir);
+  const pathDeps = { fs: deps.fs, platform: deps.platform };
+  // Same default parent scripts/dev/agent-worktree.cjs's create/list/remove
+  // compute from the primary repository root: no --parent override exists
+  // here, so this always matches the default a plain `npm run agent:worktree`
+  // invocation resolves.
+  const worktreeParent = agentWorktree.resolveWorktreeParent(pathDeps, primaryRoot, null);
+  const parentDirectory = path.dirname(path.resolve(worktreeParent));
+  try {
+    return automationCore.canonicalDirectory(pathDeps, parentDirectory, 'RUNTIME_LOCK_FAMILY_UNSAFE');
+  } catch {
+    // The family root does not exist yet (no worktree has ever been created),
+    // which simply means no lock can be held there yet.
+    return parentDirectory;
+  }
+}
+
 function createRuntimeStages() {
   return [
     internalStage('runtime-doctor', 'Read-only environment doctor', async context => {
@@ -646,18 +699,42 @@ function createRuntimeStages() {
       if (unsafe) return unsafe;
       context.state.destructiveWarning = 'DESTRUCTIVE LOCAL VERIFICATION: the sanctioned smoke wrapper will reset the disposable local database.';
       context.deps.streams.stderr.write(`${context.state.destructiveWarning}\n`);
-      return invokeFixedCommand(
-        context,
-        powershellExecutable(context.deps.platform),
-        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/dev/smoke.ps1', '-AllowDatabaseReset'],
-        {
-          id: 'runtime-smoke-reset',
-          timeoutMs: 2100000,
-          failureCode: 'RUNTIME_SMOKE_FAILED',
-          env: safeResetEnvironment(context.deps.env),
-          terminationPolicy: 'wait'
-        }
-      );
+
+      // The lock is acquired at the destructive child-process boundary only —
+      // never at CLI entry, and never for any read-only stage above. Collision
+      // is a hard refusal: this never steals a live lock, never waits, and
+      // never retries. A stale claim stays a refusal too; only a human clears
+      // it, per the remediation message acquireRuntimeLock already returns.
+      let familyRoot;
+      let lock;
+      try {
+        familyRoot = await resolveRuntimeLockFamilyRoot(context);
+        lock = automationCore.acquireRuntimeLock(context.deps, familyRoot, RUNTIME_LOCK_OPERATION, {
+          ownerWorktree: context.repository.root
+        });
+      } catch (error) {
+        if (error instanceof automationCore.AutomationError) return blocked(error.code, error.message);
+        throw error;
+      }
+      try {
+        return await invokeFixedCommand(
+          context,
+          powershellExecutable(context.deps.platform),
+          ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/dev/smoke.ps1', '-AllowDatabaseReset'],
+          {
+            id: 'runtime-smoke-reset',
+            timeoutMs: 2100000,
+            failureCode: 'RUNTIME_SMOKE_FAILED',
+            env: safeResetEnvironment(context.deps.env),
+            terminationPolicy: 'wait'
+          }
+        );
+      } finally {
+        // Released on success, on stage failure, and on any throw (including
+        // interruption) — this finally runs in every case. Only the exact
+        // token holder releases; a foreign or malformed lock is preserved.
+        automationCore.releaseRuntimeLock(context.deps, familyRoot, lock);
+      }
     }, { destructive: true, required: false })
   ];
 }
@@ -1421,6 +1498,7 @@ module.exports = Object.freeze({
   EXIT_VALIDATION,
   PR_STAGE_SPECS,
   PROJECT_ROOT,
+  RUNTIME_LOCK_OPERATION,
   SCHEMA_VERSION,
   USAGE,
   VALID_TIERS,
@@ -1434,6 +1512,7 @@ module.exports = Object.freeze({
   redact,
   redactDeep,
   requestInterruption,
+  resolveRuntimeLockFamilyRoot,
   runVerification,
   safeDryRunEnvironment,
   safeResetEnvironment,

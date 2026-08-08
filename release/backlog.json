@@ -274,28 +274,50 @@
       "productionActions": []
     },
     {
-      "id": "M-2B2",
+      "id": "M-2B2A",
       "rank": 9,
-      "title": "Automation PR 2-B2: review packages, PR preparation, merge readiness, post-merge validation, branch cleanup",
+      "title": "Automation PR 2-B2a: wire the shared advisory runtime lock into verify:runtime's destructive stage",
       "severity": "P3",
       "kind": "milestone",
       "actionability": "internal",
-      "status": "open",
+      "status": "done",
       "decision": "approved",
-      "decisionEvidence": "docs/project-status.md — Next task and Deferred work; docs/decisions.md ADR-010.",
+      "decisionEvidence": "docs/project-status.md — Next task and Deferred work; docs/decisions.md ADR-010, ADR-012. Split from the original M-2B2 milestone because runtime-lock wiring and PR/merge/branch-cleanup automation are two independent safety designs, not one review unit (ADR-012).",
       "releaseBlocking": false,
       "workaround": "The manual flow in docs/developer-toolchain.md covers the same ground.",
       "dependsOn": [],
       "blocks": [],
       "evidence": [
+        "docs/decisions.md — ADR-012: acquire the lock at the destructive child-process boundary only, never at CLI entry; never auto-clear a stale claim.",
+        "scripts/dev/verify.cjs — resolveRuntimeLockFamilyRoot and the runtime-smoke-reset stage.",
+        "tests/runtime-lock-wiring.test.cjs, tests/verification-tiers.test.cjs — family-root parity with agent:worktree (real Git fixtures), collision/stale/malformed refusal, and release on success/failure/interruption."
+      ],
+      "productionActions": []
+    },
+    {
+      "id": "M-2B2B",
+      "rank": 10,
+      "title": "Automation PR 2-B2b: review packages, PR preparation, merge readiness, post-merge validation, branch cleanup",
+      "severity": "P3",
+      "kind": "milestone",
+      "actionability": "internal",
+      "status": "open",
+      "decision": "approved",
+      "decisionEvidence": "docs/project-status.md — Next task and Deferred work; docs/decisions.md ADR-010, ADR-012. ADR-012 also records this half's fail-closed requirements in advance: local branch cleanup uses only `git branch -d`, never `-D`; remote branch deletion is never automated.",
+      "releaseBlocking": false,
+      "workaround": "The manual flow in docs/developer-toolchain.md covers the same ground.",
+      "dependsOn": ["M-2B2A"],
+      "blocks": [],
+      "evidence": [
         "docs/project-status.md — Next task: review and merge Automation PR 2-B1, then implement Automation PR 2-B2",
-        "CHANGELOG.md — PR lifecycle automation remains PR 2-B2"
+        "CHANGELOG.md — PR lifecycle automation remains PR 2-B2b",
+        "docs/decisions.md — ADR-012 records this half's rejected alternatives (git branch -D, remote push --delete, force flags) in advance of implementation."
       ],
       "productionActions": []
     },
     {
       "id": "M-D2B",
-      "rank": 10,
+      "rank": 11,
       "title": "D2-B: tag-driven publication of the Pages artifact",
       "severity": "P3",
       "kind": "milestone",
@@ -317,7 +339,7 @@
     },
     {
       "id": "M-D2C",
-      "rank": 11,
+      "rank": 12,
       "title": "D2-C: deployment verification and rollback rehearsal",
       "severity": "P3",
       "kind": "milestone",

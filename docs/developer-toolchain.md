@@ -603,15 +603,26 @@ three destructive operation names — `database-reset`, `runtime-smoke`, and
 process start identity where available, timestamp, and a token, and contains no
 secrets.
 
-**No destructive runtime command acquires the lock yet.** The primitive, its
-exclusivity, and its staleness rules are implemented and tested, and
-`agent:worktree` reads it: `create`, `list`, and `inspect` report any held lock,
-and `remove` refuses while a relevant live lock is visible. But `verify:runtime`,
-the smoke wrappers, and provisioning do not currently take it, so today a lock
-exists only if something wrote one deliberately. Acquisition from those call
-sites is deferred to Automation PR 2-B2. Until then the lock does not protect
-you from two concurrent database resets — it only lets a worktree removal notice
-a reset that some other tool has already announced.
+**One destructive runtime command acquires the lock.** `verify:runtime`'s
+`runtime-smoke-reset` stage acquires the `database-reset` operation immediately
+before it invokes the sanctioned `scripts/dev/smoke.ps1 -AllowDatabaseReset`
+wrapper, and releases it in every case — success, failure, or interruption —
+once that invocation returns. The family root it acquires at is always the
+primary repository's, resolved via `git rev-parse --git-common-dir` so the
+lock is visible to `agent:worktree` regardless of which worktree
+`verify:runtime` is run from. Collision is a hard, immediate refusal
+(`RUNTIME_LOCK_HELD`, exit 2): it never steals, never waits, and never
+retries, and a stale or malformed claim is preserved for a human to clear
+rather than cleared automatically.
+
+The `runtime-smoke` and `smoke-provisioning` operation names, and the
+PowerShell entry points that would need to acquire them
+(`scripts/dev/smoke.ps1` itself, `Invoke-LocalRuntimeSmokeTest.ps1`,
+`provision-local-smoke-users.cjs`), remain unwired — deferred to Automation
+PR 2-B2b. Until those are wired, the lock does not protect you from two
+concurrent database resets started outside `verify:runtime --allow-reset`; it
+only lets a worktree removal notice a reset that some other tool has already
+announced.
 
 The lock directory is always derived from the resolved worktree parent, so
 `create`, `list`, and `remove` agree on one location for a given `--parent`.
@@ -626,11 +637,10 @@ a dead PID is reported stale for a human to clear. A live PID whose recorded
 start identity no longer matches is treated as PID reuse and reported stale
 rather than live.
 
-**The lock is advisory, and currently unwired.** Even once runtime tooling
-acquires it, it will only coordinate commands that choose to consult it and
-cannot stop a local process that ignores it. Today no destructive command takes
-it at all. Never run two database resets concurrently on the strength of the
-lock alone.
+**The lock is advisory.** It only coordinates commands that choose to consult
+it and cannot stop a local process that ignores it — including
+`scripts/dev/smoke.ps1` run directly, outside `verify:runtime`. Never run two
+database resets concurrently on the strength of the lock alone.
 
 ### Exit codes and output
 
@@ -646,9 +656,11 @@ they cannot inject headings or newlines into output.
 
 Automation never launches Claude, Codex, or any other AI client — `create`
 prints the `cd` command for you to run yourself. PR preparation, review-package
-generation, merge-readiness verification, post-merge validation, branch cleanup,
-and runtime-lock acquisition from the destructive runtime commands are deferred
-to Automation PR 2-B2 and are not available yet.
+generation, merge-readiness verification, post-merge validation, and branch
+cleanup are deferred to Automation PR 2-B2b and are not available yet.
+Runtime-lock acquisition is wired for `verify:runtime`'s destructive stage
+only (Automation PR 2-B2a); the smoke wrappers and provisioning remain
+unwired, also deferred to 2-B2b.
 
 ## Known limitations
 
@@ -657,10 +669,10 @@ to Automation PR 2-B2 and are not available yet.
 - The ownership marker guards against accidents, not against a local adversary.
   It cannot authenticate anything, because it lives inside the directory it
   describes and holds no value that is secret from whoever can write there.
-- The shared runtime lock is defined and inspected but not yet acquired by any
-  destructive runtime command; wiring it into `verify:runtime`, the smoke
-  wrappers, and provisioning is Automation PR 2-B2 work. It is advisory in any
-  case and cannot constrain a process that ignores it.
+- The shared runtime lock is acquired by `verify:runtime`'s destructive stage
+  only; wiring it into the smoke wrappers and provisioning is Automation PR
+  2-B2b work. It is advisory in any case and cannot constrain a process that
+  ignores it.
 - Worktree removal deliberately refuses more often than strictly necessary; the
   documented remediation is manual inspection, not a force flag.
 - Static checks do not prove live runtime behavior.
