@@ -122,7 +122,16 @@ planned work — see [`docs/github-settings.md`](github-settings.md). Until then
 Rollback is planned before a change merges, not improvised after it breaks.
 
 - **Application code.** Revert the squash commit and merge the revert through
-  the normal flow. There is no deployment step to undo.
+  the normal flow. Most product code has no deployment step to undo.
+- **The production Pages artifact is the one exception**: since M-D2C, it has
+  a deployment step (M-D2B's `production-pages-deploy.yml`), so it has a
+  rollback procedure — roll-forward, not a mutation of what was already
+  deployed. Revert through the normal flow, cut a new higher `vX.Y.Z`, and let
+  the same tag-triggered, `production`-environment-gated workflow redeploy it.
+  `scripts/release/rollback-rehearsal.cjs --target vX.Y.Z` proves a candidate
+  rollback target is usable and prints this sequence without executing any of
+  it; `scripts/verify-production-deployment.cjs --tag vX.Y.Z` proves a tag is
+  actually the one live. See docs/decisions.md ADR-016.
 - **Database migrations.** Every new migration ships with a matching
   `supabase/rollback/<name>_rollback.sql` in the same pull request.
   `npm run check:migrations` enforces this. Four migrations predating the rule
@@ -132,7 +141,9 @@ Rollback is planned before a change merges, not improvised after it breaks.
   not recover data destroyed by the forward migration, and it has not been
   rehearsed against a database with real data. Backup and restore are D6.
 - **Tags and releases** are never deleted or moved. A bad release is superseded
-  by a higher version, so history stays truthful.
+  by a higher version, so history stays truthful. This applies to rollback as
+  much as to a forward release: rollback cuts a new tag, it never reuses,
+  moves, or deletes an old one.
 
 ## Required status checks
 

@@ -174,10 +174,15 @@ jobs:
           fi
           echo "url=$deployed_url" >> "$GITHUB_OUTPUT"
 
-      # Proves the deployment landed on the production domain rather than a
-      # per-deployment preview host, without fetching or verifying content —
-      # that boundary belongs to M-D2C.
-      - name: Verify the deployment represents the production domain, not a preview host
+      # Proves the deployment landed on the dashboard-latam project rather
+      # than some other Cloudflare Pages project, without fetching or
+      # verifying content — that boundary belongs to M-D2C
+      # (scripts/verify-production-deployment.cjs). Wrangler's own output for
+      # a production-branch Direct Upload normally names the per-deployment
+      # alias host (<hash>.dashboard-latam.pages.dev), not the bare apex
+      # (dashboard-latam.pages.dev), so both are accepted here — anything
+      # outside this one project's two host shapes is refused.
+      - name: Verify the deployment represents the dashboard-latam project, not another project or a preview host
         shell: bash
         env:
           DEPLOYED_URL: ${{ steps.deploy.outputs.url }}
@@ -185,12 +190,14 @@ jobs:
           set -euo pipefail
           host="${DEPLOYED_URL#https://}"
           host="${host%%/*}"
-          if [[ "$host" != "dashboard-latam.pages.dev" ]]; then
-            echo "Refused: deployed host ($host) is not the pinned production domain (dashboard-latam.pages.dev)." >&2
-            echo "This is expected for Wrangler's default per-deployment alias; the workflow only accepts the exact production hostname." >&2
+          if [[ "$host" == "dashboard-latam.pages.dev" ]]; then
+            echo "Deployed host confirmed: $host (production apex domain)"
+          elif [[ "$host" =~ ^[A-Za-z0-9]{1,32}\.dashboard-latam\.pages\.dev$ ]]; then
+            echo "Deployed host confirmed: $host (dashboard-latam deployment alias)"
+          else
+            echo "Refused: deployed host ($host) is neither the pinned production domain (dashboard-latam.pages.dev) nor a dashboard-latam deployment alias." >&2
             exit 1
           fi
-          echo "Deployed host confirmed: $host"
 
       - name: Summary
         if: always()

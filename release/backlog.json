@@ -353,17 +353,38 @@
       "actionability": "internal",
       "status": "open",
       "decision": "approved",
-      "decisionEvidence": "docs/project-status.md — Deferred work: D2-C.",
+      "decisionEvidence": "docs/project-status.md — Deferred work: D2-C; docs/decisions.md ADR-016 (2026-08-09) records the rollback design: roll-forward through the normal release flow, proved by scripts/release/rollback-rehearsal.cjs, with scripts/verify-production-deployment.cjs proving a tag is actually live. Both are read-only and credential-free. These criteria prove the tooling exists and fails closed correctly against injected fixtures, not against a real deployment — no production deployment has occurred yet, and the verifier itself fails closed with NO_PRODUCTION_DEPLOYMENT_YET when asked to check one that doesn't exist. Live verification against a real deployment is recorded below as an outstanding production action, following the B4/M-D2B precedent (release/backlog.json B4, M-D2B).",
       "releaseBlocking": false,
       "workaround": null,
       "dependsOn": ["M-D2B"],
       "blocks": [],
       "evidence": [
         "docs/project-status.md — Deferred work: D2-C",
-        "docs/release-governance.md — rollback expectations"
+        "docs/release-governance.md — rollback expectations",
+        "docs/decisions.md ADR-016 — production rollback is roll-forward through the normal release flow",
+        "scripts/verify-production-deployment.cjs; scripts/release/rollback-rehearsal.cjs",
+        ".github/workflows/production-pages-deploy.yml — corrected deployed-host check (apex or dashboard-latam deployment alias)"
+      ],
+      "acceptanceCriteria": [
+        {
+          "id": "production-deployment-verifier-fails-closed",
+          "statement": "scripts/verify-production-deployment.cjs proves run provenance, byte provenance, and liveness against injected git/gh/fetch fixtures with no real network call, fails closed with NO_PRODUCTION_DEPLOYMENT_YET when no deployment is recorded rather than passing vacuously, and never invokes a mutating command.",
+          "command": "node --test tests/production-deploy-verification.test.cjs"
+        },
+        {
+          "id": "rollback-rehearsal-proves-and-mutates-nothing",
+          "statement": "scripts/release/rollback-rehearsal.cjs proves a rollback target's provenance (annotated, ancestor of main, has a successful prior deploy, rebuilds to the expected hashes), prints the human roll-forward sequence, succeeds even when the live site is unreachable, and never invokes wrangler, a Cloudflare call, git tag, git push, or a workflow dispatch.",
+          "command": "node --test tests/rollback-rehearsal.test.cjs"
+        },
+        {
+          "id": "production-workflow-host-check-correct",
+          "statement": "The corrected deployed-host check in production-pages-deploy.yml accepts the dashboard-latam apex domain and a dashboard-latam deployment alias, and refuses every other host, including a same-prefix lookalike and another project's pages.dev domain.",
+          "command": "node --test tests/production-pages-deploy-workflow.test.cjs"
+        }
       ],
       "productionActions": [
-        "rehearse rollback against a deployed environment"
+        "verify a real production deployment with scripts/verify-production-deployment.cjs --tag vX.Y.Z once a release tag has been pushed and deployed",
+        "rehearse rollback against a deployed environment (scripts/release/rollback-rehearsal.cjs proves the mechanics offline today; exercising it after a real deployment exists is an operator action)"
       ]
     }
   ]
