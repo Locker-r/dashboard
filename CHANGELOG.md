@@ -15,6 +15,19 @@ approval before Cloudflare is touched.
 
 ### Added
 
+- `scripts/verify-production-deployment.cjs` (`npm run verify:production-deployment -- --tag vX.Y.Z`):
+  read-only, credential-free verification that a tagged release is actually
+  live at `dashboard-latam.pages.dev` — a successful `production-pages-deploy.yml`
+  run for that exact tag, a live manifest matching what the tagged commit
+  would produce, and every listed file serving matching bytes. Fails closed
+  with `NO_PRODUCTION_DEPLOYMENT_YET` when no production deployment has ever
+  occurred, rather than passing vacuously.
+- `scripts/release/rollback-rehearsal.cjs` (`npm run rollback:rehearse -- --target vX.Y.Z`):
+  proves a candidate rollback target is usable (annotated tag, ancestor of
+  `main`, has its own successful production deploy, rebuilds to the expected
+  bytes) and prints the human roll-forward rollback sequence — it invokes no
+  Wrangler command, calls no Cloudflare API, and creates, moves, or pushes no
+  tag (M-D2C, docs/decisions.md ADR-016).
 - `.github/workflows/production-pages-deploy.yml`: tag-triggered publication
   of the Pages artifact to production Cloudflare Pages (`dashboard-latam`) by
   Direct Upload via Wrangler. Triggers only on an annotated `vMAJOR.MINOR.PATCH`
@@ -106,6 +119,13 @@ approval before Cloudflare is touched.
 
 ### Changed
 
+- `.github/workflows/production-pages-deploy.yml`'s deployed-host check now
+  accepts both the `dashboard-latam.pages.dev` apex domain and a
+  `<hash>.dashboard-latam.pages.dev` deployment alias (Wrangler's normal
+  output shape for a Direct Upload), instead of only the exact apex string —
+  the prior check would very likely have failed the job on the first real
+  deploy despite the upload itself succeeding. Still refuses every other
+  `*.pages.dev` host (M-D2C).
 - `verify:release` no longer runs `npm run check:migrations` twice. Migration
   governance runs once as a PR-gate stage; the duplicate release stage was
   removed.

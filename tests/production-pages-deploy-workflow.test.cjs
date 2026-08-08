@@ -120,8 +120,38 @@ test('the deployment targets exactly the dashboard-latam project and the main br
   assert.ok(!/--preview/.test(WORKFLOW));
 });
 
-test('the deployed host is verified against the exact production domain, not a preview alias', () => {
-  assert.match(WORKFLOW, /"\$host" != "dashboard-latam\.pages\.dev"/);
+test('the deployed host check accepts the apex domain and a dashboard-latam deployment alias, and refuses everything else', () => {
+  assert.match(WORKFLOW, /"\$host" == "dashboard-latam\.pages\.dev"/);
+  const aliasPatternMatch = WORKFLOW.match(/"\$host" =~ (\^\[A-Za-z0-9\]\{1,32\}\\\.dashboard-latam\\\.pages\\\.dev\$)/);
+  assert.ok(aliasPatternMatch, 'the alias regex must appear verbatim in the workflow');
+  const aliasPattern = new RegExp(aliasPatternMatch[1]);
+
+  const accepted = ['dashboard-latam.pages.dev', 'a1b2c3d4.dashboard-latam.pages.dev', 'main.dashboard-latam.pages.dev'];
+  for (const host of accepted) {
+    assert.ok(host === 'dashboard-latam.pages.dev' || aliasPattern.test(host), `${host} must be accepted`);
+  }
+
+  const refused = [
+    'other-project.pages.dev',
+    'evil-dashboard-latam.pages.dev',
+    'dashboard-latam.pages.dev.evil.com',
+    'dashboard-latam.pages.dev.example.com',
+    'sub.other.dashboard-latam.pages.dev',
+    'dashboard-latam.pages.devx',
+    ''
+  ];
+  for (const host of refused) {
+    assert.ok(host !== 'dashboard-latam.pages.dev' && !aliasPattern.test(host), `${host} must be refused`);
+  }
+
+  // The workflow must actually branch on both accepted shapes before falling
+  // through to a refusal, not merely define the pattern unused.
+  const hostCheckIndex = WORKFLOW.indexOf('Verify the deployment represents the dashboard-latam project');
+  assert.ok(hostCheckIndex >= 0);
+  const hostCheckBlock = WORKFLOW.slice(hostCheckIndex, hostCheckIndex + 900);
+  assert.match(hostCheckBlock, /elif \[\[ "\$host" =~/);
+  assert.match(hostCheckBlock, /else\n/);
+  assert.match(hostCheckBlock, /exit 1/);
 });
 
 test('no Cloudflare project creation, DNS, custom-domain, or Git-integration command appears', () => {

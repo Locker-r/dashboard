@@ -422,6 +422,29 @@ publishing workflow authored, following the same shape
 verification and rollback rehearsal against a real deployment are M-D2C,
 not this section.
 
+## Production deployment verification and rollback rehearsal (M-D2C)
+
+`scripts/verify-production-deployment.cjs --tag vX.Y.Z` and
+`scripts/release/rollback-rehearsal.cjs --target vX.Y.Z` (docs/decisions.md
+ADR-016) both run entirely read-only, with no Cloudflare or Supabase
+credential of any kind — everything they read is either local Git history or
+a public HTTPS `GET` against `dashboard-latam.pages.dev` or the GitHub API
+(`gh api`, never `-f`/`-F`/`-X`/`--method`, never a dispatch). Neither one is
+classified `production` or `destructive` by `scripts/release/release-core.cjs`,
+because neither is capable of either: no `wrangler` invocation, no Cloudflare
+API call, no `git tag`/`git push`, no workflow dispatch — both scripts are
+read-only observers of what a human's own production action already did.
+
+With no production deployment ever recorded, the verifier fails closed with
+`NO_PRODUCTION_DEPLOYMENT_YET` rather than passing vacuously — there is
+nothing yet to have verified, and G7 is exactly why that is expected to be
+true for a long time after M-D2C merges. The rehearsal proves a rollback
+target is usable (annotated tag, ancestor of `origin/main`, has its own
+successful production deploy run, rebuilds to the expected source-derived
+file hashes) and then only prints the human rollback sequence; a live site
+that is unreachable does not block the rehearsal, since rehearsing a
+rollback is precisely what happens when production may already be broken.
+
 ## The scoped exception: staging Auth URL configuration
 
 Supabase's Auth Site URL and redirect allowlist have no `supabase` CLI

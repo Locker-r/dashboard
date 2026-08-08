@@ -5,6 +5,8 @@
   "scripts": {
     "build:pages": "node scripts/build-pages-artifact.cjs",
     "build:vendor": "node scripts/build-vendor.cjs",
+    "verify:production-deployment": "node scripts/verify-production-deployment.cjs",
+    "rollback:rehearse": "node scripts/release/rollback-rehearsal.cjs",
     "check:js": "node scripts/check-javascript.cjs",
     "check:secrets": "node scripts/check-tracked-secrets.cjs",
     "check:migrations": "node scripts/check-migration-governance.cjs",
