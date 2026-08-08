@@ -91,7 +91,7 @@
       "severity": "P1",
       "kind": "release-blocker",
       "actionability": "internal",
-      "status": "in-review",
+      "status": "accepted",
       "decision": "approved",
       "decisionEvidence": "Product Owner instruction of 2026-08-05 directing this session to verify B1 and B2 rather than re-implement them. Implemented on branch feat/proof-and-agent-management by commits 28b0bcf and 3f7543b. As with B1, the approval rests on the session instruction; docs/test-environment-status.md records the required action as provisioning through the dashboard or the Edge Function for the test environment, and calls wiring the Access screen a separate change.",
       "releaseBlocking": true,
