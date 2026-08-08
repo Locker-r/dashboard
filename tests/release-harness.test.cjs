@@ -19,22 +19,27 @@ function realBacklog() {
   return JSON.parse(fs.readFileSync(path.join(ROOT, 'release', 'backlog.json'), 'utf8'));
 }
 
-// The committed backlog with B1/B2 forced to 'in-review' and B4/B7/M-2B2A
-// forced back to 'open'. Most tests below exist to prove general
+// The committed backlog with B1/B2 forced to 'in-review' and B4/B7/M-2B2A/
+// M-D2B forced back to 'open'. Most tests below exist to prove general
 // selector/gate properties (ordering, scheduling, verify-vs-implement,
-// evidence handling) using B1/B2/B4/B7/M-2B2A as stand-in tasks in their
-// original states — not to assert the real backlog's live status, which
-// changes legitimately (e.g. once a human accepts B1/B2, B4's Cloudflare
-// hosting is provisioned, B7's fix is merged and closed, or M-2B2A's
-// runtime-lock wiring is merged and closed). Tests that specifically assert
-// the live status use realBacklog() directly and are exempt from this.
+// evidence handling) using B1/B2/B4/B7/M-2B2A/M-D2B as stand-in tasks in
+// their original states — not to assert the real backlog's live status,
+// which changes legitimately (e.g. once a human accepts B1/B2, B4's
+// Cloudflare hosting is provisioned, B7's fix is merged and closed,
+// M-2B2A's runtime-lock wiring is merged and closed, or M-D2B's publishing
+// workflow is authored and merged). Tests that specifically assert the live
+// status use realBacklog() directly and are exempt from this. M-D2B is
+// forced open (not merely left as read) so M-D2C, which depends on it,
+// stays excluded here exactly as it did before M-D2B closed — this fixture
+// models the backlog at the "Current selection: B1" reference point, not
+// today's state.
 function referenceBacklog() {
   const backlog = realBacklog();
   for (const id of ['B1', 'B2']) {
     const task = backlog.tasks.find(entry => entry.id === id);
     if (task) task.status = 'in-review';
   }
-  for (const id of ['B4', 'B7', 'M-2B2A']) {
+  for (const id of ['B4', 'B7', 'M-2B2A', 'M-D2B']) {
     const task = backlog.tasks.find(entry => entry.id === id);
     if (task) task.status = 'open';
   }
@@ -1193,17 +1198,17 @@ test('classify exits 0 only for a read-only command', () => {
   assert.equal(cli.runClassify({ commandLine: 'curl https://example.com' }).exitCode, core.EXIT_BLOCKED);
 });
 
-test('the plan subcommand reads the real committed backlog: B1 and B2 accepted and awaiting production, B4/B7/M-2B2A/M-2B2B done, M-D2B next', () => {
+test('the plan subcommand reads the real committed backlog: B1 and B2 accepted and awaiting production, B4/B7/M-2B2A/M-2B2B/M-D2B done, M-D2C next', () => {
   // Unlike the fixture-based tests above, this one deliberately reads the
   // real release/backlog.json from disk — it is the one place this suite
-  // should reflect B1's, B2's, B4's, B7's, M-2B2A's, and M-2B2B's actual,
-  // current, human-set status rather than the reference fixture.
+  // should reflect B1's, B2's, B4's, B7's, M-2B2A's, M-2B2B's, and M-D2B's
+  // actual, current, human-set status rather than the reference fixture.
   const plan = cli.runPlan({ backlogPath: null }, { repositoryRoot: ROOT });
   assert.equal(plan.exitCode, core.EXIT_OK);
   assert.equal(plan.payload.selectionCode, 'SELECTED');
-  assert.equal(plan.payload.selectedTaskId, 'M-D2B');
-  assert.ok(plan.human.includes('NEXT TASK: M-D2B'));
-  assert.ok(plan.payload.excluded.length >= 5);
+  assert.equal(plan.payload.selectedTaskId, 'M-D2C');
+  assert.ok(plan.human.includes('NEXT TASK: M-D2C'));
+  assert.ok(plan.payload.excluded.length >= 6);
   const b1 = plan.payload.excluded.find(entry => entry.id === 'B1');
   assert.ok(b1, 'B1 must appear among the exclusions');
   assert.equal(b1.code, 'AWAITING_PRODUCTION');
@@ -1222,6 +1227,9 @@ test('the plan subcommand reads the real committed backlog: B1 and B2 accepted a
   const m2b2b = plan.payload.excluded.find(entry => entry.id === 'M-2B2B');
   assert.ok(m2b2b, 'M-2B2B must appear among the exclusions');
   assert.equal(m2b2b.code, 'ALREADY_DONE');
+  const mD2b = plan.payload.excluded.find(entry => entry.id === 'M-D2B');
+  assert.ok(mD2b, 'M-D2B must appear among the exclusions');
+  assert.equal(mD2b.code, 'ALREADY_DONE');
 });
 
 /* ==================== wiring ==================== */

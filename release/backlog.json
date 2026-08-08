@@ -325,19 +325,23 @@
       "severity": "P3",
       "kind": "milestone",
       "actionability": "internal",
-      "status": "open",
+      "status": "done",
       "decision": "approved",
-      "decisionEvidence": "docs/decisions.md ADR-003 and ADR-005 defer release-driven deployment to D2 and later.",
+      "decisionEvidence": "docs/decisions.md ADR-003 and ADR-005 defer release-driven deployment to D2 and later; docs/decisions.md ADR-015 (2026-08-08) records the trigger and guardrail design actually merged. The publishing workflow is authored, tested, and merged to main by PR #65 (commit db1a5b8): it triggers only on an annotated vMAJOR.MINOR.PATCH tag reachable from main, re-verifies tag shape/annotation/ancestry/SHA identity, builds the Pages artifact from that exact commit with the existing builder, runs under the production GitHub environment, and deploys to Cloudflare Pages project dashboard-latam via Wrangler. This mirrors B4's precedent (release/backlog.json B4, status done): a milestone is done when the deliverable it specifically owns exists and is merged, not when every production action it enables has since been exercised. No tag has been pushed and no deployment has occurred — pushing a release tag and approving the production environment remain a human's future action, unrelated to whether this milestone's construction scope is complete.",
       "releaseBlocking": false,
       "workaround": "Manual upload per docs/test-environment-runbook.md section 8.",
       "dependsOn": ["B4"],
       "blocks": [],
       "evidence": [
         "docs/project-status.md — Deferred work: D2-B",
-        "docs/release-governance.md — a tag does not mean deployed"
+        "docs/release-governance.md — a tag does not mean deployed, and what pushing one now additionally triggers",
+        "docs/decisions.md ADR-015 — trigger and guardrail shape of the production Pages publishing workflow",
+        ".github/workflows/production-pages-deploy.yml — the merged workflow",
+        "tests/production-pages-deploy-workflow.test.cjs — 25 tests proving the trigger, environment gate, project pin, secret hygiene, and gate ordering",
+        "PR #65 (commit db1a5b8) — merged to main"
       ],
       "productionActions": [
-        "enable a publishing workflow with production credentials"
+        "push an annotated vMAJOR.MINOR.PATCH release tag and approve the production GitHub environment to actually run a deployment — the workflow exists and is untriggered"
       ]
     },
     {
