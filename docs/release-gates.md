@@ -373,6 +373,36 @@ repos/Locker-r/dashboard/pages` and equivalents remain `GH_API_MUTATION`
 (`production`), enabling Pages for a different repository, a custom domain,
 and disabling or deleting the Pages site.
 
+## Frontend hosting: production (Cloudflare Pages), account and deployment mechanism not yet configured
+
+The Product Owner approved Cloudflare Pages as the **production** frontend
+host (docs/decisions.md ADR-013, 2026-08-08), naming the host and nothing
+else. Blocker B4's "choose" half is resolved by this decision; its
+"configure" half is not, and is not authorized by this section:
+
+- No Cloudflare account, organization, or Pages project has been created.
+- No deployment mechanism has been chosen (Wrangler CLI, Cloudflare's own
+  GitHub integration, or a GitHub Actions workflow calling the Cloudflare
+  API are all still open).
+- No DNS record, custom domain, or Cloudflare API token exists in this
+  repository's configuration, and none is authorized by this decision.
+- No production deployment of any kind is authorized — G7 still halts
+  unconditionally, exactly as it does for every other production action in
+  this document.
+
+The precedent this follows: B3 (docs/release-gates.md "The one scoped
+exception: staging project provisioning") and the staging Auth URL exception
+above both required a human to perform the account-level action first —
+project creation, CLI login — before any scoped, reviewed automation was
+authorized to act inside that project. The same order applies here: a human
+creates the Cloudflare account/project and supplies whatever credential a
+future automation would need, and only then does a narrowly scoped wrapper
+(mirroring `scripts/release/staging-auth-config.cjs`'s pinned-target,
+dry-run-first shape) become something this document could authorize. Until
+that happens, B4 remains `actionability: external`, `status: open`, and
+excluded from autonomous selection by that field alone — recording the
+decision here does not and cannot change that.
+
 ## The scoped exception: staging Auth URL configuration
 
 Supabase's Auth Site URL and redirect allowlist have no `supabase` CLI

@@ -145,3 +145,15 @@ Rejected alternatives: Acquiring the lock at CLI entry (holds it across long rea
 Consequences: `verify:runtime --allow-reset` is now the only reset path this lock protects; `scripts/dev/smoke.ps1`, `Invoke-LocalRuntimeSmokeTest.ps1`, and `provision-local-smoke-users.cjs` remain unwired and undocumented as protected until 2-B2b gives them a way to reach the primitive. Remote branch deletion stays out of automation's reach entirely, by policy and by the existing guard, not only by omission.
 Related milestone: Automation PR 2-B2a (this change) and 2-B2b (deferred)
 Evidence: scripts/dev/verify.cjs (resolveRuntimeLockFamilyRoot, the runtime-smoke-reset stage), tests/runtime-lock-wiring.test.cjs, tests/verification-tiers.test.cjs
+
+## ADR-013 — Approve Cloudflare Pages as the production frontend host
+
+Decision ID: ADR-013
+Date: 2026-08-08
+Status: accepted
+Context: ADR-003's GitHub Pages channel is retained for staging/pilot only (Product Owner decision, 2026-08-07; docs/release-gates.md "Frontend hosting: GitHub Pages, staging/pilot only"); production hosting was explicitly left undecided (blocker B4). This decision names the production host. It does not authorize creating the Cloudflare account or project, configuring DNS or a custom domain, choosing a deployment mechanism (Wrangler CLI, Cloudflare's GitHub integration, or a GitHub Actions workflow calling the Cloudflare API), or performing any deployment — all of that still needs a human with Cloudflare account access and, for any repository-side automation, a scoped API token recorded as a GitHub Actions secret. No agent can obtain either.
+Decision: Cloudflare Pages is the approved production frontend host for Dashboard Latam, chosen by the Product Owner on 2026-08-08.
+Rejected alternatives: Leaving production hosting undecided indefinitely; GitHub Pages for both staging and production (ADR-003/the 2026-08-07 decision already scoped GitHub Pages to staging/pilot only and did not extend it); deciding a specific deployment mechanism now, ahead of the account/project existing to deploy to.
+Consequences: Blocker B4's "choose" half is resolved; the "configure" half (Cloudflare account/project creation, DNS, a deployment mechanism, and the workflow that exercises it) remains external and unresolved, the same posture ADR-005 already established for GitHub Pages publication (a separate, later, reviewed change) and the same shape B3 followed for the Supabase staging project — a human performs the account-level action first, and only then does a scoped, reviewed automation change follow it, mirroring "The scoped exception: staging Auth URL configuration" and "The one scoped exception: staging project provisioning" in docs/release-gates.md. B4 stays `actionability: external` and `status: open` until that happens.
+Related milestone: B4; D2-B and D2-C (deployment mechanism and workflow, not yet designed)
+Evidence: release/backlog.json B4; docs/release-gates.md "Frontend hosting: production (Cloudflare Pages), account and deployment mechanism not yet configured"
