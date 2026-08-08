@@ -615,14 +615,25 @@ lock is visible to `agent:worktree` regardless of which worktree
 retries, and a stale or malformed claim is preserved for a human to clear
 rather than cleared automatically.
 
-The `runtime-smoke` and `smoke-provisioning` operation names, and the
-PowerShell entry points that would need to acquire them
-(`scripts/dev/smoke.ps1` itself, `Invoke-LocalRuntimeSmokeTest.ps1`,
-`provision-local-smoke-users.cjs`), remain unwired — deferred to Automation
-PR 2-B2b. Until those are wired, the lock does not protect you from two
-concurrent database resets started outside `verify:runtime --allow-reset`; it
-only lets a worktree removal notice a reset that some other tool has already
-announced.
+`npm run smoke -- -AllowDatabaseReset` (`scripts/dev/smoke.ps1`), invoked
+directly rather than through `verify:runtime`, also acquires the same
+`database-reset` operation now, through a small CLI bridge
+(`scripts/dev/runtime-lock.cjs`) that calls the identical, unchanged
+`acquireRuntimeLock`/`releaseRuntimeLock` primitives. It acquires once,
+around both `Invoke-LocalRuntimeSmokeTest.ps1` and
+`Invoke-LocalTeamManagementSmokeTest.ps1` — the only real destructive action
+either performs is the same `supabase db reset --local` — and releases in a
+`finally`. When `smoke.ps1` is itself invoked by `verify:runtime` (which has
+already acquired the lock around the whole `smoke.ps1` process), it sees
+`RUNTIME_LOCK_ALREADY_HELD=1` in its environment and skips acquisition
+entirely: never a nested, self-refusing second acquisition against a lock
+the same run already holds. `provision-local-smoke-users.cjs` has no
+standalone entry point — it is reachable only from inside this same guarded
+call tree, so no separate wiring applies to it.
+
+The `runtime-smoke` and `smoke-provisioning` operation names remain defined
+but unused: nothing in this repository performs a destructive action distinct
+from `database-reset` that would need its own lock slot.
 
 The lock directory is always derived from the resolved worktree parent, so
 `create`, `list`, and `remove` agree on one location for a given `--parent`.
@@ -655,12 +666,18 @@ they cannot inject headings or newlines into output.
 ### What this milestone does not do
 
 Automation never launches Claude, Codex, or any other AI client — `create`
-prints the `cd` command for you to run yourself. PR preparation, review-package
-generation, merge-readiness verification, post-merge validation, and branch
-cleanup are deferred to Automation PR 2-B2b and are not available yet.
-Runtime-lock acquisition is wired for `verify:runtime`'s destructive stage
-only (Automation PR 2-B2a); the smoke wrappers and provisioning remain
-unwired, also deferred to 2-B2b.
+prints the `cd` command for you to run yourself. Review-package generation is
+not available. `scripts/dev/pr-lifecycle.cjs` provides the rest as composable
+primitives, not a single do-everything command a human never looks at: it
+observes CI (`gh pr checks`, read-only), reports merge readiness as an
+observation only, performs a squash merge (`gh pr merge <n> --squash` —
+never `--admin`, `--force`, `--merge`, or `--rebase`), verifies
+`origin/main` against the PR's own `mergeCommit.oid` after a fresh fetch, and
+then delegates cleanup to `scripts/dev/branch-cleanup.cjs`: safe
+`agent:worktree` removal (the existing, unmodified tool) followed by a local
+`git branch -d` (never `-D`) under the full fail-closed precondition chain in
+`docs/decisions.md` ADR-012. Remote branch deletion is never automated under
+any flag.
 
 ## Known limitations
 
@@ -669,12 +686,20 @@ unwired, also deferred to 2-B2b.
 - The ownership marker guards against accidents, not against a local adversary.
   It cannot authenticate anything, because it lives inside the directory it
   describes and holds no value that is secret from whoever can write there.
-- The shared runtime lock is acquired by `verify:runtime`'s destructive stage
-  only; wiring it into the smoke wrappers and provisioning is Automation PR
-  2-B2b work. It is advisory in any case and cannot constrain a process that
-  ignores it.
+- The shared runtime lock is advisory: it coordinates only the two guarded
+  entry points that acquire it (`verify:runtime`'s destructive stage and
+  `npm run smoke -- -AllowDatabaseReset`) and cannot constrain a process that
+  ignores it, such as a bare `supabase db reset` run outside either wrapper.
 - Worktree removal deliberately refuses more often than strictly necessary; the
-  documented remediation is manual inspection, not a force flag.
+  documented remediation is manual inspection, not a force flag. Local branch
+  cleanup (`scripts/dev/branch-cleanup.cjs`) inherits the same posture: any
+  ambiguity — an unreachable branch, an unexpected remote, a dirty associated
+  worktree — is a refusal, never a best-effort attempt.
+- `scripts/dev/pr-lifecycle.cjs`'s CI wait is a bounded poll of `gh pr
+  checks`, not a subscription: a check that starts after the poll window has
+  already begun waiting is still seen on the next poll, but the overall
+  `waitForChecks` call still fails closed on `--timeout` rather than waiting
+  indefinitely.
 - Static checks do not prove live runtime behavior.
 - Existing local runtime wrappers require database reset; this tool makes that decision explicit.
 - PowerShell 5.1 argument passing is less expressive than PowerShell 7, but no shell evaluation is used.

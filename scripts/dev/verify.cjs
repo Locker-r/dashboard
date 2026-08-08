@@ -594,6 +594,11 @@ function safeResetEnvironment(environment) {
   ]) {
     if (String(environment && environment[name] || '').trim()) copy[name] = environment[name];
   }
+  // This stage already holds the database-reset lock for the whole spawned
+  // process (acquired above, released in its own finally). smoke.ps1 checks
+  // this flag and skips its own acquisition — otherwise it would try to
+  // acquire the same lock this process already holds and refuse itself.
+  copy.RUNTIME_LOCK_ALREADY_HELD = '1';
   return copy;
 }
 
