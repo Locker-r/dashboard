@@ -32,7 +32,7 @@
       "severity": "P1",
       "kind": "release-blocker",
       "actionability": "internal",
-      "status": "in-review",
+      "status": "accepted",
       "decision": "approved",
       "decisionEvidence": "Product Owner instruction of 2026-08-05 directing this session to verify B1 and B2 rather than re-implement them. docs/test-environment-status.md still lists 'Decide on blocker B1' as an open Product Owner action and does NOT by itself record an approval; that document required a design and then an implementation as its own change, which exists unmerged at 6f9c7b6 and 3f7543b. The approval recorded here rests on the session instruction, not on the status document. If that instruction is not accepted as authoritative, this task reverts to decision 'pending' and the selector moves to B2.",
       "releaseBlocking": true,
