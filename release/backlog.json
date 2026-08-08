@@ -119,8 +119,13 @@
         },
         {
           "id": "cashier-runtime-suite",
-          "statement": "Against a live local stack: an admin creates a cashier, duplicate email and username are refused without orphan Auth users, deactivate and reactivate work with the same token, an inactive agent loses access, and no frontend file carries a service-role key.",
-          "command": "node scripts/agent-management-smoke.cjs"
+          "statement": "Against the hosted staging project: the team-management admin gate refuses every privileged action to a non-admin, and an unknown action is refused; email, country, and temporary-password validation happen before any Auth write; a duplicate-username create is refused with no orphan or squatted Auth user left behind; create-member produces a coherent profile (agent role, normalized country, active, id matching the signed-in session); a cashier sees only its own profile row and cannot call an admin action; a duplicate email is refused; changing a member's country reports the true previous country and current assigned-lead count; deactivating a member revokes an already-issued token's access immediately, and reactivation restores it on the same token with no second Auth user; an admin cannot self-promote; a direct call to the underlying team RPC, bypassing the Edge Function, is refused; and requestId replay returns the identical recorded result while reuse with different values is refused. Audit-history immutability (no DELETE/ALL grant on admin_audit_events to any role, and its foreign keys restricting deletion of an audited profile) is proven structurally by cashier-structure, not at the API boundary. Verified by scripts/verify-staging-smoke-evidence.cjs, a read-only check for a qualifying successful run of .github/workflows/staging-cloud-smoke.yml — see docs/release-gates.md, 'B2 cashier-runtime-suite: staging evidence verification'.",
+          "command": "node scripts/verify-staging-smoke-evidence.cjs"
+        },
+        {
+          "id": "cashier-no-browser-secret",
+          "statement": "No tracked file delivered to the browser carries an elevated key.",
+          "command": "npm run check:secrets"
         }
       ],
       "dependsOn": [],

@@ -1,14 +1,17 @@
 'use strict';
 
-// Read-only B1 acceptance verifier for the `proof-runtime-suite` criterion.
+// Read-only staging acceptance verifier, shared by every backlog criterion
+// that needs proof from the hosted staging project rather than a local run:
+// B1's `proof-runtime-suite` and B2's `cashier-runtime-suite`.
 //
 // It never dispatches scripts/release's own staging-cloud-smoke.yml workflow
 // and never mutates anything: it reads the workflow's run history through the
 // GitHub API (via `gh api`, read-only) and reads local git state, nothing
-// else. It exists because the original criterion command,
-// `node scripts/lead-proof-smoke.cjs`, is intentionally local-only and needs
-// a service-role key an agent must never hold — see
-// docs/release-gates.md, "B1 proof-runtime-suite: staging evidence
+// else. It exists because the original criterion commands —
+// `node scripts/lead-proof-smoke.cjs` and `node scripts/agent-management-smoke.cjs`
+// — are intentionally local-only and need a service-role key an agent must
+// never hold — see docs/release-gates.md, "B1 proof-runtime-suite: staging
+// evidence verification" and "B2 cashier-runtime-suite: staging evidence
 // verification".
 //
 // Passing means: a staging-cloud-smoke.yml run on main completed with
