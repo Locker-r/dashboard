@@ -19,16 +19,18 @@ function realBacklog() {
   return JSON.parse(fs.readFileSync(path.join(ROOT, 'release', 'backlog.json'), 'utf8'));
 }
 
-// The committed backlog with B1 forced to 'in-review'. Most tests below exist
-// to prove general selector/gate properties (ordering, scheduling,
-// verify-vs-implement, evidence handling) using B1 as a stand-in in-review
-// task — not to assert the real backlog's live status, which changes
-// legitimately (e.g. once a human accepts B1). Tests that specifically assert
-// the live status use realBacklog() directly and are exempt from this.
+// The committed backlog with B1 and B2 forced to 'in-review'. Most tests below
+// exist to prove general selector/gate properties (ordering, scheduling,
+// verify-vs-implement, evidence handling) using B1/B2 as stand-in in-review
+// tasks — not to assert the real backlog's live status, which changes
+// legitimately (e.g. once a human accepts B1 or B2). Tests that specifically
+// assert the live status use realBacklog() directly and are exempt from this.
 function referenceBacklog() {
   const backlog = realBacklog();
-  const b1 = backlog.tasks.find(task => task.id === 'B1');
-  if (b1) b1.status = 'in-review';
+  for (const id of ['B1', 'B2']) {
+    const task = backlog.tasks.find(entry => entry.id === id);
+    if (task) task.status = 'in-review';
+  }
   return backlog;
 }
 
@@ -1180,19 +1182,22 @@ test('classify exits 0 only for a read-only command', () => {
   assert.equal(cli.runClassify({ commandLine: 'curl https://example.com' }).exitCode, core.EXIT_BLOCKED);
 });
 
-test('the plan subcommand reads the real committed backlog: B1 accepted and awaiting production, B2 next', () => {
+test('the plan subcommand reads the real committed backlog: B1 and B2 accepted and awaiting production, B7 next', () => {
   // Unlike the fixture-based tests above, this one deliberately reads the
   // real release/backlog.json from disk — it is the one place this suite
-  // should reflect B1's actual, current, human-set status rather than the
-  // reference fixture.
+  // should reflect B1's and B2's actual, current, human-set status rather
+  // than the reference fixture.
   const plan = cli.runPlan({ backlogPath: null }, { repositoryRoot: ROOT });
   assert.equal(plan.exitCode, core.EXIT_OK);
-  assert.equal(plan.payload.selectedTaskId, 'B2');
-  assert.ok(plan.human.includes('NEXT TASK: B2'));
+  assert.equal(plan.payload.selectedTaskId, 'B7');
+  assert.ok(plan.human.includes('NEXT TASK: B7'));
   assert.ok(plan.payload.excluded.length >= 5);
   const b1 = plan.payload.excluded.find(entry => entry.id === 'B1');
   assert.ok(b1, 'B1 must appear among the exclusions');
   assert.equal(b1.code, 'AWAITING_PRODUCTION');
+  const b2 = plan.payload.excluded.find(entry => entry.id === 'B2');
+  assert.ok(b2, 'B2 must appear among the exclusions');
+  assert.equal(b2.code, 'AWAITING_PRODUCTION');
 });
 
 /* ==================== wiring ==================== */
@@ -1293,14 +1298,19 @@ test('an accepted task is excluded as AWAITING_PRODUCTION, not ALREADY_DONE', ()
 
 test('accepting the selected task advances the planner to the next eligible task', () => {
   // Self-contained "before" state: this must hold regardless of the real
-  // backlog's current status, including after a legitimate human transition.
+  // backlog's current status, including after a legitimate human transition
+  // of B1 or B2. B2 is pinned to 'in-review' here (independent of its real
+  // live status) so this test always observes B1 -> B2 as the next task,
+  // exactly as referenceBacklog() pins it for the fixture-based tests above.
   const beforeBacklog = realBacklog();
   beforeBacklog.tasks.find(task => task.id === 'B1').status = 'in-review';
+  beforeBacklog.tasks.find(task => task.id === 'B2').status = 'in-review';
   const before = core.selectNextTask(core.validateBacklog(beforeBacklog));
   assert.equal(before.selected.id, 'B1');
 
   const backlog = realBacklog();
   backlog.tasks.find(task => task.id === 'B1').status = 'accepted';
+  backlog.tasks.find(task => task.id === 'B2').status = 'in-review';
   const after = core.selectNextTask(core.validateBacklog(backlog));
   assert.equal(after.selected.id, 'B2');
   assert.ok(!after.rankedIds.includes('B1'), 'an accepted task is no longer eligible');
