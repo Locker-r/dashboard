@@ -47,12 +47,28 @@ snapshot has been deployed: no production deployment pipeline exists yet.
   `verify:runtime` runs from. Collision is a hard refusal
   (`RUNTIME_LOCK_HELD`, exit 2): never stolen, never waited on, never
   retried; a stale or malformed claim is preserved for a human to clear.
-  The smoke wrappers and provisioning remain unwired, deferred to Automation
-  PR 2-B2b, along with PR preparation, merge readiness, post-merge
-  validation, and branch cleanup. See ADR-012.
+  See ADR-012.
+- `npm run smoke -- -AllowDatabaseReset` now acquires the same
+  `database-reset` lock too, through a small CLI bridge
+  (`scripts/dev/runtime-lock.cjs`) around the identical, unchanged
+  `acquireRuntimeLock`/`releaseRuntimeLock` primitives. It skips acquisition
+  when `verify:runtime` has already acquired the lock for the same process
+  (`RUNTIME_LOCK_ALREADY_HELD=1`), so the two entry points never nest.
+- `scripts/dev/pr-lifecycle.cjs` and `scripts/dev/branch-cleanup.cjs`:
+  read-only CI observation (`gh pr checks`), a merge-readiness observation
+  that never itself decides to merge, a squash-only merge
+  (`gh pr merge <n> --squash`, never `--admin`/`--force`/`--merge`/`--rebase`),
+  post-merge verification that `origin/main` equals the PR's own
+  `mergeCommit.oid`, safe `agent:worktree` removal, and a fail-closed local
+  `git branch -d` (never `-D`) that refuses on a protected or non-allowlisted
+  name, the current branch, a branch checked out in any worktree, a locked
+  index or in-progress Git operation, an unreachable-from-`origin/main`
+  branch, or an ambiguous/missing `origin` remote — stopping at the first
+  refusal and reporting exactly what completed. Remote branch deletion is
+  never automated under any flag.
 - Documentation of the Automation PR 2-A1/2-A2 split. Verification tiers are
   delivered in PR 2-A2; agent worktrees in PR 2-B1; runtime-lock wiring in PR
-  2-B2a; PR lifecycle automation remains PR 2-B2b.
+  2-B2a; PR lifecycle and cleanup automation in PR 2-B2b.
 - `npm run doctor`: read-only local environment diagnostic covering Git state,
   toolchain, Docker, Supabase, port ownership, local configuration, key class,
   Auth health, smoke-user linkage, and competing processes. It finishes with

@@ -301,7 +301,7 @@
       "severity": "P3",
       "kind": "milestone",
       "actionability": "internal",
-      "status": "open",
+      "status": "done",
       "decision": "approved",
       "decisionEvidence": "docs/project-status.md — Next task and Deferred work; docs/decisions.md ADR-010, ADR-012. ADR-012 also records this half's fail-closed requirements in advance: local branch cleanup uses only `git branch -d`, never `-D`; remote branch deletion is never automated.",
       "releaseBlocking": false,

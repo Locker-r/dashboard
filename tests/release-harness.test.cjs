@@ -1188,15 +1188,16 @@ test('classify exits 0 only for a read-only command', () => {
   assert.equal(cli.runClassify({ commandLine: 'curl https://example.com' }).exitCode, core.EXIT_BLOCKED);
 });
 
-test('the plan subcommand reads the real committed backlog: B1 and B2 accepted and awaiting production, B7 and M-2B2A done, M-2B2B next', () => {
+test('the plan subcommand reads the real committed backlog: B1 and B2 accepted and awaiting production, B7/M-2B2A/M-2B2B done, no task currently eligible', () => {
   // Unlike the fixture-based tests above, this one deliberately reads the
   // real release/backlog.json from disk — it is the one place this suite
-  // should reflect B1's, B2's, B7's, and M-2B2A's actual, current, human-set
-  // status rather than the reference fixture.
+  // should reflect B1's, B2's, B7's, M-2B2A's, and M-2B2B's actual, current,
+  // human-set status rather than the reference fixture.
   const plan = cli.runPlan({ backlogPath: null }, { repositoryRoot: ROOT });
-  assert.equal(plan.exitCode, core.EXIT_OK);
-  assert.equal(plan.payload.selectedTaskId, 'M-2B2B');
-  assert.ok(plan.human.includes('NEXT TASK: M-2B2B'));
+  assert.equal(plan.exitCode, core.EXIT_BLOCKED);
+  assert.equal(plan.payload.selectionCode, 'NO_ELIGIBLE_TASK');
+  assert.equal(plan.payload.selectedTaskId, null);
+  assert.ok(plan.human.includes('NEXT TASK: none.'));
   assert.ok(plan.payload.excluded.length >= 5);
   const b1 = plan.payload.excluded.find(entry => entry.id === 'B1');
   assert.ok(b1, 'B1 must appear among the exclusions');
@@ -1210,6 +1211,9 @@ test('the plan subcommand reads the real committed backlog: B1 and B2 accepted a
   const m2b2a = plan.payload.excluded.find(entry => entry.id === 'M-2B2A');
   assert.ok(m2b2a, 'M-2B2A must appear among the exclusions');
   assert.equal(m2b2a.code, 'ALREADY_DONE');
+  const m2b2b = plan.payload.excluded.find(entry => entry.id === 'M-2B2B');
+  assert.ok(m2b2b, 'M-2B2B must appear among the exclusions');
+  assert.equal(m2b2b.code, 'ALREADY_DONE');
 });
 
 /* ==================== wiring ==================== */
