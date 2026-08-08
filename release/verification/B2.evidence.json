@@ -1,23 +1,22 @@
 {
   "schemaVersion": 1,
   "taskId": "B2",
-  "headSha": "e67ebe58acdfc692e48c034a682369d6af7f971d",
-  "recordedAt": "2026-08-05T23:26:00.0000000+05:00",
-  "environment": "local Supabase stack dashboard-runtime-smoke, Postgres 17, API http://127.0.0.1:54321, edge runtime serving supabase/functions/team-management",
+  "headSha": "e56ca2e5ed4356a62ca55c89aa0306e93ce17b34",
+  "recordedAt": "2026-08-08T12:15:00.0000000+05:00",
   "criteria": [
     {
       "id": "cashier-migration-governed",
       "status": "passed",
       "exitCode": 0,
       "command": "npm run check:migrations",
-      "detail": "10 migrations, 6 with rollback scripts. 20260805000200_agent_management.sql ships with a matching rollback script."
+      "detail": "Migration governance check passed (10 migrations, 6 with rollback scripts, 4 legacy exemptions)."
     },
     {
       "id": "cashier-unit-tests",
       "status": "passed",
       "exitCode": 0,
       "command": "node --test tests/team-admin.test.cjs tests/team-management.test.cjs",
-      "detail": "33 tests, 33 passed, 0 failed."
+      "detail": "34 tests, 34 passed, 0 failed."
     },
     {
       "id": "cashier-structure",
@@ -30,11 +29,18 @@
       "id": "cashier-runtime-suite",
       "status": "passed",
       "exitCode": 0,
-      "command": "node scripts/agent-management-smoke.cjs <runId>",
-      "detail": "PASSED: agent management runtime security (0 failures). Against the live local stack, sections [1]-[12]: no token, a garbage token and an agent token are all refused; an agent cannot create a cashier, deactivate anyone, change a country or promote themselves; an unknown action is refused; malformed email, malformed country and a short temporary password are rejected before any Auth write and create no Auth user; an admin creates a cashier whose profile, role, uppercase country, active flag and Auth user id all line up; the new cashier signs in, reads only its own profile row, and cannot call the admin function; duplicate email and duplicate username are refused with stable codes and leave no orphan Auth user; a country change reports the previous value and retains the lead count; set-member-active(false) takes effect against an already-issued token, which then gets ACTIVE_PROFILE_REQUIRED; reactivation restores access on the same token with no second Auth user; an admin cannot promote themselves through the function; an agent cannot call the team RPC directly; an identical replay returns the recorded result while the same request id with different values is refused; no frontend file references a service role key or secret; audit rows cannot be deleted even by the service role, and the Auth user cannot be deleted while audit history references it."
+      "command": "node scripts/verify-staging-smoke-evidence.cjs",
+      "detail": "Qualifying run: id=31256159272 head_sha=e56ca2e5ed4356a62ca55c89aa0306e93ce17b34 conclusion=success (exact HEAD match, no drift). Workflow .github/workflows/staging-cloud-smoke.yml on main; every step succeeded, including 'Provision disposable staging cashiers', 'Run the staging smoke harness' (now including the B2 admin-gate, validation, orphan-compensation, create-member contract, cashier self-scope, duplicate-email, country-update, self-promotion, direct-RPC-bypass, and requestId replay/reuse coverage added in #54), and 'Deprovision disposable staging cashiers'. Verified via GET /repos/Locker-r/dashboard/actions/workflows/staging-cloud-smoke.yml/runs and the run's own head_sha, not asserted from the dispatch instruction alone."
+    },
+    {
+      "id": "cashier-no-browser-secret",
+      "status": "passed",
+      "exitCode": 0,
+      "command": "npm run check:secrets",
+      "detail": "Tracked-file secret scan passed (204 files)."
     }
   ],
   "notes": [
-    "The first attempt of cashier-runtime-suite failed with HTTP 500 on every Edge Function call. The cause was environmental, not a product defect: the supabase_edge_runtime container had exited with status 255 and was not restarted by supabase start. After docker start of that container the endpoint answered 401 to an unauthenticated request and the suite passed with zero failures. Recorded as finding H3."
+    "This evidence record replaces the one recorded 2026-08-05 against the local-only agent-management-smoke.cjs criterion (headSha e67ebe5). #54 ported that suite's runtime-security guarantees onto the hosted staging path using ordinary admin/cashier JWTs, and #55 moved cashier-runtime-suite's command to the same read-only scripts/verify-staging-smoke-evidence.cjs verifier B1's proof-runtime-suite already uses. Audit-history immutability (no DELETE/ALL grant on admin_audit_events to any role, FK ON DELETE RESTRICT on both actor_id and target_user_id) is proven structurally by cashier-structure instead of at the API boundary, since it has no reachable product-API surface — see docs/release-gates.md, 'B2 cashier-runtime-suite: staging evidence verification'."
   ]
 }
