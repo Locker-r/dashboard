@@ -19,12 +19,13 @@ function realBacklog() {
   return JSON.parse(fs.readFileSync(path.join(ROOT, 'release', 'backlog.json'), 'utf8'));
 }
 
-// The committed backlog with B1/B2 forced to 'in-review' and B7/M-2B2A forced
-// back to 'open'. Most tests below exist to prove general selector/gate
-// properties (ordering, scheduling, verify-vs-implement, evidence handling)
-// using B1/B2/B7/M-2B2A as stand-in tasks in their original states — not to
-// assert the real backlog's live status, which changes legitimately (e.g.
-// once a human accepts B1/B2, B7's fix is merged and closed, or M-2B2A's
+// The committed backlog with B1/B2 forced to 'in-review' and B4/B7/M-2B2A
+// forced back to 'open'. Most tests below exist to prove general
+// selector/gate properties (ordering, scheduling, verify-vs-implement,
+// evidence handling) using B1/B2/B4/B7/M-2B2A as stand-in tasks in their
+// original states — not to assert the real backlog's live status, which
+// changes legitimately (e.g. once a human accepts B1/B2, B4's Cloudflare
+// hosting is provisioned, B7's fix is merged and closed, or M-2B2A's
 // runtime-lock wiring is merged and closed). Tests that specifically assert
 // the live status use realBacklog() directly and are exempt from this.
 function referenceBacklog() {
@@ -33,7 +34,7 @@ function referenceBacklog() {
     const task = backlog.tasks.find(entry => entry.id === id);
     if (task) task.status = 'in-review';
   }
-  for (const id of ['B7', 'M-2B2A']) {
+  for (const id of ['B4', 'B7', 'M-2B2A']) {
     const task = backlog.tasks.find(entry => entry.id === id);
     if (task) task.status = 'open';
   }
@@ -239,7 +240,11 @@ test('every excluded task carries a reason code', () => {
   // B3 was resolved in 19c4c4b — the staging project exists and is linked — so
   // it is excluded as already done, not as a pending external dependency.
   assert.equal(byId.get('B3'), 'ALREADY_DONE');
-  assert.equal(byId.get('B4'), 'EXTERNAL_DEPENDENCY');
+  // B4 was resolved once the Cloudflare account/project/deployment mechanism
+  // were provisioned (docs/decisions.md ADR-013/ADR-014) — excluded as
+  // already done, not as a pending external dependency, the same shape B3
+  // already established.
+  assert.equal(byId.get('B4'), 'ALREADY_DONE');
   assert.equal(byId.get('B5'), 'DEPENDENCY_NOT_DONE');
   assert.equal(byId.get('B6'), 'DECISION_PENDING');
   assert.equal(byId.get('B8'), 'DECISION_PENDING');
@@ -1188,16 +1193,16 @@ test('classify exits 0 only for a read-only command', () => {
   assert.equal(cli.runClassify({ commandLine: 'curl https://example.com' }).exitCode, core.EXIT_BLOCKED);
 });
 
-test('the plan subcommand reads the real committed backlog: B1 and B2 accepted and awaiting production, B7/M-2B2A/M-2B2B done, no task currently eligible', () => {
+test('the plan subcommand reads the real committed backlog: B1 and B2 accepted and awaiting production, B4/B7/M-2B2A/M-2B2B done, M-D2B next', () => {
   // Unlike the fixture-based tests above, this one deliberately reads the
   // real release/backlog.json from disk — it is the one place this suite
-  // should reflect B1's, B2's, B7's, M-2B2A's, and M-2B2B's actual, current,
-  // human-set status rather than the reference fixture.
+  // should reflect B1's, B2's, B4's, B7's, M-2B2A's, and M-2B2B's actual,
+  // current, human-set status rather than the reference fixture.
   const plan = cli.runPlan({ backlogPath: null }, { repositoryRoot: ROOT });
-  assert.equal(plan.exitCode, core.EXIT_BLOCKED);
-  assert.equal(plan.payload.selectionCode, 'NO_ELIGIBLE_TASK');
-  assert.equal(plan.payload.selectedTaskId, null);
-  assert.ok(plan.human.includes('NEXT TASK: none.'));
+  assert.equal(plan.exitCode, core.EXIT_OK);
+  assert.equal(plan.payload.selectionCode, 'SELECTED');
+  assert.equal(plan.payload.selectedTaskId, 'M-D2B');
+  assert.ok(plan.human.includes('NEXT TASK: M-D2B'));
   assert.ok(plan.payload.excluded.length >= 5);
   const b1 = plan.payload.excluded.find(entry => entry.id === 'B1');
   assert.ok(b1, 'B1 must appear among the exclusions');
@@ -1205,6 +1210,9 @@ test('the plan subcommand reads the real committed backlog: B1 and B2 accepted a
   const b2 = plan.payload.excluded.find(entry => entry.id === 'B2');
   assert.ok(b2, 'B2 must appear among the exclusions');
   assert.equal(b2.code, 'AWAITING_PRODUCTION');
+  const b4 = plan.payload.excluded.find(entry => entry.id === 'B4');
+  assert.ok(b4, 'B4 must appear among the exclusions');
+  assert.equal(b4.code, 'ALREADY_DONE');
   const b7 = plan.payload.excluded.find(entry => entry.id === 'B7');
   assert.ok(b7, 'B7 must appear among the exclusions');
   assert.equal(b7.code, 'ALREADY_DONE');

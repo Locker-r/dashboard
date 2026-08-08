@@ -373,35 +373,45 @@ repos/Locker-r/dashboard/pages` and equivalents remain `GH_API_MUTATION`
 (`production`), enabling Pages for a different repository, a custom domain,
 and disabling or deleting the Pages site.
 
-## Frontend hosting: production (Cloudflare Pages), account and deployment mechanism not yet configured
+## Frontend hosting: production (Cloudflare Pages)
 
 The Product Owner approved Cloudflare Pages as the **production** frontend
-host (docs/decisions.md ADR-013, 2026-08-08), naming the host and nothing
-else. Blocker B4's "choose" half is resolved by this decision; its
-"configure" half is not, and is not authorized by this section:
+host (docs/decisions.md ADR-013, 2026-08-08). A human operator has since
+created the Cloudflare account and Pages project and reported the
+configuration back as operator evidence (ADR-014, 2026-08-08):
 
-- No Cloudflare account, organization, or Pages project has been created.
-- No deployment mechanism has been chosen (Wrangler CLI, Cloudflare's own
-  GitHub integration, or a GitHub Actions workflow calling the Cloudflare
-  API are all still open).
-- No DNS record, custom domain, or Cloudflare API token exists in this
-  repository's configuration, and none is authorized by this decision.
-- No production deployment of any kind is authorized — G7 still halts
-  unconditionally, exactly as it does for every other production action in
-  this document.
+- Pages project: `dashboard-latam`, served at `dashboard-latam.pages.dev`.
+  No Git provider is connected — Cloudflare's own GitHub integration is not
+  used.
+- Deployment mechanism: Direct Upload via a reviewed GitHub Actions workflow
+  invoking the Wrangler CLI — not yet authored; that is M-D2B's scope, not
+  this section's.
+- Credentials: `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` are
+  recorded as GitHub Actions secrets in the `production` environment. Their
+  presence was confirmed by the environment existing
+  (`gh api repos/Locker-r/dashboard/environments/production`, read-only);
+  their names and values are not independently verifiable by an agent, since
+  `gh secret list` is denied unconditionally by this repository's own guard
+  regardless of read or write intent.
+
+Blocker B4 — "choose and configure a static host" — is now fully resolved:
+host, account, project, domain, and deployment mechanism are all decided.
+**No production deployment of any kind is authorized by this section.** G7
+still halts unconditionally before any production action, exactly as it does
+for every other production action in this document. Authoring and running
+the actual publishing workflow is separate, later work under M-D2B, the same
+posture ADR-005 already set for GitHub Pages publication: naming the
+mechanism here does not authorize exercising it.
 
 The precedent this follows: B3 (docs/release-gates.md "The one scoped
 exception: staging project provisioning") and the staging Auth URL exception
 above both required a human to perform the account-level action first —
 project creation, CLI login — before any scoped, reviewed automation was
-authorized to act inside that project. The same order applies here: a human
-creates the Cloudflare account/project and supplies whatever credential a
-future automation would need, and only then does a narrowly scoped wrapper
-(mirroring `scripts/release/staging-auth-config.cjs`'s pinned-target,
-dry-run-first shape) become something this document could authorize. Until
-that happens, B4 remains `actionability: external`, `status: open`, and
-excluded from autonomous selection by that field alone — recording the
-decision here does not and cannot change that.
+authorized to act inside that project. The same order applied here: a human
+created the Cloudflare account/project and supplied the credentials a future
+automation will need. When M-D2B authors the publishing workflow, it should
+follow the same narrowly scoped, pinned-target, dry-run-first shape
+`scripts/release/staging-auth-config.cjs` already established.
 
 ## The scoped exception: staging Auth URL configuration
 
