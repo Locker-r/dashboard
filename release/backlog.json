@@ -174,9 +174,9 @@
       "severity": "P1",
       "kind": "release-blocker",
       "actionability": "external",
-      "status": "open",
+      "status": "done",
       "decision": "approved",
-      "decisionEvidence": "Product Owner decision, 2026-08-07: GitHub Pages is approved as the frontend hosting target for staging/pilot only, at https://locker-r.github.io/dashboard/ (GET /repos/Locker-r/dashboard/pages) — not production. Product Owner decision, 2026-08-08 (docs/decisions.md ADR-013): Cloudflare Pages is the approved production frontend host. This names the host only; account creation, project creation, DNS/custom domain, choice of deployment mechanism, and any deployment remain external and unresolved, requiring a human with Cloudflare account access. See docs/release-gates.md 'Frontend hosting: GitHub Pages, staging/pilot only' and 'Frontend hosting: production (Cloudflare Pages), account and deployment mechanism not yet configured'.",
+      "decisionEvidence": "Product Owner decision, 2026-08-07: GitHub Pages is approved as the frontend hosting target for staging/pilot only, at https://locker-r.github.io/dashboard/ (GET /repos/Locker-r/dashboard/pages) — not production. Product Owner decision, 2026-08-08 (docs/decisions.md ADR-013): Cloudflare Pages is the approved production frontend host. Operator evidence, 2026-08-08 (docs/decisions.md ADR-014): the Cloudflare account and Pages project (dashboard-latam, dashboard-latam.pages.dev, no connected Git provider) are provisioned; the approved deployment mechanism is Direct Upload via a reviewed GitHub Actions workflow using Wrangler, authenticated by CLOUDFLARE_ACCOUNT_ID/CLOUDFLARE_API_TOKEN recorded as secrets in the GitHub 'production' environment (environment existence confirmed read-only via gh api; secret names/values are not independently verifiable by an agent because gh secret list is denied unconditionally by this repository's own guard). Choosing and configuring the host is complete; authoring the publishing workflow itself is separate, deferred work under M-D2B. See docs/release-gates.md 'Frontend hosting: GitHub Pages, staging/pilot only' and 'Frontend hosting: production (Cloudflare Pages)'.",
       "releaseBlocking": true,
       "workaround": null,
       "dependsOn": [],
@@ -184,11 +184,13 @@
       "evidence": [
         "docs/test-environment-status.md — blocker B4, severity P1 (external)",
         "docs/release-governance.md — the release workflow deploys nothing",
-        "docs/decisions.md ADR-013 — Cloudflare Pages approved as production host"
+        "docs/decisions.md ADR-013 — Cloudflare Pages approved as production host",
+        "docs/decisions.md ADR-014 — Cloudflare account/project provisioned; Direct Upload via GitHub Actions + Wrangler approved as the deployment mechanism",
+        "GitHub 'production' environment present (gh api repos/Locker-r/dashboard/environments/production, read-only)"
       ],
       "productionActions": [
         "publish artifacts/pages-site/ to https://locker-r.github.io/dashboard/ (staging only) via .github/workflows/staging-pages-deploy.yml — already added; dispatch is a separate operator action",
-        "create the Cloudflare account/project, choose a deployment mechanism, and configure production hosting — host is decided (Cloudflare Pages), configuration remains external"
+        "author and run the production publishing workflow (wrangler pages deploy against dashboard-latam) — host/account/project/mechanism are decided; the workflow itself is M-D2B, not yet authored or run"
       ]
     },
     {
