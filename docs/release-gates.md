@@ -384,8 +384,14 @@ configuration back as operator evidence (ADR-014, 2026-08-08):
   No Git provider is connected — Cloudflare's own GitHub integration is not
   used.
 - Deployment mechanism: Direct Upload via a reviewed GitHub Actions workflow
-  invoking the Wrangler CLI — not yet authored; that is M-D2B's scope, not
-  this section's.
+  invoking the Wrangler CLI. The workflow itself,
+  `.github/workflows/production-pages-deploy.yml`, is authored by M-D2B
+  (docs/decisions.md ADR-015): it triggers only on an annotated
+  `vMAJOR.MINOR.PATCH` tag reachable from `main`, builds from that exact
+  tagged commit with the existing artifact builder, and runs under the
+  `production` environment. Authoring it does not run it — no tag matching
+  its trigger has been pushed, and G7 halts before this or any production
+  action regardless.
 - Credentials: `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` are
   recorded as GitHub Actions secrets in the `production` environment. Their
   presence was confirmed by the environment existing
@@ -398,20 +404,23 @@ Blocker B4 — "choose and configure a static host" — is now fully resolved:
 host, account, project, domain, and deployment mechanism are all decided.
 **No production deployment of any kind is authorized by this section.** G7
 still halts unconditionally before any production action, exactly as it does
-for every other production action in this document. Authoring and running
-the actual publishing workflow is separate, later work under M-D2B, the same
-posture ADR-005 already set for GitHub Pages publication: naming the
-mechanism here does not authorize exercising it.
+for every other production action in this document. The publishing workflow
+has been authored (M-D2B, ADR-015); authoring it did not run it, and it has
+no way to run except a human cutting a release and pushing an annotated tag
+per docs/release-governance.md, followed by a human approving the
+`production` environment when the workflow requests it.
 
 The precedent this follows: B3 (docs/release-gates.md "The one scoped
 exception: staging project provisioning") and the staging Auth URL exception
 above both required a human to perform the account-level action first —
 project creation, CLI login — before any scoped, reviewed automation was
 authorized to act inside that project. The same order applied here: a human
-created the Cloudflare account/project and supplied the credentials a future
-automation will need. When M-D2B authors the publishing workflow, it should
-follow the same narrowly scoped, pinned-target, dry-run-first shape
-`scripts/release/staging-auth-config.cjs` already established.
+created the Cloudflare account/project and supplied the credentials the
+workflow needs, and only then was the narrowly scoped, pinned-target
+publishing workflow authored, following the same shape
+`scripts/release/staging-auth-config.cjs` already established. Deployment
+verification and rollback rehearsal against a real deployment are M-D2C,
+not this section.
 
 ## The scoped exception: staging Auth URL configuration
 

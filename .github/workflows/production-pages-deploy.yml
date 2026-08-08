@@ -1,0 +1,209 @@
+name: Production Pages deployment
+
+# Tag-triggered only. A tag marks a reviewed, gated snapshot of main
+# (docs/release-governance.md); this workflow publishes that exact snapshot
+# to the production Cloudflare Pages project via Direct Upload/Wrangler
+# (docs/decisions.md ADR-014, ADR-015). It never creates or moves a tag, and
+# an ordinary push or merge to main triggers nothing here.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: read
+
+# Two publishes racing each other is how a deployed site ends up half one
+# build and half another.
+concurrency:
+  group: production-pages-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Verify tag and deploy to production Pages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # G7: production Cloudflare credentials live only inside this
+    # environment. GitHub's own required-reviewer/wait-timer rules on
+    # `production` are the human gate this workflow relies on; the workflow
+    # adds no self-approval of its own.
+    environment: production
+    env:
+      PRODUCTION_PAGES_PROJECT: dashboard-latam
+      PRODUCTION_PAGES_URL: https://dashboard-latam.pages.dev
+      DASHBOARD_SUPABASE_PROJECT_URL: ${{ vars.PRODUCTION_SUPABASE_PROJECT_URL }}
+      DASHBOARD_SUPABASE_PUBLISHABLE_KEY: ${{ vars.PRODUCTION_SUPABASE_PUBLISHABLE_KEY }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      # Fail before anything else: the tag filter above is not itself proof
+      # of shape, annotation, or ancestry. This is the authoritative check.
+      - name: Verify the tag is well-formed, annotated, and reachable from main
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" != "tag" ]]; then
+            echo "Refused: this workflow only runs from a tag push." >&2
+            exit 1
+          fi
+          if ! [[ "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Refused: tag $GITHUB_REF_NAME does not match vMAJOR.MINOR.PATCH." >&2
+            exit 1
+          fi
+          if [[ "$(git cat-file -t "$GITHUB_REF_NAME")" != "tag" ]]; then
+            echo "Refused: $GITHUB_REF_NAME is not an annotated tag." >&2
+            exit 1
+          fi
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "Refused: tag $GITHUB_REF_NAME does not point at a commit contained in origin/main." >&2
+            exit 1
+          fi
+          resolved="$(git rev-parse "$GITHUB_REF_NAME^{commit}")"
+          if [[ "$resolved" != "$GITHUB_SHA" ]]; then
+            echo "Refused: tag $GITHUB_REF_NAME^{commit} ($resolved) does not resolve to the checked-out commit ($GITHUB_SHA)." >&2
+            exit 1
+          fi
+          echo "Tag confirmed: $GITHUB_REF_NAME at $GITHUB_SHA, ancestor of origin/main."
+
+      # Fail before any build: production Supabase configuration does not
+      # exist yet (docs/release-gates.md, "Frontend hosting: production").
+      # This workflow requires it but never creates or sets it.
+      - name: Confirm production Supabase config variables are set
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${DASHBOARD_SUPABASE_PROJECT_URL:-}" ]]; then
+            echo "Refused: the vars.PRODUCTION_SUPABASE_PROJECT_URL repository/environment variable is not set." >&2
+            exit 1
+          fi
+          if [[ -z "${DASHBOARD_SUPABASE_PUBLISHABLE_KEY:-}" ]]; then
+            echo "Refused: the vars.PRODUCTION_SUPABASE_PUBLISHABLE_KEY repository/environment variable is not set." >&2
+            exit 1
+          fi
+
+      # Fail before any Cloudflare call: name-only check, values never read
+      # or printed.
+      - name: Confirm Cloudflare credentials are present
+        shell: bash
+        env:
+          CF_ACCOUNT_ID_PRESENT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
+          CF_API_TOKEN_PRESENT: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+        run: |
+          set -euo pipefail
+          if [[ "$CF_ACCOUNT_ID_PRESENT" != "true" ]]; then
+            echo "Refused: the secrets.CLOUDFLARE_ACCOUNT_ID environment secret is not set." >&2
+            exit 1
+          fi
+          if [[ "$CF_API_TOKEN_PRESENT" != "true" ]]; then
+            echo "Refused: the secrets.CLOUDFLARE_API_TOKEN environment secret is not set." >&2
+            exit 1
+          fi
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run check:js
+      - run: npm run check:secrets
+      - run: npm run check:migrations
+
+      # scripts/build-pages-artifact.cjs never accepts a service-role key, a
+      # DB password, or an access token as input — only
+      # DASHBOARD_SUPABASE_PROJECT_URL and DASHBOARD_SUPABASE_PUBLISHABLE_KEY,
+      # both public-safe frontend values. See scripts/build-pages-artifact.cjs
+      # CONFIG_ENV. Built only from this tagged commit's checkout — no
+      # artifact is downloaded from another commit or workflow run.
+      - name: Build the Pages artifact from the tagged commit
+        run: npm run build:pages
+
+      - name: Validate the built artifact
+        run: node scripts/build-pages-artifact.cjs --validate-only
+
+      - name: Verify the manifest version matches the tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_version="${GITHUB_REF_NAME#v}"
+          manifest_version="$(node -e "process.stdout.write(require('./artifacts/pages-site/deployment-manifest.json').version)")"
+          if [[ "$manifest_version" != "$expected_version" ]]; then
+            echo "Refused: manifest version ($manifest_version) does not match tag version ($expected_version)." >&2
+            exit 1
+          fi
+          echo "Manifest version confirmed: $manifest_version"
+
+      - name: Confirm the target Cloudflare Pages project exists
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@3.114.14 pages project list 2>&1 | tee /tmp/pages-projects.txt | grep -q "\b${PRODUCTION_PAGES_PROJECT}\b" || {
+            echo "Refused: Cloudflare Pages project ${PRODUCTION_PAGES_PROJECT} was not found. This workflow never creates a project." >&2
+            exit 1
+          }
+
+      # Direct Upload via Wrangler, production branch, exact project name —
+      # no preview deployment, no project creation, no DNS or custom-domain
+      # mutation, no Cloudflare Git integration. See docs/decisions.md
+      # ADR-014/ADR-015.
+      - name: Deploy to Cloudflare Pages (production)
+        id: deploy
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@3.114.14 pages deploy artifacts/pages-site \
+            --project-name "$PRODUCTION_PAGES_PROJECT" \
+            --branch main \
+            --commit-hash "$GITHUB_SHA" \
+            2>&1 | tee /tmp/wrangler-deploy.txt
+          deployed_url="$(grep -Eo 'https://[a-zA-Z0-9.-]+\.pages\.dev' /tmp/wrangler-deploy.txt | tail -n1)"
+          if [[ -z "$deployed_url" ]]; then
+            echo "Refused: no deployment URL was returned by Wrangler." >&2
+            exit 1
+          fi
+          echo "url=$deployed_url" >> "$GITHUB_OUTPUT"
+
+      # Proves the deployment landed on the production domain rather than a
+      # per-deployment preview host, without fetching or verifying content —
+      # that boundary belongs to M-D2C.
+      - name: Verify the deployment represents the production domain, not a preview host
+        shell: bash
+        env:
+          DEPLOYED_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -euo pipefail
+          host="${DEPLOYED_URL#https://}"
+          host="${host%%/*}"
+          if [[ "$host" != "dashboard-latam.pages.dev" ]]; then
+            echo "Refused: deployed host ($host) is not the pinned production domain (dashboard-latam.pages.dev)." >&2
+            echo "This is expected for Wrangler's default per-deployment alias; the workflow only accepts the exact production hostname." >&2
+            exit 1
+          fi
+          echo "Deployed host confirmed: $host"
+
+      - name: Summary
+        if: always()
+        shell: bash
+        env:
+          DEPLOYED_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          {
+            echo "### Production Pages deployment"
+            echo ""
+            echo "- Tag: \`$GITHUB_REF_NAME\`"
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Project: \`$PRODUCTION_PAGES_PROJECT\`"
+            echo "- URL: \`${DEPLOYED_URL:-unknown}\`"
+            echo "- Result: \`${{ job.status }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

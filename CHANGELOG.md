@@ -7,12 +7,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as
 interpreted in [`docs/release-governance.md`](docs/release-governance.md).
 
 A version tag marks a reviewed, gated snapshot of `main`. It does **not** mean the
-snapshot has been deployed: no production deployment pipeline exists yet.
+snapshot has been deployed: pushing a tag triggers the production Pages
+deployment workflow, but that workflow still waits on a human environment
+approval before Cloudflare is touched.
 
 ## [Unreleased]
 
 ### Added
 
+- `.github/workflows/production-pages-deploy.yml`: tag-triggered publication
+  of the Pages artifact to production Cloudflare Pages (`dashboard-latam`) by
+  Direct Upload via Wrangler. Triggers only on an annotated `vMAJOR.MINOR.PATCH`
+  tag reachable from `main`; re-verifies the tag, rebuilds the artifact from
+  that exact commit with the existing builder, and runs under the `production`
+  GitHub environment. Requires (but never creates) production Supabase
+  configuration variables, and fails closed before any build or deploy step if
+  a precondition is unmet. No tag has been pushed and no deployment has
+  occurred (M-D2B, docs/decisions.md ADR-015).
 - Canonical AI project status and an append-only architecture decision log,
   with a dependency-free validator that detects malformed or unsafe ancestry
   context.
