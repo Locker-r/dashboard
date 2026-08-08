@@ -77,6 +77,25 @@ function buildPlayers(plan) {
   ];
 }
 
+// Mirrors staging-smoke-provision-cashiers.cjs's buildCashier by construction
+// (same email/username shape), not by importing it: that file already
+// requires this one for validateRunId, and the reverse require would make
+// module resolution order-dependent on which script is the entry point.
+// scripts/staging-smoke-deprovision-cashiers.cjs computes the same email
+// for slot 'c' independently, from its own buildCashier('c'), to deactivate
+// this disposable cashier after the run.
+function buildDisposableCashier(runId, slot) {
+  return {
+    email: `smoke_test_${runId}_cashier_${slot}@example.invalid`,
+    username: `smoke_test_${runId}_${slot}`,
+    name: `Smoke Test Cashier ${slot.toUpperCase()}`
+  };
+}
+
+function generateSmokePassword() {
+  return crypto.randomBytes(24).toString('base64url');
+}
+
 function clientFor(config) {
   return createClient(config.projectUrl, config.publishableKey, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
@@ -327,6 +346,184 @@ async function runSmoke(config) {
       body: JSON.stringify({ action: 'list-members' })
     });
     if (unauthorized.status !== 401) throw new Error('UNAUTHORIZED_TEAM_MANAGEMENT_NOT_DENIED');
+
+    // B2 staging parity: the admin/cashier management guarantees that were
+    // previously proven only by the local-only scripts/agent-management-smoke.cjs
+    // (which needs a service-role key an agent must never hold), ported here
+    // check-for-check onto ordinary admin/cashier JWTs the same way B1's proof
+    // suite was. One disposable cashier (slot 'c') is created through the real
+    // create-member path for this; scripts/staging-smoke-deprovision-cashiers.cjs
+    // deactivates it afterward, the same as slots 'a' and 'b'.
+    stage = 'team_admin_gate_enforced_for_every_privileged_action';
+    for (const [action, extra] of [
+      ['list-members', {}],
+      ['create-member', {
+        email: `smoke_test_${plan.runId}_gate@example.invalid`, username: `smoke_test_${plan.runId}_gate`,
+        name: 'Gate', country: 'EC', requestId: crypto.randomUUID()
+      }],
+      ['set-member-active', { memberId: agentB.id, isActive: false, requestId: crypto.randomUUID() }],
+      ['update-member-country', { memberId: agentB.id, country: 'PE', requestId: crypto.randomUUID() }],
+      ['update-member-role', { memberId: agentB.id, role: 'admin', requestId: crypto.randomUUID() }]
+    ]) {
+      const refused = await callTeamManagement(config, agentA.token, { action, ...extra });
+      const code = refused.body && refused.body.error && refused.body.error.code;
+      if (refused.status !== 403 || !refused.body || refused.body.ok !== false || code !== 'ADMIN_REQUIRED') {
+        throw new Error(`TEAM_ADMIN_GATE_NOT_ENFORCED:${action}:${refused.status}:${code}`);
+      }
+    }
+
+    stage = 'team_unknown_action_refused';
+    const unknownAction = await callTeamManagement(config, admin.token, { action: 'delete-member' });
+    if (unknownAction.status !== 400 || !unknownAction.body
+      || (unknownAction.body.error && unknownAction.body.error.code) !== 'INVALID_ACTION') {
+      throw new Error('UNKNOWN_ACTION_NOT_REFUSED');
+    }
+
+    const cashierC = buildDisposableCashier(plan.runId, 'c');
+    const cashierCPassword = generateSmokePassword();
+    const cashierACollisionUsername = buildDisposableCashier(plan.runId, 'a').username;
+
+    stage = 'team_reject_invalid_email_before_auth_write';
+    const invalidEmail = await callTeamManagement(config, admin.token, {
+      action: 'create-member', email: 'not-an-email', username: cashierC.username, name: cashierC.name,
+      country: 'EC', temporaryPassword: cashierCPassword, requestId: crypto.randomUUID()
+    });
+    if (invalidEmail.status !== 400 || !invalidEmail.body
+      || (invalidEmail.body.error && invalidEmail.body.error.code) !== 'INVALID_EMAIL') {
+      throw new Error('INVALID_EMAIL_NOT_REFUSED');
+    }
+
+    stage = 'team_reject_invalid_country_before_auth_write';
+    const invalidCountry = await callTeamManagement(config, admin.token, {
+      action: 'create-member', email: cashierC.email, username: cashierC.username, name: cashierC.name,
+      country: 'ECU', temporaryPassword: cashierCPassword, requestId: crypto.randomUUID()
+    });
+    if (invalidCountry.status !== 400 || !invalidCountry.body
+      || (invalidCountry.body.error && invalidCountry.body.error.code) !== 'INVALID_COUNTRY') {
+      throw new Error('INVALID_COUNTRY_NOT_REFUSED');
+    }
+
+    stage = 'team_reject_invalid_password_before_auth_write';
+    const invalidPassword = await callTeamManagement(config, admin.token, {
+      action: 'create-member', email: cashierC.email, username: cashierC.username, name: cashierC.name,
+      country: 'EC', temporaryPassword: 'short', requestId: crypto.randomUUID()
+    });
+    if (invalidPassword.status !== 400 || !invalidPassword.body
+      || (invalidPassword.body.error && invalidPassword.body.error.code) !== 'INVALID_PASSWORD') {
+      throw new Error('INVALID_PASSWORD_NOT_REFUSED');
+    }
+
+    // Colliding on agent A's already-existing username forces the Edge
+    // Function down its compensation path: it creates the Auth user for
+    // cashierC.email first, then the profile insert fails, then it deletes
+    // that Auth user before responding. This is the one refusal that can
+    // leave an orphan if compensation is broken, and the one this suite must
+    // prove clean without a privileged Auth-admin user lookup.
+    stage = 'team_reject_username_collision_with_orphan_compensation';
+    const usernameCollision = await callTeamManagement(config, admin.token, {
+      action: 'create-member', email: cashierC.email, username: cashierACollisionUsername, name: cashierC.name,
+      country: 'EC', temporaryPassword: cashierCPassword, requestId: crypto.randomUUID()
+    });
+    if (usernameCollision.status !== 409 || !usernameCollision.body
+      || (usernameCollision.body.error && usernameCollision.body.error.code) !== 'USERNAME_ALREADY_EXISTS') {
+      throw new Error(`USERNAME_COLLISION_NOT_REFUSED:${usernameCollision.status}:${JSON.stringify(usernameCollision.body)}`);
+    }
+
+    stage = 'team_verify_no_orphan_auth_user_after_username_collision';
+    const orphanSignIn = await clientFor(config).auth.signInWithPassword({
+      email: cashierC.email, password: cashierCPassword
+    });
+    if (!orphanSignIn.error) throw new Error('ORPHAN_AUTH_USER_SIGNS_IN');
+
+    stage = 'team_create_cashier_c';
+    const createdC = await callTeamManagement(config, admin.token, {
+      action: 'create-member', email: cashierC.email, username: cashierC.username, name: cashierC.name,
+      country: 'ec', temporaryPassword: cashierCPassword, requestId: crypto.randomUUID()
+    });
+    if (createdC.status !== 200 || !createdC.body || createdC.body.ok !== true) {
+      throw new Error(`CREATE_CASHIER_C_FAILED:${createdC.status}:${JSON.stringify(createdC.body)}`);
+    }
+    const memberC = createdC.body.data && createdC.body.data.member;
+    if (!memberC || memberC.role !== 'agent') throw new Error('CASHIER_C_ROLE_NOT_AGENT');
+    if (memberC.country !== 'EC') throw new Error('CASHIER_C_COUNTRY_NOT_NORMALIZED');
+    if (memberC.is_active !== true) throw new Error('CASHIER_C_NOT_ACTIVE');
+    const cashierCId = memberC.id;
+
+    stage = 'sign_in_cashier_c';
+    const cashierCSession = await signIn(config, { email: cashierC.email, password: cashierCPassword, role: 'agent' });
+    sessions.push(cashierCSession.client);
+    if (cashierCSession.id !== cashierCId) throw new Error('CASHIER_C_SESSION_ID_MISMATCH');
+
+    stage = 'team_cashier_c_self_scope';
+    const ownRows = await cashierCSession.client.from('profiles').select('id');
+    if (ownRows.error || ownRows.data.length !== 1 || ownRows.data[0].id !== cashierCId) {
+      throw new Error('CASHIER_C_SELF_SCOPE_FAILED');
+    }
+    const cashierCDenied = await callTeamManagement(config, cashierCSession.token, { action: 'list-members' });
+    const cashierCDeniedCode = cashierCDenied.body && cashierCDenied.body.error && cashierCDenied.body.error.code;
+    if (cashierCDenied.status !== 403 || cashierCDeniedCode !== 'ADMIN_REQUIRED') {
+      throw new Error('CASHIER_C_NOT_DENIED_ADMIN_ACTION');
+    }
+
+    stage = 'team_reject_duplicate_email';
+    const dupEmail = await callTeamManagement(config, admin.token, {
+      action: 'create-member', email: cashierC.email, username: `${cashierC.username}_dup`, name: 'Dup',
+      country: 'EC', temporaryPassword: generateSmokePassword(), requestId: crypto.randomUUID()
+    });
+    const dupEmailCode = dupEmail.body && dupEmail.body.error && dupEmail.body.error.code;
+    if (dupEmail.status !== 409 || dupEmailCode !== 'USER_ALREADY_EXISTS') throw new Error('DUPLICATE_EMAIL_NOT_REFUSED');
+
+    stage = 'team_update_member_country_contract';
+    const countryChange = await callTeamManagement(config, admin.token, {
+      action: 'update-member-country', memberId: cashierCId, country: 'pe', requestId: crypto.randomUUID()
+    });
+    if (countryChange.status !== 200 || !countryChange.body || countryChange.body.ok !== true) {
+      throw new Error(`COUNTRY_UPDATE_FAILED:${JSON.stringify(countryChange.body && countryChange.body.error)}`);
+    }
+    if (countryChange.body.data.previous_country !== 'EC' || countryChange.body.data.assigned_players !== 0) {
+      throw new Error(`COUNTRY_UPDATE_CONTRACT_MISMATCH:${JSON.stringify(countryChange.body.data)}`);
+    }
+
+    stage = 'team_self_promotion_forbidden';
+    const selfPromotion = await callTeamManagement(config, admin.token, {
+      action: 'update-member-role', memberId: admin.id, role: 'admin', requestId: crypto.randomUUID()
+    });
+    const selfPromotionCode = selfPromotion.body && selfPromotion.body.error && selfPromotion.body.error.code;
+    if (selfPromotion.status !== 409 || selfPromotionCode !== 'SELF_PROMOTION_FORBIDDEN') {
+      throw new Error('SELF_PROMOTION_NOT_FORBIDDEN');
+    }
+
+    // team_register_member's only EXECUTE grant is the Edge Function's own
+    // elevated role (revoked from public/anon/authenticated), so any ordinary
+    // authenticated session calling it directly — bypassing the Edge
+    // Function's own admin gate and validation — must be refused by Postgres
+    // itself, not by application code.
+    stage = 'team_direct_rpc_bypass_refused';
+    const directRpc = await agentA.client.rpc('team_register_member', {
+      p_actor_id: admin.id, p_target_id: crypto.randomUUID(), p_username: 'smoke_test_bypass',
+      p_name: 'Bypass', p_country: 'EC', p_request_id: crypto.randomUUID()
+    });
+    if (!directRpc.error) throw new Error('DIRECT_RPC_BYPASS_SUCCEEDED');
+
+    stage = 'team_idempotent_replay';
+    const replayId = crypto.randomUUID();
+    const firstReplay = await callTeamManagement(config, admin.token, {
+      action: 'update-member-country', memberId: cashierCId, country: 'CO', requestId: replayId
+    });
+    const replay = await callTeamManagement(config, admin.token, {
+      action: 'update-member-country', memberId: cashierCId, country: 'CO', requestId: replayId
+    });
+    if (!firstReplay.body || firstReplay.body.ok !== true || !replay.body || replay.body.ok !== true
+      || JSON.stringify(firstReplay.body.data.member.country) !== JSON.stringify(replay.body.data.member.country)) {
+      throw new Error('IDEMPOTENT_REPLAY_DIVERGED');
+    }
+    const conflictingReplay = await callTeamManagement(config, admin.token, {
+      action: 'update-member-country', memberId: cashierCId, country: 'AR', requestId: replayId
+    });
+    const conflictingReplayCode = conflictingReplay.body && conflictingReplay.body.error && conflictingReplay.body.error.code;
+    if (conflictingReplay.status !== 409 || conflictingReplayCode !== 'REQUEST_ID_REUSE') {
+      throw new Error('REQUEST_ID_REUSE_NOT_ENFORCED');
+    }
 
     // A deactivated agent's already-issued JWT must lose proof access
     // immediately — require_active_profile() is re-checked on every RPC, not

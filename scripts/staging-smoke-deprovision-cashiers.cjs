@@ -1,10 +1,16 @@
 'use strict';
 
-// Deactivates the two disposable cashier accounts a smoke run created,
-// through the same reviewed team-management `set-member-active` action an
-// admin uses from the UI. There is no delete-member action — deactivation is
-// the existing, reviewed disposal path, and it leaves the account as a
-// clearly marked, inert staging record rather than removing data.
+// Deactivates the disposable cashier accounts a smoke run created, through
+// the same reviewed team-management `set-member-active` action an admin uses
+// from the UI. There is no delete-member action — deactivation is the
+// existing, reviewed disposal path, and it leaves the account as a clearly
+// marked, inert staging record rather than removing data.
+//
+// Slots 'a' and 'b' are provisioned by staging-smoke-provision-cashiers.cjs
+// before the run. Slot 'c' is provisioned by scripts/runtime-smoke.cjs itself,
+// through the real create-member path, as part of proving the B2 admin
+// cashier management contract — this script deactivates it the same way,
+// computing the identical email from the same runId/slot naming.
 //
 // Always runs (the workflow calls this with `if: always()`), so a failed
 // smoke run still leaves no active disposable cashier behind.
@@ -63,7 +69,7 @@ async function main() {
   const accessToken = signIn.data.session.access_token;
 
   const functionsUrl = `${projectUrl}/functions/v1`;
-  const emails = [buildCashier(runId, 'a').email, buildCashier(runId, 'b').email];
+  const emails = [buildCashier(runId, 'a').email, buildCashier(runId, 'b').email, buildCashier(runId, 'c').email];
   const failures = [];
   try {
     for (const email of emails) {
