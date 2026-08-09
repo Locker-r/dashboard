@@ -221,20 +221,19 @@
       "severity": "P2",
       "kind": "release-blocker",
       "actionability": "internal",
-      "status": "open",
-      "decision": "pending",
-      "decisionEvidence": "docs/test-environment-status.md — 'Product Owner: confirm which rule is authoritative'. No decision is recorded in docs/decisions.md.",
+      "status": "done",
+      "decision": "approved",
+      "decisionEvidence": "Product Owner decision, 2026-08-09 (docs/decisions.md ADR-018): reveal_player_contacts remains agent-only; docs/business-rules.md is corrected to match, not the other way around. No RPC or database change — the document was the wrong side of the conflict, confirmed against docs/test-environment-smoke-test.md step F5, which already expected the admin-denied behavior.",
       "releaseBlocking": false,
       "workaround": null,
       "dependsOn": [],
       "blocks": [],
       "evidence": [
         "docs/test-environment-status.md — blocker B6, severity P2",
-        "docs/business-rules.md conflicts with the reveal RPC behaviour"
+        "docs/decisions.md ADR-018 — contact reveal stays agent-only; docs/business-rules.md corrected",
+        "docs/business-rules.md — corrected contact-access rule"
       ],
-      "productionActions": [
-        "supabase db push (only if the RPC is changed)"
-      ]
+      "productionActions": []
     },
     {
       "id": "B7",
@@ -261,20 +260,23 @@
       "title": "Decide the disposition of the untracked Supabase Studio snippets",
       "severity": "P3",
       "kind": "release-blocker",
-      "actionability": "internal",
+      "actionability": "external",
       "status": "open",
-      "decision": "pending",
-      "decisionEvidence": "docs/test-environment-status.md — 'Owner decision to ignore the directory or delete the files. Not done automatically.'",
+      "decision": "approved",
+      "decisionEvidence": "Product Owner decision, 2026-08-09 (docs/decisions.md ADR-019): delete the files under supabase/snippets/; do not add the directory to the repository. One of the three (Untitled query 952.sql) is a live `delete from public.profiles` statement, not merely a stray read. The decision is recorded, but the deletion itself is a local filesystem removal this repository's own tooling guard refuses to an agent without separate, explicit per-run operator authorization (docs/tech-debt.md's stated boundary; refused live 2026-08-09 with FILESYSTEM_REMOVAL). actionability is external for that reason: a human runs the deletion directly, the decision does not perform it.",
       "releaseBlocking": false,
       "workaround": "The directory is untracked and is already allow-listed by verify:fast and npm run doctor.",
       "dependsOn": [],
       "blocks": [],
       "evidence": [
         "docs/test-environment-status.md — blocker B8, severity P3",
+        "docs/decisions.md ADR-019 — delete the untracked Supabase Studio snippet files",
         "docs/tech-debt.md — already recorded",
         "npm run doctor — SNIPPETS_MUTATING warning"
       ],
-      "productionActions": []
+      "productionActions": [
+        "delete the three files under supabase/snippets/ directly on disk (an operator action; an agent's own destructive-filesystem guard refuses it without separate per-run authorization)"
+      ]
     },
     {
       "id": "M-2B2A",

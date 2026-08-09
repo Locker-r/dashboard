@@ -30,7 +30,24 @@ approval before Cloudflare is touched.
   product-supported RPCs and Edge Function actions the real UI uses. See
   `docs/decisions.md` ADR-017.
 
+### Changed
+
+- Product Owner decision, 2026-08-09 (ADR-019): the three untracked
+  `supabase/snippets/` files are to be deleted, not gitignored — one
+  (`Untitled query 952.sql`) is a live `delete from public.profiles`
+  statement, not merely a stray read. Deleting local untracked files is a
+  filesystem action this repository's own tooling guard refuses to an agent
+  without separate, explicit per-run operator authorization, so the
+  deletion itself remains an operator step (B8).
+
 ### Fixed
+
+- `docs/business-rules.md` stated full contact export was an admin
+  capability, contradicting the deployed `reveal_player_contacts` RPC
+  (agent-only, admin explicitly denied — ADR-002) and
+  `docs/test-environment-smoke-test.md` step F5, which already expected
+  that. Product Owner decision, 2026-08-09 (ADR-018): the RPC is correct;
+  the document is corrected to match. No RPC or database change (B6).
 
 - `scripts/staging-demo-flow-verify.cjs` checked `reveal_player_contacts`'s
   outcome against `'granted'`, but the RPC's successful path returns
