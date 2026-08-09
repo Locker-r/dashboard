@@ -32,6 +32,17 @@ approval before Cloudflare is touched.
 
 ### Fixed
 
+- `scripts/staging-demo-seed.cjs`'s reconciliation only attached a proof
+  step when a lead's target status was `success`, but
+  `change_player_status_atomic` requires an active proof to close a lead as
+  EITHER `success` or `failed`
+  (`supabase/migrations/20260805000100_lead_proof.sql`). The fourth real
+  dispatch (GitHub Actions run 31310524648) failed seeding `demo_lead_08`
+  (targets `failed`) with `PROOF_REQUIRED`. Fixed: `withProof` is now
+  derived from the target status itself (closing to `success` or `failed`),
+  not hand-set per lead, and the proof-insertion check in
+  `planLeadReconciliation` matches both closing statuses.
+
 - `scripts/staging-demo-cleanup.cjs`'s deactivation filter matched any
   `smoke_test_`-prefixed username with zero owned players — but
   `runtime-smoke.cjs`'s own `readConfig()` already requires

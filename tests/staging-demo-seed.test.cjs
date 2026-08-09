@@ -43,6 +43,12 @@ function applyFilters(store, filters) {
 function fakeClient({ existingPlayers = [], activeProofPlayerIds = new Set() } = {}) {
   const rpcCalls = [];
   const store = [...existingPlayers];
+  // Mutable, unlike the constructor's initial set: request_lead_proof_upload
+  // + confirm_lead_proof genuinely add to it, mirroring the real
+  // lead_proofs.state transition — so this fake enforces the actual
+  // PROOF_REQUIRED business rule instead of always succeeding.
+  const activeProofs = new Set(activeProofPlayerIds);
+  const pendingProofPlayerId = new Map(); // proofId -> playerId, set at request time.
   return {
     rpcCalls, store,
     auth: {
@@ -58,7 +64,7 @@ function fakeClient({ existingPlayers = [], activeProofPlayerIds = new Set() } =
               eq: (col2, val2) => ({
                 async maybeSingle() {
                   const playerId = col1 === 'player_id' ? val1 : val2;
-                  return { data: activeProofPlayerIds.has(playerId) ? { id: 'proof-id' } : null, error: null };
+                  return { data: activeProofs.has(playerId) ? { id: 'proof-id' } : null, error: null };
                 }
               })
             })
@@ -82,12 +88,24 @@ function fakeClient({ existingPlayers = [], activeProofPlayerIds = new Set() } =
         return { data: null, error: null };
       }
       if (name === 'change_player_status_atomic') {
+        // Mirrors supabase/migrations/20260805000100_lead_proof.sql exactly:
+        // closing to EITHER 'success' or 'failed' requires an active proof.
+        if (['success', 'failed'].includes(params.p_next_status) && !activeProofs.has(params.p_player_id)) {
+          return { data: null, error: { message: 'PROOF_REQUIRED' } };
+        }
         const row = store.find(r => r.id === params.p_player_id);
         if (row) row.status = params.p_next_status;
         return { data: null, error: null };
       }
-      if (name === 'request_lead_proof_upload') return { data: { storage_path: 'lead-proofs/x.png' }, error: null };
-      if (name === 'confirm_lead_proof') return { data: { state: 'active' }, error: null };
+      if (name === 'request_lead_proof_upload') {
+        pendingProofPlayerId.set(params.p_proof_id, params.p_player_id);
+        return { data: { storage_path: 'lead-proofs/x.png' }, error: null };
+      }
+      if (name === 'confirm_lead_proof') {
+        const playerId = pendingProofPlayerId.get(params.p_proof_id);
+        if (playerId) activeProofs.add(playerId);
+        return { data: { state: 'active' }, error: null };
+      }
       throw new Error(`unexpected rpc: ${name}`);
     }
   };
