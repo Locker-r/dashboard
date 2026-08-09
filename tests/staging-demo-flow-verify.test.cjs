@@ -69,7 +69,7 @@ function fakeLeadProofs(proofs) {
   };
 }
 
-function fakeCashierClient(store, proofs, cashierId) {
+function fakeCashierClient(store, proofs, cashierId, revealOutcome = 'revealed') {
   const pendingProofPlayerId = new Map(); // proofId -> playerId, set at request time, consumed at confirm time.
   return {
     auth: {
@@ -89,7 +89,11 @@ function fakeCashierClient(store, proofs, cashierId) {
         return { data: null, error: null };
       }
       if (name === 'reveal_player_contacts') {
-        return { data: [{ player_id: params.p_player_id, outcome: 'granted', phone: '', email: '', messenger: '', revealed_at: new Date().toISOString(), request_id: params.p_request_id, access_event_id: 'evt' }], error: null };
+        // Mirrors supabase/migrations/20260802000200_contact_reveal_rpc.sql
+        // exactly: the successful path returns outcome 'revealed', not
+        // 'granted' (that string is only the internal audit event_type for
+        // this same path, never the value returned to the caller).
+        return { data: [{ player_id: params.p_player_id, outcome: revealOutcome, phone: '', email: '', messenger: '', revealed_at: new Date().toISOString(), request_id: params.p_request_id, access_event_id: 'evt' }], error: null };
       }
       if (name === 'request_lead_proof_upload') {
         pendingProofPlayerId.set(params.p_proof_id, params.p_player_id);
@@ -134,12 +138,12 @@ function fakeAdminClient(store, proofs) {
   };
 }
 
-function makeDeps({ isolationLeaks = false } = {}) {
+function makeDeps({ isolationLeaks = false, revealOutcome = 'revealed' } = {}) {
   const store = [{ id: 'demo_lead_01', status: 'new', agent_id: null }];
   const proofs = [];
   const adminClient = fakeAdminClient(store, proofs);
   const cashierId = 'cashier-verify-id';
-  const cashierClient = fakeCashierClient(store, proofs, cashierId);
+  const cashierClient = fakeCashierClient(store, proofs, cashierId, revealOutcome);
   if (isolationLeaks) {
     // Simulate an RLS defect: the cashier can also see the negative-control lead.
     const originalFrom = cashierClient.from;
@@ -190,6 +194,21 @@ test('a full successful run walks every required step and cleans up the disposab
   }
   // Cleanup: the disposable cashier is deactivated via existing team-management action.
   assert.ok(teamManagementCalls.some(body => body.action === 'set-member-active' && body.isActive === false));
+});
+
+test('regression: only outcome "revealed" is accepted as a granted contact reveal, reproducing GitHub Actions run 31311284116', async () => {
+  // reveal_player_contacts's successful path returns outcome 'revealed'
+  // (supabase/migrations/20260802000200_contact_reveal_rpc.sql line 200);
+  // 'granted' is only the internal contact_reveal_events audit event_type
+  // for that path (line 195), never a value the RPC itself returns. A live
+  // run failed with CONTACT_REVEAL_NOT_GRANTED:revealed because this script
+  // checked for 'granted' instead.
+  const { deps } = makeDeps({ revealOutcome: 'granted' });
+  process.env = { ...process.env, ...ENV };
+  const logs = [];
+  const status = await verify.main([], { ...deps, log: line => logs.push(line) });
+  assert.equal(status, 1);
+  assert.ok(logs.some(line => line.includes('CONTACT_REVEAL_NOT_GRANTED:granted')));
 });
 
 test('an isolation leak (RLS defect) is refused, not silently reported as success', async () => {

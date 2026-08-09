@@ -131,7 +131,11 @@ async function run(env, deps) {
     steps.push('in_work');
 
     const reveal = await cashierData.revealPlayerContacts(identities.playerId, crypto.randomUUID());
-    if (reveal.outcome !== 'granted') throw new Error(`CONTACT_REVEAL_NOT_GRANTED:${reveal.outcome}`);
+    // reveal_player_contacts's successful path sets outcome := 'revealed'
+    // (supabase/migrations/20260802000200_contact_reveal_rpc.sql line 200);
+    // 'granted' is only the internal contact_reveal_events audit event_type
+    // for that same path (line 195), never the value returned to the caller.
+    if (reveal.outcome !== 'revealed') throw new Error(`CONTACT_REVEAL_NOT_GRANTED:${reveal.outcome}`);
     steps.push('contact_reveal_granted');
 
     const proofId = crypto.randomUUID();

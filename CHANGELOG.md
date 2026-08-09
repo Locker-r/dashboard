@@ -32,6 +32,16 @@ approval before Cloudflare is touched.
 
 ### Fixed
 
+- `scripts/staging-demo-flow-verify.cjs` checked `reveal_player_contacts`'s
+  outcome against `'granted'`, but the RPC's successful path returns
+  `outcome := 'revealed'`
+  (`supabase/migrations/20260802000200_contact_reveal_rpc.sql`); `'granted'`
+  is only the internal `contact_reveal_events` audit `event_type` for that
+  same path, never a value the RPC returns to its caller. The fifth real
+  dispatch (GitHub Actions run 31311284116) failed flow verification with
+  `CONTACT_REVEAL_NOT_GRANTED:revealed`. Fixed the check to accept
+  `'revealed'`.
+
 - `scripts/staging-demo-seed.cjs`'s reconciliation only attached a proof
   step when a lead's target status was `success`, but
   `change_player_status_atomic` requires an active proof to close a lead as
