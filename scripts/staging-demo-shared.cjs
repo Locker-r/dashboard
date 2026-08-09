@@ -143,10 +143,22 @@ function planStatusHops(currentStatus, targetStatus) {
 // I/O, so every branch — including the ones a live staging project may
 // never actually exercise, like a leftover smoke cashier that still owns
 // players — is fully testable without a network call.
-function planCleanup(members, players) {
+//
+// `actorId` is the id of the admin account this script is itself signed in
+// as, and it is always excluded from membersToDeactivate — an absolute
+// rule, checked before the username pattern, not an edge case of it.
+// runtime-smoke.cjs's own readConfig() requires SMOKE_TEST_ADMIN_EMAIL
+// (the same value as STAGING_SMOKE_ADMIN_EMAIL) to start with `smoke_test`,
+// so the operator admin account this tooling authenticates as is itself
+// `smoke_test_`-shaped and would otherwise match isDisposableSmokeUsername.
+// Found 2026-08-09: a real cleanup run deactivated its own calling admin
+// account this way, then a later run's list-members call failed with 403
+// ADMIN_REQUIRED because that account was no longer active.
+function planCleanup(members, players, actorId) {
   const membersToDeactivate = [];
   const membersSkipped = [];
   for (const member of members || []) {
+    if (member && actorId && member.id === actorId) continue; // Never deactivate the account performing the cleanup.
     if (!isDisposableSmokeUsername(member && member.username)) continue;
     if (member.is_active !== true) continue; // Already inactive: nothing to do.
     const assignedPlayers = Number(member.assigned_players || 0);

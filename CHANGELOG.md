@@ -32,6 +32,19 @@ approval before Cloudflare is touched.
 
 ### Fixed
 
+- `scripts/staging-demo-cleanup.cjs`'s deactivation filter matched any
+  `smoke_test_`-prefixed username with zero owned players — but
+  `runtime-smoke.cjs`'s own `readConfig()` already requires
+  `SMOKE_TEST_ADMIN_EMAIL` (the same value as `STAGING_SMOKE_ADMIN_EMAIL`,
+  which `staging-demo-prep.yml` reuses) to start with `smoke_test`, so the
+  real staging admin account this tooling authenticates as is itself
+  `smoke_test_`-shaped. The third real dispatch (GitHub Actions run
+  31308149570) failed at `list-members` with `403 ADMIN_REQUIRED`, because a
+  prior run's cleanup had deactivated its own calling admin account before
+  crashing on the run 31307722394 bug. Fixed: `planCleanup` now takes the
+  signed-in actor's own id and excludes it from deactivation candidates
+  unconditionally, before the username pattern is even checked.
+
 - `scripts/staging-demo-cleanup.cjs` aliased `report.membersSkipped`/
   `report.playersSkipped` directly to `planCleanup`'s `Object.freeze()`d
   return arrays, then pushed onto them when a deactivation call failed.
