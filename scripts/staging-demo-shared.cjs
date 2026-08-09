@@ -94,17 +94,22 @@ function extractSmokeRunId(playerId) {
 }
 
 // Groups leftover smoke-test players by the run id embedded in their own
-// id, requiring the messenger marker to agree with that same run id too —
-// the same two-signal shape cleanup_smoke_test_run_atomic itself checks, so
-// a player that only coincidentally starts with the right text is never
-// swept in.
+// id. The messenger marker (`SMOKE_TEST:<runId>:...`) would be the other
+// half of cleanup_smoke_test_run_atomic's own two-signal match, but
+// `messenger` is not a column `authenticated` may select — the raw-contact
+// grant revoke in supabase/migrations/20260801000200_revoke_raw_contacts.sql
+// applies to every session, admin included (found 2026-08-09: the first
+// real staging-demo-prep run failed here with "permission denied for table
+// players"). The id-prefix match here is therefore a candidate list, not a
+// final decision: cleanup_smoke_test_run_atomic is `security definer` and
+// re-derives the messenger marker itself from the row directly, so calling
+// it for an id that only coincidentally starts with the right text is safe
+// — it deletes zero rows and returns players_deleted: 0, never an error.
 function groupLeftoverSmokePlayers(players) {
   const groups = new Map();
   for (const player of players || []) {
     const runId = extractSmokeRunId(player && player.id);
     if (!runId || !SMOKE_TEST_RUN_ID_PATTERN.test(runId)) continue;
-    const marker = `SMOKE_TEST:${runId}:`;
-    if (!String(player.messenger || '').startsWith(marker)) continue;
     if (!groups.has(runId)) groups.set(runId, []);
     groups.get(runId).push(player.id);
   }
@@ -156,25 +161,19 @@ function planCleanup(members, players) {
     membersToDeactivate.push({ id: member.id, username: member.username });
   }
 
+  // Every id-prefix match becomes a candidate run id to attempt cleanup for
+  // — there is no client-side "skip, provenance uncertain" category for
+  // players anymore (messenger is not readable here; see
+  // groupLeftoverSmokePlayers's comment). The RPC itself is the sole,
+  // authoritative arbiter of whether a candidate is genuine smoke debris.
   const leftoverGroups = groupLeftoverSmokePlayers(players);
   const playerRunIdsToClean = [...leftoverGroups.keys()];
-  const playersSkipped = [];
-  for (const player of players || []) {
-    const runId = extractSmokeRunId(player && player.id);
-    if (!runId) continue; // Does not even look like a smoke id — never a cleanup candidate.
-    const group = leftoverGroups.get(runId);
-    if (!group || !group.includes(player.id)) {
-      // Looked like a smoke id but the messenger marker did not agree —
-      // provenance is uncertain, so it is reported, never acted on.
-      playersSkipped.push({ id: player.id, reason: 'MARKER_MISMATCH' });
-    }
-  }
 
   return Object.freeze({
     membersToDeactivate: Object.freeze(membersToDeactivate),
     membersSkipped: Object.freeze(membersSkipped),
     playerRunIdsToClean: Object.freeze(playerRunIdsToClean),
-    playersSkipped: Object.freeze(playersSkipped)
+    playersSkipped: Object.freeze([])
   });
 }
 

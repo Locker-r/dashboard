@@ -80,19 +80,30 @@ test('a smoke-prefixed cashier that still owns players cannot be proven disposab
   assert.equal(plan.membersSkipped[0].reason, 'STILL_OWNS_PLAYERS');
 });
 
-test('leftover smoke players are grouped by run id only when the messenger marker agrees', () => {
+test('leftover smoke players are grouped by run id extracted from their own id — messenger is never read', () => {
+  // `messenger` is not selectable by `authenticated` at all (the raw-contact
+  // grant revoke applies to every session, admin included —
+  // supabase/migrations/20260801000200_revoke_raw_contacts.sql, found via
+  // the first real staging-demo-prep run failing with "permission denied
+  // for table players"). Grouping input therefore only ever carries `id`.
   const players = [
-    { id: 'SMOKE_TEST_abc123def456_assigned', messenger: 'SMOKE_TEST:abc123def456:assigned' },
-    { id: 'SMOKE_TEST_abc123def456_other', messenger: 'SMOKE_TEST:abc123def456:other' },
-    // Same id prefix, but the marker names a DIFFERENT run — provenance is
-    // uncertain, so this must never be swept into abc123def456's cleanup.
-    { id: 'SMOKE_TEST_abc123def456_mismatched', messenger: 'SMOKE_TEST:zzz999zzz999:mismatched' }
+    { id: 'SMOKE_TEST_abc123def456_assigned' },
+    { id: 'SMOKE_TEST_abc123def456_other' },
+    { id: 'SMOKE_TEST_zzz999zzz999_solo' }
   ];
   const plan = shared.planCleanup([], players);
-  assert.deepEqual(plan.playerRunIdsToClean, ['abc123def456']);
-  assert.equal(plan.playersSkipped.length, 1);
-  assert.equal(plan.playersSkipped[0].id, 'SMOKE_TEST_abc123def456_mismatched');
-  assert.equal(plan.playersSkipped[0].reason, 'MARKER_MISMATCH');
+  assert.deepEqual([...plan.playerRunIdsToClean].sort(), ['abc123def456', 'zzz999zzz999']);
+  // There is no client-side "skip, uncertain provenance" category for
+  // players anymore: cleanup_smoke_test_run_atomic (security definer)
+  // re-derives the messenger marker itself and is the sole authority on
+  // whether a candidate id is genuine smoke debris — see
+  // groupLeftoverSmokePlayers's own comment.
+  assert.deepEqual(plan.playersSkipped, []);
+});
+
+test('groupLeftoverSmokePlayers never requires or reads a messenger field', () => {
+  const groups = shared.groupLeftoverSmokePlayers([{ id: 'SMOKE_TEST_abc123def456_x' }]);
+  assert.deepEqual([...groups.keys()], ['abc123def456']);
 });
 
 test('a player with no smoke-shaped id at all is never reported or touched', () => {
