@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "taskId": "M-D2C",
+  "headSha": "6dfcfa8a3819ef61b9831f1b29e473115930bd2e",
+  "recordedAt": "2026-08-09T13:14:53.0000000Z",
+  "criteria": [
+    {
+      "id": "production-deployment-verifier-fails-closed",
+      "status": "passed",
+      "exitCode": 0,
+      "command": "node --test tests/production-deploy-verification.test.cjs",
+      "detail": "25 tests, 25 passed, 0 failed. Proves run provenance, byte provenance, and liveness against injected git/gh/fetch fixtures with no real network call; NO_PRODUCTION_DEPLOYMENT_YET on an empty run list rather than a vacuous pass; only git (rev-parse/cat-file/merge-base/show) and an unambiguous gh api GET are ever invoked."
+    },
+    {
+      "id": "rollback-rehearsal-proves-and-mutates-nothing",
+      "status": "passed",
+      "exitCode": 0,
+      "command": "node --test tests/rollback-rehearsal.test.cjs",
+      "detail": "17 tests, 17 passed, 0 failed. Proves target provenance (annotated, ancestor of main, has a successful prior deploy run, rebuilds to the expected hashes), prints the human roll-forward sequence, succeeds even when the live site is unreachable, and never invokes wrangler, a Cloudflare call, git tag, git push, or a workflow dispatch."
+    },
+    {
+      "id": "production-workflow-host-check-correct",
+      "status": "passed",
+      "exitCode": 0,
+      "command": "node --test tests/production-pages-deploy-workflow.test.cjs",
+      "detail": "25 tests, 25 passed, 0 failed. The deployed-host check in production-pages-deploy.yml accepts the dashboard-latam apex domain and a dashboard-latam deployment alias, and refuses every other host, including a same-prefix lookalike and another project's pages.dev domain."
+    }
+  ]
+}

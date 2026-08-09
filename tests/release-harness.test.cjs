@@ -1198,17 +1198,21 @@ test('classify exits 0 only for a read-only command', () => {
   assert.equal(cli.runClassify({ commandLine: 'curl https://example.com' }).exitCode, core.EXIT_BLOCKED);
 });
 
-test('the plan subcommand reads the real committed backlog: B1 and B2 accepted and awaiting production, B4/B7/M-2B2A/M-2B2B/M-D2B done, M-D2C next', () => {
+test('the plan subcommand reads the real committed backlog: B1 and B2 accepted and awaiting production, B4/B7/M-2B2A/M-2B2B/M-D2B/M-D2C done, no eligible task remains', () => {
   // Unlike the fixture-based tests above, this one deliberately reads the
   // real release/backlog.json from disk — it is the one place this suite
-  // should reflect B1's, B2's, B4's, B7's, M-2B2A's, M-2B2B's, and M-D2B's
-  // actual, current, human-set status rather than the reference fixture.
+  // should reflect B1's, B2's, B4's, B7's, M-2B2A's, M-2B2B's, M-D2B's, and
+  // M-D2C's actual, current, human-set status rather than the reference
+  // fixture. With every internal, decided, dependency-satisfied task done,
+  // the only remaining backlog entries need a human decision (B6, B8) or a
+  // human production action (B1, B2) — nothing is left for an agent.
   const plan = cli.runPlan({ backlogPath: null }, { repositoryRoot: ROOT });
-  assert.equal(plan.exitCode, core.EXIT_OK);
-  assert.equal(plan.payload.selectionCode, 'SELECTED');
-  assert.equal(plan.payload.selectedTaskId, 'M-D2C');
-  assert.ok(plan.human.includes('NEXT TASK: M-D2C'));
-  assert.ok(plan.payload.excluded.length >= 6);
+  assert.equal(plan.exitCode, core.EXIT_BLOCKED);
+  assert.equal(plan.payload.selectionCode, 'NO_ELIGIBLE_TASK');
+  assert.equal(plan.payload.selectedTaskId, null);
+  assert.ok(plan.human.includes('NEXT TASK: none. No backlog task is eligible for an autonomous agent.'));
+  assert.deepEqual(plan.payload.rankedIds, []);
+  assert.ok(plan.payload.excluded.length >= 7);
   const b1 = plan.payload.excluded.find(entry => entry.id === 'B1');
   assert.ok(b1, 'B1 must appear among the exclusions');
   assert.equal(b1.code, 'AWAITING_PRODUCTION');
@@ -1218,9 +1222,15 @@ test('the plan subcommand reads the real committed backlog: B1 and B2 accepted a
   const b4 = plan.payload.excluded.find(entry => entry.id === 'B4');
   assert.ok(b4, 'B4 must appear among the exclusions');
   assert.equal(b4.code, 'ALREADY_DONE');
+  const b6 = plan.payload.excluded.find(entry => entry.id === 'B6');
+  assert.ok(b6, 'B6 must appear among the exclusions');
+  assert.equal(b6.code, 'DECISION_PENDING');
   const b7 = plan.payload.excluded.find(entry => entry.id === 'B7');
   assert.ok(b7, 'B7 must appear among the exclusions');
   assert.equal(b7.code, 'ALREADY_DONE');
+  const b8 = plan.payload.excluded.find(entry => entry.id === 'B8');
+  assert.ok(b8, 'B8 must appear among the exclusions');
+  assert.equal(b8.code, 'DECISION_PENDING');
   const m2b2a = plan.payload.excluded.find(entry => entry.id === 'M-2B2A');
   assert.ok(m2b2a, 'M-2B2A must appear among the exclusions');
   assert.equal(m2b2a.code, 'ALREADY_DONE');
@@ -1230,6 +1240,9 @@ test('the plan subcommand reads the real committed backlog: B1 and B2 accepted a
   const mD2b = plan.payload.excluded.find(entry => entry.id === 'M-D2B');
   assert.ok(mD2b, 'M-D2B must appear among the exclusions');
   assert.equal(mD2b.code, 'ALREADY_DONE');
+  const mD2c = plan.payload.excluded.find(entry => entry.id === 'M-D2C');
+  assert.ok(mD2c, 'M-D2C must appear among the exclusions');
+  assert.equal(mD2c.code, 'ALREADY_DONE');
 });
 
 /* ==================== wiring ==================== */

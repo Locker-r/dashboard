@@ -351,9 +351,9 @@
       "severity": "P3",
       "kind": "milestone",
       "actionability": "internal",
-      "status": "open",
+      "status": "done",
       "decision": "approved",
-      "decisionEvidence": "docs/project-status.md — Deferred work: D2-C; docs/decisions.md ADR-016 (2026-08-09) records the rollback design: roll-forward through the normal release flow, proved by scripts/release/rollback-rehearsal.cjs, with scripts/verify-production-deployment.cjs proving a tag is actually live. Both are read-only and credential-free. These criteria prove the tooling exists and fails closed correctly against injected fixtures, not against a real deployment — no production deployment has occurred yet, and the verifier itself fails closed with NO_PRODUCTION_DEPLOYMENT_YET when asked to check one that doesn't exist. Live verification against a real deployment is recorded below as an outstanding production action, following the B4/M-D2B precedent (release/backlog.json B4, M-D2B).",
+      "decisionEvidence": "docs/project-status.md — Deferred work: D2-C; docs/decisions.md ADR-016 (2026-08-09) records the rollback design: roll-forward through the normal release flow, proved by scripts/release/rollback-rehearsal.cjs, with scripts/verify-production-deployment.cjs proving a tag is actually live. Both are read-only and credential-free. All three acceptance criteria passed against commit 6dfcfa8 (release/verification/M-D2C.evidence.json, recorded 2026-08-09) — the tooling exists and fails closed correctly against injected fixtures, and the deployed-host fix from M-D2B is proven too. This mirrors the B4/M-D2B precedent (release/backlog.json B4, M-D2B): a milestone is done when the deliverable it specifically owns is built, tested, and merged — not when every production action it enables has since been exercised against a real deployment, which does not exist yet. verify-production-deployment.cjs itself fails closed with NO_PRODUCTION_DEPLOYMENT_YET when asked to check a deployment that doesn't exist; that is the correct, expected behavior, not a gap. Live verification against a real deployment, and rehearsing rollback against one, remain a human's future per-release action and are recorded below as outstanding production actions.",
       "releaseBlocking": false,
       "workaround": null,
       "dependsOn": ["M-D2B"],
@@ -363,7 +363,8 @@
         "docs/release-governance.md — rollback expectations",
         "docs/decisions.md ADR-016 — production rollback is roll-forward through the normal release flow",
         "scripts/verify-production-deployment.cjs; scripts/release/rollback-rehearsal.cjs",
-        ".github/workflows/production-pages-deploy.yml — corrected deployed-host check (apex or dashboard-latam deployment alias)"
+        ".github/workflows/production-pages-deploy.yml — corrected deployed-host check (apex or dashboard-latam deployment alias)",
+        "release/verification/M-D2C.evidence.json — all three acceptance criteria passed against commit 6dfcfa8"
       ],
       "acceptanceCriteria": [
         {
