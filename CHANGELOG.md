@@ -38,7 +38,9 @@ approval before Cloudflare is touched.
   statement, not merely a stray read. Deleting local untracked files is a
   filesystem action this repository's own tooling guard refuses to an agent
   without separate, explicit per-run operator authorization, so the
-  deletion itself remains an operator step (B8).
+  deletion itself remains an operator step (B8). Done: the Product Owner
+  deleted the directory directly; `npm run doctor` now reports
+  `OK SNIPPETS_ABSENT`.
 
 ### Fixed
 

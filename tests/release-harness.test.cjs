@@ -216,11 +216,13 @@ test('the untracked supabase/snippets directory is not a release task', () => {
   for (const task of selection.ordered) {
     assert.equal(/snippet/i.test(`${task.id} ${task.title}`), false, `${task.id} treats snippets as work`);
   }
-  // B8 records the owner decision about them (ADR-019: delete, don't track),
-  // and it is excluded, not selected — the deletion itself is a human
-  // filesystem action outside an agent's own destructive-command guard.
+  // B8 recorded the owner decision about them (ADR-019: delete, don't
+  // track); the Product Owner deleted the files directly (the deletion
+  // itself was a human filesystem action outside an agent's own
+  // destructive-command guard), confirmed 2026-08-09 via `npm run doctor`
+  // reporting SNIPPETS_ABSENT — B8 is done, and excluded as such.
   const excluded = new Map(selection.excluded.map(entry => [entry.id, entry.code]));
-  assert.equal(excluded.get('B8'), 'EXTERNAL_DEPENDENCY');
+  assert.equal(excluded.get('B8'), 'ALREADY_DONE');
 });
 
 test('the selection does not depend on the order the backlog lists tasks in', () => {
@@ -257,11 +259,12 @@ test('every excluded task carries a reason code', () => {
   // stays agent-only and docs/business-rules.md was corrected to match
   // (docs/decisions.md ADR-018) — excluded as already done, no RPC change.
   assert.equal(byId.get('B6'), 'ALREADY_DONE');
-  // B8's decision is recorded (ADR-019: delete the files, don't track the
-  // directory), but the deletion itself is a human filesystem action this
-  // repository's own tooling refuses to an agent — excluded as an external
-  // dependency, not a pending decision.
-  assert.equal(byId.get('B8'), 'EXTERNAL_DEPENDENCY');
+  // B8's decision (ADR-019: delete the files, don't track the directory)
+  // was carried out directly by the Product Owner — the deletion itself was
+  // a human filesystem action this repository's own tooling refuses to an
+  // agent — confirmed 2026-08-09 via npm run doctor reporting
+  // SNIPPETS_ABSENT. Excluded as already done, not a pending decision.
+  assert.equal(byId.get('B8'), 'ALREADY_DONE');
   for (const entry of selection.excluded) assert.ok(entry.detail.trim(), `${entry.id} has no detail`);
 });
 
@@ -1207,14 +1210,14 @@ test('classify exits 0 only for a read-only command', () => {
   assert.equal(cli.runClassify({ commandLine: 'curl https://example.com' }).exitCode, core.EXIT_BLOCKED);
 });
 
-test('the plan subcommand reads the real committed backlog: B1 and B2 accepted and awaiting production, B4/B7/M-2B2A/M-2B2B/M-D2B/M-D2C done, no eligible task remains', () => {
+test('the plan subcommand reads the real committed backlog: B1 and B2 accepted and awaiting production, B4/B6/B7/B8/M-2B2A/M-2B2B/M-D2B/M-D2C done, no eligible task remains', () => {
   // Unlike the fixture-based tests above, this one deliberately reads the
   // real release/backlog.json from disk — it is the one place this suite
-  // should reflect B1's, B2's, B4's, B6's, B7's, M-2B2A's, M-2B2B's, M-D2B's,
-  // and M-D2C's actual, current, human-set status rather than the reference
-  // fixture. With every internal, decided, dependency-satisfied task done,
-  // the only remaining backlog entries need a human filesystem action (B8) or
-  // a human production action (B1, B2) — nothing is left for an agent.
+  // should reflect B1's, B2's, B4's, B6's, B7's, B8's, M-2B2A's, M-2B2B's,
+  // M-D2B's, and M-D2C's actual, current, human-set status rather than the
+  // reference fixture. With every internal, decided, dependency-satisfied
+  // task done, the only remaining backlog entries need a human production
+  // action (B1, B2) — nothing is left for an agent.
   const plan = cli.runPlan({ backlogPath: null }, { repositoryRoot: ROOT });
   assert.equal(plan.exitCode, core.EXIT_BLOCKED);
   assert.equal(plan.payload.selectionCode, 'NO_ELIGIBLE_TASK');
@@ -1239,7 +1242,7 @@ test('the plan subcommand reads the real committed backlog: B1 and B2 accepted a
   assert.equal(b7.code, 'ALREADY_DONE');
   const b8 = plan.payload.excluded.find(entry => entry.id === 'B8');
   assert.ok(b8, 'B8 must appear among the exclusions');
-  assert.equal(b8.code, 'EXTERNAL_DEPENDENCY');
+  assert.equal(b8.code, 'ALREADY_DONE');
   const m2b2a = plan.payload.excluded.find(entry => entry.id === 'M-2B2A');
   assert.ok(m2b2a, 'M-2B2A must appear among the exclusions');
   assert.equal(m2b2a.code, 'ALREADY_DONE');
