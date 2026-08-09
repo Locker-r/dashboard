@@ -77,8 +77,14 @@ async function run(env, deps) {
     if (playersResult.error) throw playersResult.error;
 
     const plan = shared.planCleanup(membersResponse.body.data, playersResult.data);
-    report.membersSkipped = plan.membersSkipped;
-    report.playersSkipped = plan.playersSkipped;
+    // planCleanup returns Object.freeze()d arrays (it is a pure function with
+    // no I/O, deliberately immutable). Copy into fresh, extensible arrays —
+    // the loop below appends to report.membersSkipped on a deactivate
+    // failure, and pushing onto the frozen original throws
+    // "Cannot add property 0, object is not extensible" (found via the
+    // second real staging-demo-prep run, GitHub Actions run 31307722394).
+    report.membersSkipped = [...plan.membersSkipped];
+    report.playersSkipped = [...plan.playersSkipped];
 
     for (const member of plan.membersToDeactivate) {
       const requestId = crypto.randomUUID();

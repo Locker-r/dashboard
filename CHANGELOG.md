@@ -32,6 +32,15 @@ approval before Cloudflare is touched.
 
 ### Fixed
 
+- `scripts/staging-demo-cleanup.cjs` aliased `report.membersSkipped`/
+  `report.playersSkipped` directly to `planCleanup`'s `Object.freeze()`d
+  return arrays, then pushed onto them when a deactivation call failed.
+  The second real dispatch of `staging-demo-prep.yml` (GitHub Actions run
+  31307722394, on top of the run 31307205728 fix) hit exactly this and
+  crashed with `Cannot add property 0, object is not extensible` instead of
+  recording the failed deactivation. Fixed by copying into fresh,
+  extensible arrays.
+
 - `scripts/staging-demo-cleanup.cjs` selected `messenger` from `players`,
   but that column (along with `phone`/`email`) has been revoked from
   `authenticated` for every session, admin included
