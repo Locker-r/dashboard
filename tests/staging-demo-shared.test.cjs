@@ -225,7 +225,30 @@ test('the demo dataset is exactly 8 leads and 2 cashiers, matching the requested
   assert.deepEqual(new Set(statuses), new Set(['new', 'assigned', 'in_work', 'success', 'no_answer', 'failed']));
   assert.equal(statuses.filter(s => s === 'assigned').length, 2);
   assert.equal(statuses.filter(s => s === 'in_work').length, 2);
-  assert.equal(shared.DEMO_LEADS.filter(lead => lead.withProof).length, 1);
+  // Closing a lead as either 'success' or 'failed' requires an active proof
+  // (change_player_status_atomic checks both, not just 'success') — so both
+  // the success-targeting and the failed-targeting lead need one.
+  const withProofStatuses = shared.DEMO_LEADS.filter(lead => lead.withProof).map(lead => lead.targetStatus).sort();
+  assert.deepEqual(withProofStatuses, ['failed', 'success']);
+});
+
+test('regression: every lead targeting success or failed carries withProof — reproducing GitHub Actions run 31310524648', () => {
+  for (const lead of shared.DEMO_LEADS) {
+    if (lead.targetStatus === 'success' || lead.targetStatus === 'failed') {
+      assert.equal(lead.withProof, true, `${lead.id} targets ${lead.targetStatus} and must require proof`);
+    } else {
+      assert.equal(lead.withProof, false, `${lead.id} targets ${lead.targetStatus} and must not require proof`);
+    }
+  }
+});
+
+test('regression: the proof action is inserted for a hop into failed, not only success', () => {
+  const cashierIds = new Map([['a', 'AGENT_A'], ['b', 'AGENT_B']]);
+  const failedLead = shared.DEMO_LEADS.find(lead => lead.targetStatus === 'failed');
+  const plan = shared.planLeadReconciliation(null, failedLead, cashierIds, false);
+  assert.equal(plan.ok, true);
+  assert.deepEqual(plan.actions.map(a => a.type), ['create', 'assign', 'status', 'proof', 'status']);
+  assert.equal(plan.actions[4].next, 'failed');
 });
 
 test('every demo lead id is obviously prefixed and unique', () => {

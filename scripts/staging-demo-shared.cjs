@@ -46,6 +46,16 @@ function demoLeadPhone(index) {
   return `+593${String(900000000 + index * 111).slice(0, 9)}`;
 }
 
+// change_player_status_atomic requires an active proof to close a lead as
+// EITHER 'success' or 'failed' — the same check applies to both
+// (supabase/migrations/20260805000100_lead_proof.sql: "if p_next_status in
+// ('success','failed') then ... PROOF_REQUIRED"). A real seed run hit this
+// exactly: demo_lead_08 targets 'failed' but was never given a proof step
+// (found 2026-08-09, GitHub Actions run 31310524648). `withProof` is
+// therefore derived from the target status, not hand-set per lead, so this
+// class of bug cannot recur by omission.
+const CLOSING_STATUSES_REQUIRING_PROOF = Object.freeze([domain.STATUSES.SUCCESS, domain.STATUSES.FAILED]);
+
 // The canonical, idempotent target shape of the persistent demo dataset.
 // `cashierSlot: null` means intentionally unassigned. `status` is the final
 // state this lead should converge to on every run, regardless of where it
@@ -60,7 +70,7 @@ const DEMO_LEADS = Object.freeze(
       { status: domain.STATUSES.ASSIGNED, cashierSlot: 'b' },
       { status: domain.STATUSES.IN_WORK, cashierSlot: 'a' },
       { status: domain.STATUSES.IN_WORK, cashierSlot: 'b' },
-      { status: domain.STATUSES.SUCCESS, cashierSlot: 'a', withProof: true },
+      { status: domain.STATUSES.SUCCESS, cashierSlot: 'a' },
       { status: domain.STATUSES.NO_ANSWER, cashierSlot: 'b' },
       { status: domain.STATUSES.FAILED, cashierSlot: 'a' }
     ][index];
@@ -71,7 +81,7 @@ const DEMO_LEADS = Object.freeze(
       phone: demoLeadPhone(n),
       targetStatus: plan.status,
       targetCashierSlot: plan.cashierSlot,
-      withProof: Boolean(plan.withProof)
+      withProof: CLOSING_STATUSES_REQUIRING_PROOF.includes(plan.status)
     });
   })
 );
@@ -233,7 +243,7 @@ function planLeadReconciliation(currentPlayer, target, cashierIdBySlot, hasActiv
   }
 
   for (const nextStatus of hops) {
-    if (target.withProof && nextStatus === domain.STATUSES.SUCCESS && !hasActiveProof) {
+    if (target.withProof && CLOSING_STATUSES_REQUIRING_PROOF.includes(nextStatus) && !hasActiveProof) {
       actions.push({ type: 'proof', id: target.id });
     }
     actions.push({
