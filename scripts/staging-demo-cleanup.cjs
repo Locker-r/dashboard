@@ -57,12 +57,14 @@ async function run(env, deps) {
   const signIn = await client.auth.signInWithPassword({ email: adminEmail, password: adminPassword });
   if (signIn.error) throw new Error(`ADMIN_SIGN_IN_FAILED:${signIn.error.message}`);
   const accessToken = signIn.data.session.access_token;
+  const actorId = signIn.data.user.id;
 
   const report = { membersDeactivated: [], membersSkipped: [], playerRunsCleaned: [], playerRunsFailed: [], playersSkipped: [] };
   try {
     const membersResponse = await deps.fetchTeamManagement(functionsUrl, accessToken, { action: 'list-members' });
     if (membersResponse.status !== 200 || !membersResponse.body || membersResponse.body.ok !== true) {
-      throw new Error(`LIST_MEMBERS_FAILED:${membersResponse.status}`);
+      const code = membersResponse.body && membersResponse.body.error && membersResponse.body.error.code;
+      throw new Error(`LIST_MEMBERS_FAILED:${membersResponse.status}${code ? `:${code}` : ''}`);
     }
     // `messenger` (and phone/email) are not selectable by `authenticated` —
     // supabase/migrations/20260801000200_revoke_raw_contacts.sql revokes the
@@ -76,7 +78,7 @@ async function run(env, deps) {
     const playersResult = await client.from('players').select('id');
     if (playersResult.error) throw playersResult.error;
 
-    const plan = shared.planCleanup(membersResponse.body.data, playersResult.data);
+    const plan = shared.planCleanup(membersResponse.body.data, playersResult.data, actorId);
     // planCleanup returns Object.freeze()d arrays (it is a pure function with
     // no I/O, deliberately immutable). Copy into fresh, extensible arrays —
     // the loop below appends to report.membersSkipped on a deactivate

@@ -80,6 +80,32 @@ test('a smoke-prefixed cashier that still owns players cannot be proven disposab
   assert.equal(plan.membersSkipped[0].reason, 'STILL_OWNS_PLAYERS');
 });
 
+test('regression: the currently signed-in actor is never a deactivation candidate, even when its own username is smoke_test_-shaped', () => {
+  // runtime-smoke.cjs's own readConfig() requires SMOKE_TEST_ADMIN_EMAIL
+  // (the same value as STAGING_SMOKE_ADMIN_EMAIL, which staging-demo-prep.yml
+  // reuses) to start with "smoke_test" — so the real staging admin account
+  // this tooling authenticates as is itself smoke_test_-shaped and would
+  // otherwise match isDisposableSmokeUsername. A real cleanup run
+  // deactivated its own calling admin this way, and a later run's
+  // list-members call then failed with 403 ADMIN_REQUIRED (GitHub Actions
+  // run 31308149570, following the account deactivated in run 31307722394).
+  const actorId = 'admin-actor-id';
+  const members = [
+    { id: actorId, username: 'smoke_test_admin', is_active: true, assigned_players: 0 },
+    { id: 'm2', username: 'smoke_test_abc123def456_a', is_active: true, assigned_players: 0 }
+  ];
+  const plan = shared.planCleanup(members, [], actorId);
+  assert.deepEqual(plan.membersToDeactivate, [{ id: 'm2', username: 'smoke_test_abc123def456_a' }]);
+  assert.ok(!plan.membersToDeactivate.some(m => m.id === actorId));
+  assert.ok(!plan.membersSkipped.some(m => m.id === actorId), 'the actor must not even appear as a reported skip — it is never a candidate at all');
+});
+
+test('without an actorId, self-exclusion is simply a no-op (backward compatible), not a crash', () => {
+  const members = [{ id: 'm1', username: 'smoke_test_abc123def456_a', is_active: true, assigned_players: 0 }];
+  const plan = shared.planCleanup(members, []);
+  assert.deepEqual(plan.membersToDeactivate, [{ id: 'm1', username: 'smoke_test_abc123def456_a' }]);
+});
+
 test('leftover smoke players are grouped by run id extracted from their own id — messenger is never read', () => {
   // `messenger` is not selectable by `authenticated` at all (the raw-contact
   // grant revoke applies to every session, admin included —

@@ -20,12 +20,12 @@ const ENV = Object.freeze({
 // table players").
 const SELECTABLE_PLAYER_COLUMNS = new Set(['id', 'status', 'agent_id', 'created_by', 'imported_at', 'updated_at', 'follow_up_at']);
 
-function fakeSupabaseClient({ members = [], players = [] } = {}) {
+function fakeSupabaseClient({ members = [], players = [], actorId = 'fake-admin-actor-id' } = {}) {
   const calls = { rpc: [], selects: [] };
   return {
     calls,
     auth: {
-      signInWithPassword: async () => ({ data: { session: { access_token: 'fake-admin-token' } }, error: null }),
+      signInWithPassword: async () => ({ data: { session: { access_token: 'fake-admin-token' }, user: { id: actorId } }, error: null }),
       signOut: async () => ({ error: null })
     },
     from(table) {
@@ -89,6 +89,39 @@ test('only smoke_test-prefixed, zero-player members are deactivated; unknown use
   const deactivateCalls = teamManagementCalls.filter(body => body.action === 'set-member-active');
   assert.equal(deactivateCalls.length, 1);
   assert.equal(deactivateCalls[0].memberId, 'm-smoke-empty');
+});
+
+test('regression: the calling admin account is never deactivated even though its own username is smoke_test_-shaped, reproducing GitHub Actions run 31308149570', async () => {
+  // STAGING_SMOKE_ADMIN_EMAIL must itself start with "smoke_test" (enforced
+  // by runtime-smoke.cjs's own readConfig()), so the real admin account this
+  // script signs in as is smoke_test_-shaped and would otherwise match the
+  // deactivation filter. A real run deactivated its own calling admin this
+  // way; the next run's list-members call then failed with 403
+  // ADMIN_REQUIRED because that account was no longer active.
+  const actorId = 'admin-actor-id';
+  const members = [
+    { id: actorId, username: 'smoke_test_admin', is_active: true, assigned_players: 0 },
+    { id: 'm-smoke-empty', username: 'smoke_test_abc123def456_a', is_active: true, assigned_players: 0 }
+  ];
+  const client = fakeSupabaseClient({ members, actorId });
+  const teamManagementCalls = [];
+  const fetchTeamManagement = async (functionsUrl, token, body) => {
+    teamManagementCalls.push(body);
+    if (body.action === 'list-members') return { status: 200, body: { ok: true, data: members } };
+    if (body.action === 'set-member-active') return { status: 200, body: { ok: true, data: {} } };
+    throw new Error(`unexpected action: ${body.action}`);
+  };
+  process.env = { ...process.env, ...ENV };
+  const status = await cleanup.main(['--json'], {
+    createClient: fakeCreateClient(client), fetchTeamManagement,
+    log() {}, emit() {}
+  });
+  assert.equal(status, 0);
+
+  const deactivateCalls = teamManagementCalls.filter(body => body.action === 'set-member-active');
+  assert.equal(deactivateCalls.length, 1);
+  assert.equal(deactivateCalls[0].memberId, 'm-smoke-empty');
+  assert.ok(!deactivateCalls.some(call => call.memberId === actorId), 'the calling admin must never be a deactivation target');
 });
 
 test('regression: a failed deactivation is recorded, not thrown as "object is not extensible", reproducing GitHub Actions run 31307722394', async () => {
