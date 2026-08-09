@@ -401,7 +401,10 @@ test('cashier C\'s naming mirrors staging-smoke-provision-cashiers.cjs\'s buildC
   assert.match(source, /function buildDisposableCashier\(runId, slot\)/);
   assert.match(source, /smoke_test_\$\{runId\}_cashier_\$\{slot\}@example\.invalid/);
   const deprovision = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'staging-smoke-deprovision-cashiers.cjs'), 'utf8');
-  assert.match(deprovision, /buildCashier\(runId, 'c'\)\.email/);
+  // Matched by username, not email: team_list_members() never returns email
+  // (supabase/migrations/20260805000200_agent_management.sql) — see
+  // tests/staging-smoke-cashier-provisioning.test.cjs's regression test.
+  assert.match(deprovision, /buildCashier\(runId, 'c'\)\.username/);
 });
 
 test('the deactivation scenario runs last, after every other stage that depends on agent B\'s original lead ownership', () => {

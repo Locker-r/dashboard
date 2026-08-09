@@ -10,7 +10,16 @@
 // before the run. Slot 'c' is provisioned by scripts/runtime-smoke.cjs itself,
 // through the real create-member path, as part of proving the B2 admin
 // cashier management contract — this script deactivates it the same way,
-// computing the identical email from the same runId/slot naming.
+// computing the identical username from the same runId/slot naming.
+//
+// Looked up by username, not email: the `list-members` action's underlying
+// team_list_members() RPC (supabase/migrations/20260805000200_agent_management.sql)
+// never returns email — only id, username, name, role, lang, is_active,
+// country, created_at, updated_at, assigned_players. Matching on email here
+// silently matched nothing on every real run (found 2026-08-09): every
+// lookup fell through to "never created, or already gone", so this script
+// deactivated no one and every disposable smoke cashier stayed active
+// indefinitely. Fixed by matching on username, which the RPC does return.
 //
 // Always runs (the workflow calls this with `if: always()`), so a failed
 // smoke run still leaves no active disposable cashier behind.
@@ -26,7 +35,7 @@ function requireEnv(env, name) {
   return value;
 }
 
-async function findMemberId(functionsUrl, adminAccessToken, email) {
+async function findMemberId(functionsUrl, adminAccessToken, username) {
   const response = await fetch(`${functionsUrl}/team-management`, {
     method: 'POST',
     headers: { authorization: `Bearer ${adminAccessToken}`, 'content-type': 'application/json' },
@@ -34,7 +43,7 @@ async function findMemberId(functionsUrl, adminAccessToken, email) {
   });
   const body = await response.json().catch(() => null);
   if (!response.ok || !body || body.ok !== true) throw new Error(`LIST_MEMBERS_FAILED:${response.status}`);
-  const member = (body.data || []).find(row => String(row.email || '').toLowerCase() === email.toLowerCase());
+  const member = (body.data || []).find(row => String(row.username || '').toLowerCase() === username.toLowerCase());
   return member ? member.id : null;
 }
 
@@ -69,16 +78,16 @@ async function main() {
   const accessToken = signIn.data.session.access_token;
 
   const functionsUrl = `${projectUrl}/functions/v1`;
-  const emails = [buildCashier(runId, 'a').email, buildCashier(runId, 'b').email, buildCashier(runId, 'c').email];
+  const usernames = [buildCashier(runId, 'a').username, buildCashier(runId, 'b').username, buildCashier(runId, 'c').username];
   const failures = [];
   try {
-    for (const email of emails) {
+    for (const username of usernames) {
       try {
-        const memberId = await findMemberId(functionsUrl, accessToken, email);
+        const memberId = await findMemberId(functionsUrl, accessToken, username);
         if (!memberId) continue; // Never created, or already gone — nothing to deactivate.
         await deactivate(functionsUrl, accessToken, memberId);
       } catch (error) {
-        failures.push(`${email}: ${String(error && error.message || error)}`);
+        failures.push(`${username}: ${String(error && error.message || error)}`);
       }
     }
   } finally {

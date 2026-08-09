@@ -513,6 +513,32 @@ other secret, and does not alter gate G6 or G7. Extending this to a second
 project, secret name, or value needs its own reviewed authorization, not a
 loosened pattern.
 
+## The scoped exception: staging demo preparation
+
+`.github/workflows/staging-demo-prep.yml` (docs/decisions.md ADR-017) is
+authorized to sign in as the same staging admin account
+`staging-cloud-smoke.yml` already uses (`secrets.STAGING_SMOKE_ADMIN_EMAIL`/
+`STAGING_SMOKE_ADMIN_PASSWORD`, no new secret) and, through it, call
+`scripts/staging-demo-cleanup.cjs`, `scripts/staging-demo-seed.cjs`, and
+`scripts/staging-demo-flow-verify.cjs`. Like the other staging smoke
+tooling, every write these scripts perform goes through a product-supported
+RPC or the reviewed `team-management` Edge Function — never the service
+role, never a direct table write bypassing RLS.
+
+What is pinned, not configurable: the target project ref
+`cjdxtakgmnzwixrajjry`, checked before any credential is read exactly as
+`staging-cloud-smoke.yml` already does; the identity conventions cleanup may
+act on (`smoke_test_` for team-member usernames, the existing
+`SMOKE_TEST_<runId>_`/`SMOKE_TEST:<runId>:` id/messenger-marker pair for
+players); and the persistent demo dataset's shape (two `demo_cashier_*`
+accounts, eight `demo_lead_*` leads). Cleanup never touches an account or
+lead that does not match one of those exact conventions, and never forces a
+deactivation it cannot prove safe — a `smoke_test_`-prefixed cashier that
+still owns players is reported and left alone, not force-reassigned.
+
+This authorizes staging only. It grants nothing in production, creates no
+new secret, and does not alter gate G6 or G7.
+
 ## What push and PR automation are actually allowed
 
 `git push` is not one action; "update my feature branch" and "force-rewrite

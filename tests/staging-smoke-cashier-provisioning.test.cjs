@@ -72,6 +72,37 @@ test('generated passwords are unique, long, and never the literal word password'
   }
 });
 
+test('findMemberId matches by username against the real team_list_members shape, which never carries email', async () => {
+  // supabase/migrations/20260805000200_agent_management.sql's team_list_members
+  // returns id, username, name, role, lang, is_active, country, created_at,
+  // updated_at, assigned_players — never email. A lookup keyed on row.email
+  // silently matches nothing on every call; this fixture reproduces that
+  // exact response shape so the regression cannot come back unnoticed.
+  const realShapedRow = {
+    id: 'aaaaaaaa-0000-4000-8000-000000000001',
+    username: 'smoke_test_abc123def456_a',
+    name: 'Smoke Test Cashier A',
+    role: 'agent',
+    lang: 'ru',
+    is_active: true,
+    country: 'EC',
+    created_at: '2026-08-09T00:00:00.000Z',
+    updated_at: '2026-08-09T00:00:00.000Z',
+    assigned_players: 0
+  };
+  assert.equal(Object.prototype.hasOwnProperty.call(realShapedRow, 'email'), false);
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({ ok: true, json: async () => ({ ok: true, data: [realShapedRow] }) });
+  try {
+    const foundId = await deprovision.findMemberId('https://example.invalid/functions/v1', 'token', 'smoke_test_abc123def456_a');
+    assert.equal(foundId, realShapedRow.id);
+    const notFoundId = await deprovision.findMemberId('https://example.invalid/functions/v1', 'token', 'smoke_test_abc123def456_zzz');
+    assert.equal(notFoundId, null);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('deprovisioning exposes lookup and deactivation, and re-derives identity from provisioning rather than storing it', () => {
   assert.equal(typeof deprovision.findMemberId, 'function');
   assert.equal(typeof deprovision.deactivate, 'function');

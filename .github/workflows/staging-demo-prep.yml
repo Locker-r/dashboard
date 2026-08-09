@@ -1,0 +1,111 @@
+name: Staging demo preparation
+
+# Manual only. This workflow writes real rows to a hosted staging database
+# and account, so it starts when a person presses the button and names the
+# target explicitly.
+on:
+  workflow_dispatch:
+    inputs:
+      project_ref:
+        description: 'Type the staging project ref exactly to confirm the target: cjdxtakgmnzwixrajjry'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Two runs racing each other would collide on the demo dataset and the
+# disposable verification identity.
+concurrency:
+  group: staging-demo-prep
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Cleanup, seed, and verify the staging demo
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Only main carries reviewed source; a branch could have anything in it.
+    if: github.ref == 'refs/heads/main'
+    # Carries the STAGING_SMOKE_ADMIN_EMAIL/PASSWORD environment secrets —
+    # the same staging admin account staging-cloud-smoke.yml already uses —
+    # and whatever protection rules the staging environment has configured.
+    environment: staging
+    env:
+      STAGING_PROJECT_REF: cjdxtakgmnzwixrajjry
+      DEMO_PREP_PROJECT_URL: https://cjdxtakgmnzwixrajjry.supabase.co
+      # The publishable (anon) key, not a secret: the same value already
+      # public in the deployed Pages runtime-config.js and already used by
+      # staging-cloud-smoke.yml. See docs/release-gates.md.
+      DEMO_PREP_PUBLISHABLE_KEY: sb_publishable_A6m7h8KC8ob9g_ItZZRlqg_ZwLIC2iv
+      DEMO_PREP_ADMIN_EMAIL: ${{ secrets.STAGING_SMOKE_ADMIN_EMAIL }}
+      DEMO_PREP_ADMIN_PASSWORD: ${{ secrets.STAGING_SMOKE_ADMIN_PASSWORD }}
+    steps:
+      # Fail before the admin credentials are ever read: a typo in the
+      # confirmation should cost nothing.
+      - name: Confirm the target project ref
+        shell: bash
+        env:
+          SUPPLIED_REF: ${{ inputs.project_ref }}
+        run: |
+          set -euo pipefail
+          if [[ "$SUPPLIED_REF" != "$STAGING_PROJECT_REF" ]]; then
+            echo "Refused: project_ref must be exactly $STAGING_PROJECT_REF." >&2
+            echo "Received: $SUPPLIED_REF" >&2
+            exit 1
+          fi
+          echo "Target confirmed: $STAGING_PROJECT_REF"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # Deactivates leftover disposable smoke_test cashiers and removes
+      # leftover smoke_test players, both through existing, reviewed,
+      # product-supported paths. Never touches demo_* data or anything that
+      # does not match the exact smoke_test identity convention. See
+      # scripts/staging-demo-cleanup.cjs and docs/decisions.md ADR-017.
+      - name: Clean up disposable smoke-test debris
+        run: node scripts/staging-demo-cleanup.cjs
+
+      # Idempotently ensures the persistent demo dataset (two cashiers,
+      # eight leads spread across every status) exists in its canonical
+      # shape. Safe to re-run: converges rather than duplicates. See
+      # scripts/staging-demo-seed.cjs.
+      - name: Seed the demo dataset
+        run: node scripts/staging-demo-seed.cjs
+
+      # Proves the full management-demo path end to end — admin login,
+      # cashier visibility, assignment, cashier login, isolation, in_work,
+      # the audited contact reveal, close with proof, and admin-side
+      # final-result/analytics visibility — through one disposable,
+      # self-cleaning smoke_test identity. Never mutates the persistent
+      # demo_* dataset. See scripts/staging-demo-flow-verify.cjs.
+      - name: Verify the demo flow end to end
+        run: node scripts/staging-demo-flow-verify.cjs
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### Staging demo preparation"
+            echo ""
+            echo "- Project ref: \`$STAGING_PROJECT_REF\`"
+            echo "- Frontend: https://locker-r.github.io/dashboard/"
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Result: \`${{ job.status }}\`"
+            echo ""
+            echo "Demo cashiers: \`demo_cashier_a\`, \`demo_cashier_b\` (see"
+            echo "scripts/staging-demo-shared.cjs for the full roster)."
+            echo "Demo leads: \`demo_lead_01\`..\`demo_lead_08\`, spread across"
+            echo "new/assigned/in_work/success/no_answer/failed."
+            echo ""
+            echo "Sign in as the existing staging admin account to present."
+            echo "No new admin credential is created or printed by this workflow."
+          } >> "$GITHUB_STEP_SUMMARY"
