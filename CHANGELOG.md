@@ -32,6 +32,18 @@ approval before Cloudflare is touched.
 
 ### Fixed
 
+- `scripts/staging-demo-cleanup.cjs` selected `messenger` from `players`,
+  but that column (along with `phone`/`email`) has been revoked from
+  `authenticated` for every session, admin included
+  (`supabase/migrations/20260801000200_revoke_raw_contacts.sql`). The first
+  real dispatch of `staging-demo-prep.yml` (GitHub Actions run 31307205728)
+  failed at the cleanup step with "permission denied for table players".
+  Fixed to select only `id`; the messenger-marker match this used to
+  pre-check client-side is re-derived authoritatively inside
+  `cleanup_smoke_test_run_atomic` itself (`security definer`), so an id that
+  only coincidentally looks like smoke debris simply deletes zero rows,
+  never an error.
+
 - `scripts/staging-smoke-deprovision-cashiers.cjs` matched leftover smoke
   cashiers by `email`, but `team_list_members()`
   (`supabase/migrations/20260805000200_agent_management.sql`) has never

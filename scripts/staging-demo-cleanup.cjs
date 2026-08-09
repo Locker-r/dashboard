@@ -64,7 +64,16 @@ async function run(env, deps) {
     if (membersResponse.status !== 200 || !membersResponse.body || membersResponse.body.ok !== true) {
       throw new Error(`LIST_MEMBERS_FAILED:${membersResponse.status}`);
     }
-    const playersResult = await client.from('players').select('id,messenger');
+    // `messenger` (and phone/email) are not selectable by `authenticated` —
+    // supabase/migrations/20260801000200_revoke_raw_contacts.sql revokes the
+    // table-level grant and replaces it with an explicit column list that
+    // omits every raw contact field, even for an admin. Only `id` is read
+    // here; the messenger-marker match this used to pre-check client-side is
+    // re-derived authoritatively inside cleanup_smoke_test_run_atomic itself
+    // (security definer, reads p.messenger directly) — a candidate id that
+    // turns out not to be genuine smoke debris simply deletes zero rows,
+    // never an error, so calling the RPC for every id-prefix match is safe.
+    const playersResult = await client.from('players').select('id');
     if (playersResult.error) throw playersResult.error;
 
     const plan = shared.planCleanup(membersResponse.body.data, playersResult.data);

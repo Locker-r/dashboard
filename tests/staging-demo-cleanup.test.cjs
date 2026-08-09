@@ -11,8 +11,17 @@ const ENV = Object.freeze({
   DEMO_PREP_ADMIN_PASSWORD: 'synthetic-admin-password'
 });
 
+// Mirrors the real grant exactly: `authenticated` (admin included) may
+// select only id/status/agent_id/created_by/imported_at/updated_at/
+// follow_up_at from `players` — never phone/email/messenger
+// (supabase/migrations/20260801000200_revoke_raw_contacts.sql). Selecting a
+// raw contact column here fails the same way Postgres actually does, which
+// is what the first real staging-demo-prep run hit ("permission denied for
+// table players").
+const SELECTABLE_PLAYER_COLUMNS = new Set(['id', 'status', 'agent_id', 'created_by', 'imported_at', 'updated_at', 'follow_up_at']);
+
 function fakeSupabaseClient({ members = [], players = [] } = {}) {
-  const calls = { rpc: [] };
+  const calls = { rpc: [], selects: [] };
   return {
     calls,
     auth: {
@@ -22,7 +31,15 @@ function fakeSupabaseClient({ members = [], players = [] } = {}) {
     from(table) {
       assert.equal(table, 'players');
       return {
-        select: () => Promise.resolve({ data: players, error: null })
+        select(columns) {
+          calls.selects.push(columns);
+          const requested = String(columns || '').split(',').map(c => c.trim()).filter(Boolean);
+          const forbidden = requested.find(column => !SELECTABLE_PLAYER_COLUMNS.has(column));
+          if (forbidden) {
+            return Promise.resolve({ data: null, error: { message: 'permission denied for table players', code: '42501' } });
+          }
+          return Promise.resolve({ data: players, error: null });
+        }
       };
     },
     rpc: async (name, params) => {
@@ -72,6 +89,25 @@ test('only smoke_test-prefixed, zero-player members are deactivated; unknown use
   const deactivateCalls = teamManagementCalls.filter(body => body.action === 'set-member-active');
   assert.equal(deactivateCalls.length, 1);
   assert.equal(deactivateCalls[0].memberId, 'm-smoke-empty');
+});
+
+test('regression: the players select never requests messenger (or any other raw contact column), reproducing GitHub Actions run 31307205728', async () => {
+  const players = [{ id: 'SMOKE_TEST_abc123def456_x' }];
+  const client = fakeSupabaseClient({ players });
+  process.env = { ...process.env, ...ENV };
+  const logs = [];
+  const status = await cleanup.main([], {
+    createClient: fakeCreateClient(client),
+    fetchTeamManagement: async () => ({ status: 200, body: { ok: true, data: [] } }),
+    log: line => logs.push(line), emit() {}
+  });
+  assert.equal(status, 0, logs.join('\n'));
+  assert.ok(!logs.some(line => line.includes('permission denied')));
+  assert.equal(client.calls.selects.length, 1);
+  const requestedColumns = String(client.calls.selects[0] || '').split(',').map(c => c.trim());
+  for (const forbidden of ['messenger', 'phone', 'email']) {
+    assert.ok(!requestedColumns.includes(forbidden), `must never select ${forbidden} from players`);
+  }
 });
 
 test('leftover smoke players are cleaned via the existing cleanup RPC, one call per distinct run id', async () => {
