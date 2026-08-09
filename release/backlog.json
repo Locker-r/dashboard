@@ -11,7 +11,7 @@
   "nonTasks": [
     {
       "path": "supabase/snippets/",
-      "reason": "Untracked Supabase Studio scratch files that predate this work. An untracked working-tree directory is not a release task. Its disposition is recorded as blocker B8 (P3, decision pending) and is excluded from selection; it is never committed as part of a release change."
+      "reason": "Untracked Supabase Studio scratch files that predate this work. An untracked working-tree directory is not a release task. Its disposition was recorded as blocker B8 (P3), resolved 2026-08-09 (docs/decisions.md ADR-019): the Product Owner deleted the files directly. The directory no longer exists; this entry stays only as a standing note that it was never a release task, in case Studio writes new scratch files here in the future."
     },
     {
       "path": "artifacts/",
@@ -261,9 +261,9 @@
       "severity": "P3",
       "kind": "release-blocker",
       "actionability": "external",
-      "status": "open",
+      "status": "done",
       "decision": "approved",
-      "decisionEvidence": "Product Owner decision, 2026-08-09 (docs/decisions.md ADR-019): delete the files under supabase/snippets/; do not add the directory to the repository. One of the three (Untitled query 952.sql) is a live `delete from public.profiles` statement, not merely a stray read. The decision is recorded, but the deletion itself is a local filesystem removal this repository's own tooling guard refuses to an agent without separate, explicit per-run operator authorization (docs/tech-debt.md's stated boundary; refused live 2026-08-09 with FILESYSTEM_REMOVAL). actionability is external for that reason: a human runs the deletion directly, the decision does not perform it.",
+      "decisionEvidence": "Product Owner decision, 2026-08-09 (docs/decisions.md ADR-019): delete the files under supabase/snippets/; do not add the directory to the repository. One of the three (Untitled query 952.sql) was a live `delete from public.profiles` statement, not merely a stray read. The deletion itself was a local filesystem removal this repository's own tooling guard refuses to an agent without separate, explicit per-run operator authorization (docs/tech-debt.md's stated boundary; refused live 2026-08-09 with FILESYSTEM_REMOVAL), so the Product Owner performed it directly. Verified 2026-08-09: `npm run doctor` reports `OK SNIPPETS_ABSENT — supabase/snippets does not exist`, and the directory is confirmed absent in the working tree.",
       "releaseBlocking": false,
       "workaround": "The directory is untracked and is already allow-listed by verify:fast and npm run doctor.",
       "dependsOn": [],
@@ -272,11 +272,9 @@
         "docs/test-environment-status.md — blocker B8, severity P3",
         "docs/decisions.md ADR-019 — delete the untracked Supabase Studio snippet files",
         "docs/tech-debt.md — already recorded",
-        "npm run doctor — SNIPPETS_MUTATING warning"
+        "npm run doctor — OK SNIPPETS_ABSENT (supabase/snippets does not exist), confirmed 2026-08-09 after the Product Owner deleted the directory"
       ],
-      "productionActions": [
-        "delete the three files under supabase/snippets/ directly on disk (an operator action; an agent's own destructive-filesystem guard refuses it without separate per-run authorization)"
-      ]
+      "productionActions": []
     },
     {
       "id": "M-2B2A",
