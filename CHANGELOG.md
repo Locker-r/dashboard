@@ -15,6 +15,31 @@ approval before Cloudflare is touched.
 
 ### Added
 
+- `.github/workflows/staging-demo-prep.yml` and `scripts/staging-demo-{cleanup,seed,flow-verify,shared}.cjs`:
+  a manually dispatched, staging-only workflow that prepares the environment
+  for a management demo. Deactivates leftover disposable `smoke_test_`
+  cashiers and removes leftover `SMOKE_TEST_*` leads through existing,
+  reviewed paths (never touching anything ambiguous or demo-owned);
+  idempotently reconciles a small, fake, obviously `demo_`-prefixed dataset
+  (two cashiers, eight leads spread across every status, no real PII); and
+  proves the full management-demo path end to end (admin login, cashier
+  visibility, assignment, cashier login, isolation, in_work, the audited
+  contact reveal, close with proof, admin final-result/analytics visibility)
+  through one disposable, self-cleaning `SMOKE_TEST_`-prefixed identity. No
+  service-role key is used anywhere; every write goes through the same
+  product-supported RPCs and Edge Function actions the real UI uses. See
+  `docs/decisions.md` ADR-017.
+
+### Fixed
+
+- `scripts/staging-smoke-deprovision-cashiers.cjs` matched leftover smoke
+  cashiers by `email`, but `team_list_members()`
+  (`supabase/migrations/20260805000200_agent_management.sql`) has never
+  returned an `email` field — every real deprovision call silently matched
+  nothing, so every staging smoke run's disposable cashiers stayed active
+  indefinitely despite the workflow reporting success. Fixed to match by
+  `username`, which the RPC does return.
+
 - `scripts/verify-production-deployment.cjs` (`npm run verify:production-deployment -- --tag vX.Y.Z`):
   read-only, credential-free verification that a tagged release is actually
   live at `dashboard-latam.pages.dev` — a successful `production-pages-deploy.yml`
