@@ -91,6 +91,48 @@ test('only smoke_test-prefixed, zero-player members are deactivated; unknown use
   assert.equal(deactivateCalls[0].memberId, 'm-smoke-empty');
 });
 
+test('regression: a failed deactivation is recorded, not thrown as "object is not extensible", reproducing GitHub Actions run 31307722394', async () => {
+  // planCleanup returns Object.freeze()d arrays. run() used to alias
+  // report.membersSkipped directly to plan.membersSkipped, then pushed onto
+  // it on a deactivate failure — throwing on the frozen array instead of
+  // recording the failure. This drives that exact branch: a deactivatable
+  // member whose set-member-active call itself fails.
+  const members = [{ id: 'm-smoke-empty', username: 'smoke_test_abc123def456_a', is_active: true, assigned_players: 0 }];
+  const client = fakeSupabaseClient({ members });
+  const fetchTeamManagement = async (functionsUrl, token, body) => {
+    if (body.action === 'list-members') return { status: 200, body: { ok: true, data: members } };
+    if (body.action === 'set-member-active') return { status: 500, body: { ok: false, error: { code: 'INTERNAL_ERROR' } } };
+    throw new Error(`unexpected action: ${body.action}`);
+  };
+  process.env = { ...process.env, ...ENV };
+  let emitted = null;
+  const logs = [];
+  const status = await cleanup.main(['--json'], {
+    createClient: fakeCreateClient(client), fetchTeamManagement,
+    log: line => logs.push(line), emit: line => { emitted = line; }
+  });
+  assert.equal(status, 0, logs.join('\n'));
+  const parsed = JSON.parse(emitted);
+  assert.equal(parsed.membersDeactivated.length, 0);
+  assert.equal(parsed.membersSkipped.length, 1);
+  assert.equal(parsed.membersSkipped[0].id, 'm-smoke-empty');
+  assert.equal(parsed.membersSkipped[0].reason, 'DEACTIVATE_FAILED:INTERNAL_ERROR');
+});
+
+test('report.membersSkipped and report.playersSkipped are always extensible, never the frozen planCleanup arrays', async () => {
+  const members = [{ id: 'm-smoke-empty', username: 'smoke_test_abc123def456_a', is_active: true, assigned_players: 0 }];
+  const client = fakeSupabaseClient({ members, players: [{ id: 'SMOKE_TEST_abc123def456_x' }] });
+  const fetchTeamManagement = async (functionsUrl, token, body) => {
+    if (body.action === 'list-members') return { status: 200, body: { ok: true, data: members } };
+    if (body.action === 'set-member-active') return { status: 500, body: { ok: false, error: { code: 'INTERNAL_ERROR' } } };
+    throw new Error(`unexpected action: ${body.action}`);
+  };
+  process.env = { ...process.env, ...ENV };
+  const report = await cleanup.run(process.env, cleanup.createDeps({ createClient: fakeCreateClient(client), fetchTeamManagement, log() {}, emit() {} }));
+  assert.equal(Object.isFrozen(report.membersSkipped), false);
+  assert.equal(Object.isFrozen(report.playersSkipped), false);
+});
+
 test('regression: the players select never requests messenger (or any other raw contact column), reproducing GitHub Actions run 31307205728', async () => {
   const players = [{ id: 'SMOKE_TEST_abc123def456_x' }];
   const client = fakeSupabaseClient({ players });
