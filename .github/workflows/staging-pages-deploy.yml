@@ -102,7 +102,7 @@ jobs:
     steps:
       - name: Deploy
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
       # Proves the URL actually deployed to is the one this policy pins,
       # rather than trusting the action's own success alone.
